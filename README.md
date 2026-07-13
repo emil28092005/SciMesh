@@ -60,6 +60,19 @@ scimesh similarity-search chembl_37_chemreps.txt \
 
 The output CSV contains `rank,chembl_id,canonical_smiles,similarity`. Search progress and valid/invalid-SMILES statistics are written to the terminal. `--max-rows` limits the candidate scan for small tests, while `--progress-every 0` disables progress reports.
 
+To find the least similar molecules, use `--threshold-direction less`. This ranks
+results from the lowest similarity upward; `--threshold` optionally limits them
+to values less than or equal to a cutoff:
+
+```bash
+scimesh similarity-search chembl_37_chemreps.txt \
+  --query-id CHEMBL939 \
+  --threshold-direction less \
+  --threshold 0.1 \
+  --top-k 20 \
+  --output least_similar.csv
+```
+
 To render the query and retained candidates:
 
 ```bash
@@ -72,7 +85,7 @@ This writes `query.png` and `top_candidates.png` into `structures`.
 
 ## Similarity graph
 
-`similarity-graph` constructs an exact sparse undirected graph. Every valid molecule is a vertex; an edge is emitted only when Tanimoto similarity is at least `--threshold`. Each fingerprint is calculated once. Comparisons are processed block by block, each pair is tested once (`i < j`), and no dense N×N matrix is created or stored.
+`similarity-graph` constructs an exact sparse undirected graph. Every valid molecule is a vertex; an edge is emitted when Tanimoto similarity satisfies the selected threshold direction (`>=` by default, or `<=` with `--threshold-direction less`). Each fingerprint is calculated once. Comparisons are processed block by block, each pair is tested once (`i < j`), and no dense N×N matrix is created or stored.
 
 ```bash
 scimesh similarity-graph chembl_37_chemreps.txt \

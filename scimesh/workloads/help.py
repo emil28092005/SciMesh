@@ -34,7 +34,17 @@ HELP_TEXT = dedent(
          --top-k 20 \\
          --output results/smiles_search.csv
 
-    4. Build a small exact similarity graph:
+    4. Find the least similar molecules. With "less", results are ranked from
+       lowest similarity upward; --threshold is an optional <= filter:
+
+       scimesh similarity-search chembl_37_chemreps.txt \\
+         --query-id CHEMBL939 \\
+         --threshold-direction less \\
+         --threshold 0.1 \\
+         --top-k 20 \\
+         --output results/least_similar.csv
+
+    5. Build a small exact similarity graph:
 
        scimesh similarity-graph chembl_37_chemreps.txt \\
          --max-rows 1000 \\

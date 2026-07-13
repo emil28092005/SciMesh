@@ -60,12 +60,15 @@ def build_similarity_graph(
     block_size: int,
     max_rows: int | None = None,
     progress_every: int = 0,
+    threshold_direction: str = "greater",
 ) -> GraphResult:
     """Build an exact sparse graph without creating a dense similarity matrix."""
     if not 0.0 <= threshold <= 1.0:
         raise ValueError("--threshold must be between 0 and 1")
     if block_size < 1:
         raise ValueError("--block-size must be a positive integer")
+    if threshold_direction not in {"greater", "less"}:
+        raise ValueError("--threshold-direction must be 'greater' or 'less'")
 
     molecules, stats = _fingerprinted_molecules(tsv_path, max_rows)
     edges: list[SimilarityEdge] = []
@@ -86,7 +89,12 @@ def build_similarity_graph(
                         molecules[left_index].fingerprint,
                         molecules[right_index].fingerprint,
                     )
-                    if similarity >= threshold:
+                    matches_threshold = (
+                        similarity >= threshold
+                        if threshold_direction == "greater"
+                        else similarity <= threshold
+                    )
+                    if matches_threshold:
                         edges.append(
                             SimilarityEdge(
                                 molecules[left_index].molecule_id,
@@ -134,7 +142,11 @@ class SimilarityGraphWorkload:
         parser.add_argument("input", type=Path, help="Path to ChEMBL TSV file")
         parser.add_argument(
             "--threshold", type=float, required=True,
-            help="Create edges at or above this Tanimoto similarity",
+            help="Similarity value used to create graph edges",
+        )
+        parser.add_argument(
+            "--threshold-direction", choices=("greater", "less"), default="greater",
+            help="Create edges with >= threshold or <= threshold similarity",
         )
         parser.add_argument(
             "--block-size", type=int, default=1_000,
@@ -164,6 +176,7 @@ class SimilarityGraphWorkload:
             args.block_size,
             args.max_rows,
             args.progress_every,
+            args.threshold_direction,
         )
         write_graph_edges(args.output, result.edges)
         rate = (

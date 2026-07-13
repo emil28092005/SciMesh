@@ -31,7 +31,10 @@ class SimilarityMatch:
     molecule_id: str
     smiles: str
 
-    def sort_key(self) -> tuple[float, str, str]:
+    def sort_key(self, threshold_direction: str = "greater") -> tuple[float, str, str]:
+        """Return a stable ranking key for similar or dissimilar searches."""
+        if threshold_direction == "less":
+            return (self.similarity, self.molecule_id, self.smiles)
         return (-self.similarity, self.molecule_id, self.smiles)
 
 
@@ -40,11 +43,12 @@ class _HeapEntry:
     """Heap item whose minimum is the worst retained match."""
 
     match: SimilarityMatch
+    rank_key: tuple[float, str, str]
 
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, _HeapEntry):
             return NotImplemented
-        return self.match.sort_key() > other.match.sort_key()
+        return self.rank_key > other.rank_key
 
 
 @dataclass
@@ -61,10 +65,16 @@ def search_similar(
     top_k: int,
     max_rows: int | None = None,
     progress_every: int = 0,
+    threshold: float | None = None,
+    threshold_direction: str = "greater",
 ) -> SearchResult:
     """Stream top-k matches, retaining only a bounded heap in memory."""
     if top_k < 1:
         raise ValueError("--top-k must be a positive integer")
+    if threshold is not None and not 0.0 <= threshold <= 1.0:
+        raise ValueError("--threshold must be between 0 and 1")
+    if threshold_direction not in {"greater", "less"}:
+        raise ValueError("--threshold-direction must be 'greater' or 'less'")
     query_fingerprint = fingerprint(query.molecule)
     query_canonical_smiles = Chem.MolToSmiles(query.molecule, canonical=True)
     stats = DatasetStats()
@@ -80,15 +90,23 @@ def search_similar(
             or candidate_canonical_smiles == query_canonical_smiles
         ):
             continue
+        similarity = DataStructs.TanimotoSimilarity(
+            query_fingerprint, fingerprint(record.molecule)
+        )
+        if threshold is not None and (
+            similarity < threshold if threshold_direction == "greater" else similarity > threshold
+        ):
+            continue
         match = SimilarityMatch(
-            DataStructs.TanimotoSimilarity(query_fingerprint, fingerprint(record.molecule)),
+            similarity,
             record.molecule_id,
             record.smiles,
         )
-        entry = _HeapEntry(match)
+        rank_key = match.sort_key(threshold_direction)
+        entry = _HeapEntry(match, rank_key)
         if len(heap) < top_k:
             heapq.heappush(heap, entry)
-        elif match.sort_key() < heap[0].match.sort_key():
+        elif rank_key < heap[0].rank_key:
             heapq.heapreplace(heap, entry)
 
         if progress_every and stats.scanned % progress_every == 0:
@@ -106,7 +124,13 @@ def search_similar(
             last_report_at = now
             last_report_rows = stats.scanned
 
-    return SearchResult(sorted((entry.match for entry in heap), key=SimilarityMatch.sort_key), stats)
+    return SearchResult(
+        sorted(
+            (entry.match for entry in heap),
+            key=lambda match: match.sort_key(threshold_direction),
+        ),
+        stats,
+    )
 
 
 def write_search_results(output_path: Path, matches: list[SimilarityMatch]) -> None:
@@ -166,6 +190,14 @@ class SimilaritySearchWorkload:
             help="Number of matches to retain (default: 20)",
         )
         parser.add_argument(
+            "--threshold", type=float,
+            help="Keep similarities at or beyond this value",
+        )
+        parser.add_argument(
+            "--threshold-direction", choices=("greater", "less"), default="greater",
+            help="Use >= for similar molecules or <= for dissimilar molecules",
+        )
+        parser.add_argument(
             "-o", "--output", type=Path, default=Path("similarity_results.csv"),
             help="Output CSV path",
         )
@@ -202,7 +234,13 @@ class SimilaritySearchWorkload:
             query = MoleculeRecord("query", args.query_smiles, molecule)
 
         result = search_similar(
-            args.input, query, args.top_k, args.max_rows, args.progress_every
+            args.input,
+            query,
+            args.top_k,
+            args.max_rows,
+            args.progress_every,
+            args.threshold,
+            args.threshold_direction,
         )
         write_search_results(args.output, result.matches)
         image_paths: tuple[Path, Path] | None = None
@@ -212,6 +250,11 @@ class SimilaritySearchWorkload:
             )
 
         print(f"Query {query.molecule_id}: {query.smiles}")
+        if args.threshold is not None:
+            operator = ">=" if args.threshold_direction == "greater" else "<="
+            print(f"Similarity filter: {operator} {args.threshold:.6f}")
+        elif args.threshold_direction == "less":
+            print("Ranking least similar molecules first.")
         print(
             f"Scanned {result.stats.scanned:,} rows: {result.stats.valid:,} valid, "
             f"{result.stats.invalid:,} invalid SMILES."

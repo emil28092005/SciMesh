@@ -53,3 +53,11 @@ def test_graph_is_block_size_independent_and_deterministic(
     write_graph_edges(first_path, first.edges)
     write_graph_edges(second_path, repeated.edges)
     assert first_path.read_bytes() == second_path.read_bytes()
+
+
+def test_graph_supports_less_than_threshold_direction(small_dataset: Path) -> None:
+    result = build_similarity_graph(
+        small_dataset, threshold=0.15, block_size=2, threshold_direction="less"
+    )
+
+    assert all(edge.similarity <= 0.15 for edge in result.edges)
