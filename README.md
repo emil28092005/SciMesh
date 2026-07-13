@@ -1,56 +1,77 @@
 # SciMesh
 
-Minimal local search for ChEMBL molecules similar to gefitinib (`CHEMBL939`).
+SciMesh is a small local framework for scientific workloads on molecular datasets. It currently provides exact molecular similarity search and exact sparse similarity-graph construction. It runs in one local Python process: there is no network service, multiprocessing, coordinator, database, or dense similarity matrix.
 
-The script finds `CHEMBL939` in the TSV file and uses its `canonical_smiles` as the reference. It then makes a second streaming pass through the file, generates Morgan fingerprints (`radius=2`, `fpSize=2048`), and ranks the remaining valid SMILES by Tanimoto similarity. Invalid SMILES and `CHEMBL939` itself are skipped. Only the best 20 results (or the value passed to `--top`) are kept in memory.
+The ChEMBL TSV database is intentionally not included in this repository. Download it separately and pass its path to the commands below. The expected columns are `chembl_id` and `canonical_smiles`.
 
 ## Installation
+
+SciMesh requires Python 3.10+ and RDKit.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 ```
 
-RDKit can also be installed through conda-forge:
+RDKit can alternatively be installed from conda-forge:
 
 ```bash
 conda install -c conda-forge rdkit
+pip install -e .
 ```
 
-## Usage
+## Similarity search
+
+`similarity-search` finds the top-k molecules most similar to a query. The query is supplied either by ChEMBL ID or by SMILES. It uses Morgan fingerprints with `radius=2` and `fpSize=2048`, Tanimoto similarity, streaming TSV reads, and a bounded heap. Invalid SMILES and the query molecule are skipped.
 
 ```bash
-python scimesh.py chembl_37_chemreps.txt -o gefitinib_similarities.csv
+scimesh similarity-search chembl_37_chemreps.txt \
+  --query-id CHEMBL939 \
+  --top-k 20 \
+  --output results.csv
 ```
 
-By default, the script writes a CSV with `rank,chembl_id,canonical_smiles,similarity` columns and prints the same top 20 results to the terminal. To choose a different number of results:
+Use a SMILES query when it is not identified by ChEMBL ID:
 
 ```bash
-python scimesh.py chembl_37_chemreps.txt --top 50 -o top_50.csv
+scimesh similarity-search chembl_37_chemreps.txt \
+  --query-smiles 'COc1cc2ncnc(Nc3ccc(F)c(Cl)c3)c2cc1OCCCN1CCOCC1' \
+  --top-k 20 \
+  --output results.csv
 ```
 
-During the search, status is written to `stderr` every 100,000 rows: number of processed rows, current and average rates, elapsed time, and the number of invalid SMILES skipped. The interval can be changed or disabled:
+The output CSV contains `rank,chembl_id,canonical_smiles,similarity`. Search progress and valid/invalid-SMILES statistics are written to the terminal. `--max-rows` limits the candidate scan for small tests, while `--progress-every 0` disables progress reports.
+
+To render the query and retained candidates:
 
 ```bash
-python scimesh.py chembl_37_chemreps.txt --progress-every 500000
-python scimesh.py chembl_37_chemreps.txt --progress-every 0
+scimesh similarity-search chembl_37_chemreps.txt \
+  --query-id CHEMBL939 \
+  --images-dir structures
 ```
 
-## Quick test on part of the database
+This writes `query.png` and `top_candidates.png` into `structures`.
 
-The `--max-rows` option limits the second pass to the first `N` TSV rows. `CHEMBL939` is still found in its own streaming pass first, so the reference stays the same. The resulting CSV is the top 20 only within the processed subset, not the full database.
+## Similarity graph
+
+`similarity-graph` constructs an exact sparse undirected graph. Every valid molecule is a vertex; an edge is emitted only when Tanimoto similarity is at least `--threshold`. Each fingerprint is calculated once. Comparisons are processed block by block, each pair is tested once (`i < j`), and no dense N×N matrix is created or stored.
 
 ```bash
-python scimesh.py chembl_37_chemreps.txt --max-rows 10000 -o test_results.csv
+scimesh similarity-graph chembl_37_chemreps.txt \
+  --max-rows 10000 \
+  --threshold 0.7 \
+  --block-size 1000 \
+  --output similarity_graph.csv
 ```
 
-## Structure images
+The deterministic edge-list CSV has `source_id,target_id,similarity` columns. The command reports valid molecules, checked pairs, emitted edges, rate, and elapsed time. `--block-size` changes only how comparisons are grouped, not the result.
 
-Pass a directory to `--images-dir` to create `CHEMBL939_gefitinib.png` for gefitinib and `top_candidates.png` with a grid of top candidates. Candidate images show rank, ChEMBL ID, and Tanimoto similarity.
+## Development
 
 ```bash
-python scimesh.py chembl_37_chemreps.txt --images-dir structures
+pip install -e '.[dev]'
+pytest
 ```
 
-The `--image-columns` option controls the number of structures per grid row (default: `4`).
+The package separates common dataset parsing and fingerprints from independent workloads. Add future workloads through the workload registry without changing the main CLI.
