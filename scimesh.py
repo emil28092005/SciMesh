@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SciMesh: потоковый поиск молекул ChEMBL, похожих на гефитиниб (CHEMBL939)."""
+"""SciMesh: streaming search for ChEMBL molecules similar to gefitinib."""
 
 from __future__ import annotations
 
