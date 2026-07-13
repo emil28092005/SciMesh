@@ -14,6 +14,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="scimesh",
         description="Run local scientific workloads on molecular datasets.",
+        epilog="Run 'scimesh help' for a quick start and copy-paste examples.",
     )
     subparsers = parser.add_subparsers(dest="workload", required=True)
     registry = WorkloadRegistry()
