@@ -21,6 +21,23 @@ conda install -c conda-forge rdkit
 pip install -e .
 ```
 
+## Quick start
+
+Run the built-in help command for copy-paste examples of both workloads:
+
+```bash
+scimesh help
+```
+
+It includes environment setup, output-directory creation, similarity search by
+ChEMBL ID or SMILES, and similarity-graph construction. Use the standard help
+for the complete option reference:
+
+```bash
+scimesh similarity-search --help
+scimesh similarity-graph --help
+```
+
 ## Similarity search
 
 `similarity-search` finds the top-k molecules most similar to a query. The query is supplied either by ChEMBL ID or by SMILES. It uses Morgan fingerprints with `radius=2` and `fpSize=2048`, Tanimoto similarity, streaming TSV reads, and a bounded heap. Invalid SMILES and the query molecule are skipped.
