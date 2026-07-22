@@ -1,0 +1,54 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  # "standard" = errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    # Catches `err == ErrFoo` where errors.Is is required. Directly relevant
+    # here: domain exposes sentinel errors that use cases may wrap with %w.
+    - errorlint
+    # Returning nil after checking a non-nil error — a silent bug factory.
+    - nilerr
+    # http.Get/Do without a context: every outbound call must be cancellable.
+    - noctx
+    # Unclosed response bodies leak connections.
+    - bodyclose
+    # Common security mistakes (weak crypto, unhandled file perms).
+    - gosec
+    # Style and naming consistency.
+    - revive
+    - misspell
+    - unconvert
+
+  settings:
+    errcheck:
+      # Deferred Close/Rollback are intentionally ignored in a few places
+      # (rollback after commit is a documented no-op).
+      check-type-assertions: true
+    revive:
+      rules:
+        - name: exported
+          disabled: true # internal packages need no exported-symbol comments
+    gosec:
+      excludes:
+        - G404 # math/rand is fine for jitter; nothing here is security-sensitive
+
+  exclusions:
+    rules:
+      # Tests may skip error checks and use long literals freely.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/emil28092005/SciMesh/coordinator

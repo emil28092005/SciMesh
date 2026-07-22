@@ -1,0 +1,51 @@
+package usecase
+
+import "github.com/google/uuid"
+
+// Use-case boundary types. Adapters map their wire formats onto these, so the
+// HTTP shape can change without touching business code.
+
+type CreateJobInput struct {
+	Workload   string
+	InputURI   string
+	Parameters map[string]any
+	Chunks     []ChunkInput
+}
+
+type ChunkInput struct {
+	ChunkIndex  int
+	Workload    string
+	InputURI    string
+	InputSHA256 string
+	Parameters  map[string]any
+	MaxAttempts int
+}
+
+type ClaimTaskInput struct {
+	WorkerID  string
+	Workloads []string
+}
+
+type RenewLeaseInput struct {
+	TaskID   uuid.UUID
+	WorkerID string
+	Attempt  int
+}
+
+type CompleteTaskInput struct {
+	TaskID       uuid.UUID
+	WorkerID     string
+	Attempt      int
+	ResultURI    string
+	ResultSHA256 string
+	Metrics      map[string]any
+}
+
+type FailTaskInput struct {
+	TaskID       uuid.UUID
+	WorkerID     string
+	Attempt      int
+	ErrorCode    string
+	ErrorMessage string
+	Retryable    bool
+}

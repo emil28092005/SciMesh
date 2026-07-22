@@ -1,0 +1,4 @@
+/coordinator
+/bin/
+.env
+*.out

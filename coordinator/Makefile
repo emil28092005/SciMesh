@@ -1,0 +1,60 @@
+.PHONY: build run test vet tidy migrate-up migrate-down up down logs ps rebuild psql
+
+# --- build / run ---------------------------------------------------------
+build:
+	go build ./...
+
+run:
+	go run ./cmd/coordinator
+
+test:
+	go test ./...
+
+vet:
+	go vet ./...
+
+# Runs golangci-lint without installing it system-wide. Install it for speed:
+#   pacman -S golangci-lint   (Arch)
+LINT_VERSION := v2.12.2
+lint:
+	@command -v golangci-lint >/dev/null 2>&1 \
+		&& golangci-lint run ./... \
+		|| go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION) run ./...
+
+tidy:
+	go mod tidy
+
+# --- migrations ----------------------------------------------------------
+# Requires the golang-migrate CLI:
+#   go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+# DATABASE_URL must be set, e.g.:
+#   export DATABASE_URL='postgres://scimesh:scimesh@localhost:5432/scimesh?sslmode=disable'
+migrate-up:
+	migrate -path migrations -database "$(DATABASE_URL)" up
+
+migrate-down:
+	migrate -path migrations -database "$(DATABASE_URL)" down 1
+
+# --- docker --------------------------------------------------------------
+# `up` starts Postgres, applies migrations, then launches the coordinator.
+up:
+	docker compose up -d --build
+
+down:
+	docker compose down
+
+# Also drops the database volume — use when the schema is beyond repair.
+down-clean:
+	docker compose down -v
+
+logs:
+	docker compose logs -f coordinator
+
+ps:
+	docker compose ps
+
+rebuild:
+	docker compose up -d --build --force-recreate coordinator
+
+psql:
+	docker compose exec postgres psql -U scimesh -d scimesh

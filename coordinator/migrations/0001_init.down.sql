@@ -1,0 +1,8 @@
+BEGIN;
+
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS jobs;
+DROP TYPE  IF EXISTS task_status;
+DROP TYPE  IF EXISTS job_status;
+
+COMMIT;
