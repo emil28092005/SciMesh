@@ -3,13 +3,14 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 import time
+from datetime import datetime, timedelta, timezone
 from urllib.request import Request
 
 import pytest
 
 from scimesh.worker.config import WorkerConfig
 from scimesh.worker.coordinator import CoordinatorTransientError
-from scimesh.worker.daemon import WorkerDaemon
+from scimesh.worker.daemon import LeaseHeartbeat, WorkerDaemon
 from scimesh.worker.models import ClaimedTask, InputArtifact, ProducedArtifact, RunResult
 from scimesh.worker.artifacts import HttpArtifactClient, _SameOriginAuthRedirectHandler, _origin
 from scimesh.worker.runners import SciMeshRunner
@@ -17,7 +18,7 @@ from scimesh.worker.runners import SciMeshRunner
 
 class FakeCoordinator:
     def __init__(self, task: ClaimedTask | None) -> None:
-        self.task, self.submissions, self.heartbeats = task, [], []
+        self.task, self.submissions, self.failures, self.heartbeats = task, [], [], []
 
     def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
         task, self.task = self.task, None
@@ -26,16 +27,24 @@ class FakeCoordinator:
     def submit(self, task: ClaimedTask, payload: dict) -> None:
         self.submissions.append(payload)
 
-    def heartbeat(self, task: ClaimedTask, worker_id: str) -> None:
+    def fail(self, task: ClaimedTask, payload: dict) -> None:
+        self.failures.append(payload)
+
+    def heartbeat(self, task: ClaimedTask, worker_id: str) -> str:
         self.heartbeats.append((task.task_id, task.attempt, worker_id))
+        return (datetime.now(timezone.utc) + timedelta(seconds=1)).isoformat()
 
 
 class FakeArtifacts:
     def __init__(self, content: bytes) -> None:
-        self.content = content
+        self.content, self.uploaded = content, []
 
     def download(self, uri: str, destination: Path) -> None:
         destination.write_bytes(self.content)
+
+    def upload(self, task: ClaimedTask, worker_id: str, artifact: ProducedArtifact) -> str:
+        self.uploaded.append((task.task_id, worker_id, artifact.path))
+        return f"https://example.test/tasks/{task.task_id}/artifacts/{artifact.path.name}"
 
 class FakeRunner:
     def __init__(self) -> None:
@@ -49,7 +58,8 @@ class FakeRunner:
 
 
 def make_task(content: bytes, checksum: str | None = None) -> ClaimedTask:
-    return ClaimedTask("task-1", 1, "2026-07-30T00:00:00Z", "similarity-search", InputArtifact("https://example.test/input", checksum or hashlib.sha256(content).hexdigest()), {"query_id": "CHEMBL1"})
+    lease = (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()
+    return ClaimedTask("task-1", 1, lease, "similarity-search", InputArtifact("https://example.test/input", checksum or hashlib.sha256(content).hexdigest()), {"query_id": "CHEMBL1"})
 
 
 def daemon(tmp_path: Path, task: ClaimedTask | None, content: bytes):
@@ -63,10 +73,11 @@ def test_claims_runs_uploads_and_submits_csv(tmp_path: Path) -> None:
     worker, coordinator, artifacts, runner, _ = daemon(tmp_path, make_task(content), content)
     assert worker.run_once() is True
     assert runner.calls == 1
+    assert len(artifacts.uploaded) == 1
     assert coordinator.heartbeats == [("task-1", 1, "worker-1")]
     assert coordinator.submissions[0]["status"] == "completed"
     assert coordinator.submissions[0]["result"]["content_type"] == "text/csv"
-    assert coordinator.submissions[0]["result"]["uri"].startswith("worker://worker-1/")
+    assert coordinator.submissions[0]["result"]["uri"].startswith("https://example.test/tasks/task-1/artifacts/")
 
 
 def test_no_task_does_not_create_directory(tmp_path: Path) -> None:
@@ -80,8 +91,8 @@ def test_bad_checksum_reports_failure_without_running(tmp_path: Path) -> None:
     worker, coordinator, _, runner, _ = daemon(tmp_path, make_task(b"actual", "not-the-hash"), b"actual")
     assert worker.run_once() is True
     assert runner.calls == 0
-    assert coordinator.submissions[0]["status"] == "failed"
-    assert coordinator.submissions[0]["error_code"] == "ValueError"
+    assert coordinator.failures[0]["error_code"] == "ValueError"
+    assert not coordinator.submissions
 
 
 def test_transient_claim_error_is_propagated_for_bounded_backoff(tmp_path: Path) -> None:
@@ -135,6 +146,23 @@ def test_lease_is_renewed_while_a_runner_is_still_working(tmp_path: Path) -> Non
     worker.config = WorkerConfig(**{**config.__dict__, "heartbeat_interval": 0.01})
     worker.run_once()
     assert len(coordinator.heartbeats) >= 2
+
+
+def test_heartbeat_reschedules_from_the_renewed_lease(tmp_path: Path) -> None:
+    class ShortLeaseCoordinator(FakeCoordinator):
+        def heartbeat(self, task: ClaimedTask, worker_id: str) -> str:
+            self.heartbeats.append((task.task_id, task.attempt, worker_id))
+            return (datetime.now(timezone.utc) + timedelta(seconds=0.02)).isoformat()
+
+    config = WorkerConfig(
+        "https://example.test", "worker-1", tmp_path / "work", heartbeat_interval=1
+    )
+    coordinator = ShortLeaseCoordinator(None)
+    heartbeat = LeaseHeartbeat(make_task(b"fixture"), coordinator, config)
+    heartbeat.start()
+    time.sleep(0.06)
+    heartbeat.stop()
+    assert len(coordinator.heartbeats) >= 3
 
 
 def test_runner_maps_graph_and_smiles_search_parameters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -19,6 +19,14 @@ class WorkerConfig:
     cleanup_after_seconds: float | None = None
     capabilities: tuple[str, ...] = ("similarity-search", "similarity-graph")
 
+    def __post_init__(self) -> None:
+        if self.poll_interval <= 0:
+            raise ValueError("poll_interval must be positive")
+        if self.request_timeout <= 0:
+            raise ValueError("request_timeout must be positive")
+        if self.heartbeat_interval <= 0:
+            raise ValueError("heartbeat_interval must be positive")
+
     @classmethod
     def from_environment(cls) -> "WorkerConfig":
         url = os.getenv("SCIMESH_COORDINATOR_URL")

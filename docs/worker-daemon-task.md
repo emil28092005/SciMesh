@@ -12,7 +12,7 @@ The target flow is:
 Worker Daemon -> coordinator: claim task
 coordinator -> Worker Daemon: task metadata + input location
 Worker Daemon -> local SciMesh Core / CV runner: execute
-Worker Daemon -> coordinator: submit result
+Worker Daemon -> coordinator: upload result artifact, then submit result manifest
 ```
 
 The architecture sketch uses video chunks and CV, while the current SciMesh
@@ -103,9 +103,31 @@ Content-Type: application/json
 }
 ```
 
-For a failed execution, send `status: "failed"` with a short, sanitized
-`error_code` and `error_message`. Never send a Python traceback, access token,
-or local path outside the worker directory.
+The `result.uri` must be the durable URI returned by the artifact upload
+endpoint below; a worker-local `file://` or `worker://` path is invalid.
+
+### Upload a result artifact
+
+```http
+PUT /tasks/{task_id}/artifacts/{filename}
+Content-Type: text/csv
+X-Worker-ID: worker-01
+X-Task-Attempt: 1
+
+<CSV bytes>
+```
+
+The coordinator streams the artifact to its configured storage and responds:
+
+```json
+{
+  "uri": "https://coordinator.example/tasks/0d2d/artifacts/result.csv"
+}
+```
+
+For a failed execution, send a short, sanitized `error_code` and
+`error_message` to `POST /tasks/{task_id}/failure`. Never send a Python
+traceback, access token, or local path outside the worker directory.
 
 ## Required state machine
 
@@ -121,6 +143,8 @@ idle -> claiming -> downloading -> running -> uploading -> submitting -> idle
 - Create one isolated task directory: `<work-dir>/<task-id>/<attempt>/`.
 - Invoke the runner with an explicit argument list, never `shell=True`.
 - Upload/submit exactly the produced result files listed by the runner.
+- Do not mark a task completed until every submitted artifact has a durable
+  coordinator-provided URI.
 - A timeout, network error, or rejected submission must leave the local task
   directory available for diagnostics until a configurable cleanup period.
 - Treat a duplicate successful submission as success when the coordinator

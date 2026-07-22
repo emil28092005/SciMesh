@@ -23,7 +23,9 @@ class CoordinatorClient(Protocol):
 
     def submit(self, task: ClaimedTask, payload: dict[str, Any]) -> None: ...
 
-    def heartbeat(self, task: ClaimedTask, worker_id: str) -> None: ...
+    def fail(self, task: ClaimedTask, payload: dict[str, Any]) -> None: ...
+
+    def heartbeat(self, task: ClaimedTask, worker_id: str) -> str: ...
 
 
 class HttpCoordinatorClient:
@@ -48,13 +50,22 @@ class HttpCoordinatorClient:
         if status not in (200, 201, 202):
             raise CoordinatorError(f"result rejected with status {status}")
 
-    def heartbeat(self, task: ClaimedTask, worker_id: str) -> None:
-        status, _ = self._request(
+    def fail(self, task: ClaimedTask, payload: dict[str, Any]) -> None:
+        status, _ = self._request("POST", f"/tasks/{task.task_id}/failure", payload)
+        if status not in (200, 201, 202):
+            raise CoordinatorError(f"failure report rejected with status {status}")
+
+    def heartbeat(self, task: ClaimedTask, worker_id: str) -> str:
+        status, body = self._request(
             "POST", f"/tasks/{task.task_id}/heartbeat",
             {"worker_id": worker_id, "attempt": task.attempt},
         )
         if status != 200:
             raise CoordinatorError(f"heartbeat rejected with status {status}")
+        lease_expires_at = body.get("lease_expires_at")
+        if not isinstance(lease_expires_at, str):
+            raise CoordinatorError("heartbeat response is missing lease_expires_at")
+        return lease_expires_at
 
     def _request(self, method: str, path: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         request = Request(

@@ -17,6 +17,8 @@ sketch. It does not implement the Worker Daemon or scientific/CV computation.
 - HTTP server: standard `net/http` is sufficient; do not introduce a framework
   unless it solves a concrete requirement.
 - Schema migrations: versioned SQL migrations using `golang-migrate`.
+- Result storage: a coordinator-managed local artifact directory in the first
+  version; keep its interface replaceable by object storage later.
 - Identifiers: UUID.
 - Times: timezone-aware UTC timestamps.
 - API boundary: the Go coordinator owns all database access. Python workers
@@ -155,7 +157,8 @@ must be `POST` rather than `GET`.
 | --- | --- |
 | `POST /jobs` | Validate submission, create job and pending tasks transactionally |
 | `POST /tasks/claim` | Atomically lease one compatible task; `204` when none exists |
-| `POST /tasks/{task_id}/heartbeat` | Renew the current worker's lease |
+| `POST /tasks/{task_id}/heartbeat` | Renew the current worker's lease; return the new `lease_expires_at` |
+| `PUT /tasks/{task_id}/artifacts/{filename}` | Stream one result artifact into coordinator storage; verify the current worker lease |
 | `POST /tasks/{task_id}/result` | Idempotently persist a completed result manifest |
 | `POST /tasks/{task_id}/failure` | Record a safe failure or retryable state |
 | `GET /jobs/{job_id}` | Return aggregate job/task progress |
@@ -169,6 +172,13 @@ Use JSON request/response DTOs in `internal/httpapi`; map them to typed queue
 inputs in the handler. Do not return raw database errors to clients. Return a
 request ID in error responses and emit structured logs with the request ID,
 task ID, worker ID, and operation.
+
+The artifact endpoint receives binary content with `Content-Type`,
+`X-Worker-ID`, and `X-Task-Attempt` headers. It must stream the request body to
+the coordinator artifact directory instead of buffering it in memory, calculate
+or verify its SHA-256, and return `201` with the durable artifact `uri`. Only
+the worker holding the current lease may upload. `POST /result` accepts only
+URIs returned by this endpoint for the same task and attempt.
 
 ## Tests and acceptance criteria
 
@@ -190,7 +200,7 @@ task ID, worker ID, and operation.
 
 ## Out of scope
 
-- Python Worker Daemon execution, input download, and result upload;
+- Python Worker Daemon execution and input download;
 - video chunk generation and trajectory stitching;
 - authentication provider, UI, object-storage implementation, and PDF report;
 - network/distributed coordinator deployment beyond the local coordinator

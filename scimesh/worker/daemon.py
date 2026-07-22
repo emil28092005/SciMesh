@@ -9,7 +9,6 @@ import shutil
 import threading
 import time
 from datetime import datetime, timezone
-from urllib.parse import quote
 
 from .artifacts import ArtifactClient, sha256_file
 from .config import WorkerConfig
@@ -26,10 +25,13 @@ class LeaseHeartbeat:
         self._stop = threading.Event()
         self._error: Exception | None = None
         self._thread: threading.Thread | None = None
+        self._lease_expires_at = task.lease_expires_at
 
     def start(self) -> None:
         # Verify ownership before expensive download or calculation begins.
-        self.coordinator.heartbeat(self.task, self.config.worker_id)
+        self._lease_expires_at = self.coordinator.heartbeat(
+            self.task, self.config.worker_id
+        )
         self._thread = threading.Thread(target=self._run, name=f"lease-{self.task.task_id}", daemon=True)
         self._thread.start()
 
@@ -46,15 +48,19 @@ class LeaseHeartbeat:
         delay = min(self.config.heartbeat_interval, self._seconds_until_expiry() / 2)
         while not self._stop.wait(max(delay, 0.01)):
             try:
-                self.coordinator.heartbeat(self.task, self.config.worker_id)
+                self._lease_expires_at = self.coordinator.heartbeat(
+                    self.task, self.config.worker_id
+                )
             except Exception as error:  # Surface the lease loss in the main state machine.
                 self._error = error
                 return
-            delay = self.config.heartbeat_interval
+            delay = min(
+                self.config.heartbeat_interval, self._seconds_until_expiry() / 2
+            )
 
     def _seconds_until_expiry(self) -> float:
         try:
-            expiry = datetime.fromisoformat(self.task.lease_expires_at.replace("Z", "+00:00"))
+            expiry = datetime.fromisoformat(self._lease_expires_at.replace("Z", "+00:00"))
         except ValueError as error:
             raise ValueError("invalid lease_expires_at") from error
         seconds = (expiry - datetime.now(timezone.utc)).total_seconds()
@@ -103,7 +109,11 @@ class WorkerDaemon:
             result = self.runner.run(task, task_dir)
             heartbeat.raise_if_failed()
             manifests = [
-                self._manifest_uri(task, artifact.path.name, artifact.content_type, sha256_file(artifact.path))
+                {
+                    "uri": self.artifacts.upload(task, self.config.worker_id, artifact),
+                    "sha256": sha256_file(artifact.path),
+                    "content_type": artifact.content_type,
+                }
                 for artifact in result.artifacts
             ]
             if not manifests:
@@ -119,16 +129,10 @@ class WorkerDaemon:
             heartbeat.stop()
         return True
 
-    def _manifest_uri(self, task: ClaimedTask, filename: str, content_type: str, checksum: str) -> dict[str, str]:
-        """A stable logical URI until a shared artifact store is introduced."""
-        worker = quote(self.config.worker_id, safe="")
-        name = quote(filename, safe="")
-        return {"uri": f"worker://{worker}/{task.task_id}/{task.attempt}/{name}", "sha256": checksum, "content_type": content_type}
-
     def _report_failure(self, task: ClaimedTask, error: Exception) -> None:
         message = str(error).replace(str(self.config.work_dir), "<worker-dir>")[:300]
         try:
-            self.coordinator.submit(task, {"worker_id": self.config.worker_id, "attempt": task.attempt, "status": "failed", "error_code": type(error).__name__, "error_message": message})
+            self.coordinator.fail(task, {"worker_id": self.config.worker_id, "attempt": task.attempt, "error_code": type(error).__name__, "error_message": message})
         except CoordinatorTransientError:
             raise
         except Exception:

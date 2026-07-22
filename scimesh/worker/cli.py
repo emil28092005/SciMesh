@@ -31,3 +31,7 @@ def main(argv: list[str] | None = None) -> int:
     client = HttpCoordinatorClient(config.coordinator_url, config.request_timeout, config.bearer_token)
     WorkerDaemon(config, client, HttpArtifactClient(config.coordinator_url, config.request_timeout, config.bearer_token), SciMeshRunner()).run_forever()
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
