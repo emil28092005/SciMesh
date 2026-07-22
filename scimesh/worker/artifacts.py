@@ -5,49 +5,61 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 from typing import Protocol
-from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from .models import ClaimedTask, ProducedArtifact
 
+def _origin(uri: str) -> tuple[str, str, int | None]:
+    parsed = urlsplit(uri)
+    scheme = parsed.scheme.lower()
+    default_port = {"http": 80, "https": 443}.get(scheme)
+    return scheme, (parsed.hostname or "").lower(), parsed.port or default_port
+
+
+class _SameOriginAuthRedirectHandler(HTTPRedirectHandler):
+    """Do not forward the coordinator token when a download changes origin."""
+
+    def __init__(self, coordinator_origin: tuple[str, str, int | None]) -> None:
+        super().__init__()
+        self.coordinator_origin = coordinator_origin
+
+    def redirect_request(self, req: Request, fp: object, code: int, msg: str, headers: object, newurl: str) -> Request | None:
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected and _origin(newurl) != self.coordinator_origin:
+            redirected.remove_header("Authorization")
+        return redirected
 
 class ArtifactClient(Protocol):
     def download(self, uri: str, destination: Path) -> None: ...
 
-    def upload(self, task: ClaimedTask, artifact: ProducedArtifact) -> str: ...
-
 
 class HttpArtifactClient:
-    """Default coordinator artifact convention.
+    """Downloads task inputs without exposing credentials to external storage.
 
-    Results are PUT to /tasks/{task_id}/artifacts/{filename}.  The coordinator may
-    return a JSON body containing ``uri``; otherwise the upload URL is reported.
+    The present coordinator contract persists a result *manifest* at ``/result``
+    and deliberately defines no artifact-upload endpoint.  Output storage can be
+    added later as a separate ArtifactClient implementation.
     """
 
     def __init__(self, coordinator_url: str, timeout: float, bearer_token: str | None = None) -> None:
         self.coordinator_url = coordinator_url.rstrip("/")
         self.timeout = timeout
         self.bearer_token = bearer_token
+        self.coordinator_origin = _origin(coordinator_url)
+        self._opener = build_opener(_SameOriginAuthRedirectHandler(self.coordinator_origin))
 
     def download(self, uri: str, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        request = Request(uri, headers=self._auth_header())
-        with urlopen(request, timeout=self.timeout) as response, destination.open("wb") as target:
+        request = Request(uri, headers=self._auth_headers_for(uri))
+        with self._opener.open(request, timeout=self.timeout) as response, destination.open("wb") as target:
             while chunk := response.read(1024 * 1024):
                 target.write(chunk)
 
-    def upload(self, task: ClaimedTask, artifact: ProducedArtifact) -> str:
-        url = f"{self.coordinator_url}/tasks/{task.task_id}/artifacts/{artifact.path.name}"
-        request = Request(
-            url, data=artifact.path.read_bytes(), method="PUT",
-            headers={"Content-Type": artifact.content_type, **self._auth_header()},
-        )
-        with urlopen(request, timeout=self.timeout) as response:
-            # An empty response is valid; the conventional endpoint itself is the URI.
-            return url if not response.read() else url
-
-    def _auth_header(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.bearer_token}"} if self.bearer_token else {}
-
+    def _auth_headers_for(self, uri: str) -> dict[str, str]:
+        """Only coordinator-owned URLs receive the coordinator bearer token."""
+        if self.bearer_token and _origin(uri) == self.coordinator_origin:
+            return {"Authorization": f"Bearer {self.bearer_token}"}
+        return {}
 
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()

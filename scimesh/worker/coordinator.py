@@ -23,6 +23,8 @@ class CoordinatorClient(Protocol):
 
     def submit(self, task: ClaimedTask, payload: dict[str, Any]) -> None: ...
 
+    def heartbeat(self, task: ClaimedTask, worker_id: str) -> None: ...
+
 
 class HttpCoordinatorClient:
     def __init__(self, base_url: str, timeout: float, bearer_token: str | None = None) -> None:
@@ -45,6 +47,14 @@ class HttpCoordinatorClient:
         # 200/201/202 include a successful or idempotent duplicate result response.
         if status not in (200, 201, 202):
             raise CoordinatorError(f"result rejected with status {status}")
+
+    def heartbeat(self, task: ClaimedTask, worker_id: str) -> None:
+        status, _ = self._request(
+            "POST", f"/tasks/{task.task_id}/heartbeat",
+            {"worker_id": worker_id, "attempt": task.attempt},
+        )
+        if status != 200:
+            raise CoordinatorError(f"heartbeat rejected with status {status}")
 
     def _request(self, method: str, path: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         request = Request(

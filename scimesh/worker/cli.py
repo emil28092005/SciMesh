@@ -20,6 +20,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--work-dir")
     parser.add_argument("--poll-interval", type=float)
     parser.add_argument("--request-timeout", type=float)
+    parser.add_argument("--heartbeat-interval", type=float)
     args = parser.parse_args(argv)
     config = WorkerConfig.from_environment()
     overrides = {key: value for key, value in vars(args).items() if value is not None}

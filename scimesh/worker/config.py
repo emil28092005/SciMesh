@@ -14,6 +14,7 @@ class WorkerConfig:
     work_dir: Path
     poll_interval: float = 2.0
     request_timeout: float = 30.0
+    heartbeat_interval: float = 15.0
     bearer_token: str | None = None
     cleanup_after_seconds: float | None = None
     capabilities: tuple[str, ...] = ("similarity-search", "similarity-graph")
@@ -31,6 +32,7 @@ class WorkerConfig:
             work_dir=Path(os.getenv("SCIMESH_WORK_DIR", "./scimesh-worker-data")),
             poll_interval=float(os.getenv("SCIMESH_POLL_INTERVAL", "2")),
             request_timeout=float(os.getenv("SCIMESH_REQUEST_TIMEOUT", "30")),
+            heartbeat_interval=float(os.getenv("SCIMESH_HEARTBEAT_INTERVAL", "15")),
             bearer_token=os.getenv("SCIMESH_BEARER_TOKEN"),
             cleanup_after_seconds=float(cleanup) if cleanup else None,
         )
