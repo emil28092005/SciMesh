@@ -44,6 +44,14 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 		status = http.StatusNotImplemented
 	}
 
+	// 501 says "this endpoint has no implementation yet" — that leaks nothing and
+	// is far more useful than a generic failure, which sent one debugging session
+	// hunting a database problem that did not exist.
+	if status == http.StatusNotImplemented {
+		writeJSON(w, status, errorResponse{Error: "not implemented", RequestID: reqID})
+		return
+	}
+
 	if status >= 500 {
 		// Never echo an internal error: it can carry table names, query
 		// fragments, and values. The request ID is the bridge to the logs.
