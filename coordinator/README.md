@@ -113,20 +113,21 @@ See `.env.example`; only `DATABASE_URL` is required.
 
 ## Status
 
-Scaffold with a **complete, tested domain**. Layers, wiring, routing, auth,
-access logging, error mapping, transactions, migrations, and graceful shutdown
-are in place. Repository methods are stubs returning `ErrNotImplemented`
-(→ HTTP 501); the SQL for claiming and lease expiry is written and ready to wire.
+The queue works end to end: a job can be submitted, split into tasks, leased to
+workers one at a time, heartbeated, completed, and reflected in job progress.
 
 Roadmap:
 
 1. schema + migrations ✅
-2. `ClaimNext`, `InsertBatch` — atomic claim via `FOR UPDATE SKIP LOCKED`
-3. `GetForUpdate`, `Update`, `CountByStatus` — completes the result/failure paths
-4. file upload / chunk download
-5. `ExpireLeases` — SQL is written, needs wiring
+2. `ClaimNext`, `InsertBatch` — atomic claim via `FOR UPDATE SKIP LOCKED` ✅
+3. `GetForUpdate`, `Update`, `CountByStatus` — result/failure paths ✅
+4. file upload / chunk download — **next**
+5. `ExpireLeases` ✅ (reaper + a sweep before every claim)
 6. stitcher: merge per-chunk top-k into the final CSV
-7. integration tests against real Postgres via `TEST_DATABASE_URL`
+7. more integration coverage as features land
+
+Still stubbed: `StitchJob.Execute`, and there is no `POST /upload` or
+`GET /download_chunk` yet — so chunk files must be referenced by URI for now.
 
 ## Tests
 

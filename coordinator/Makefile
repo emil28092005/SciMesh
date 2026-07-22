@@ -10,6 +10,11 @@ run:
 test:
 	go test ./...
 
+# Needs a running PostgreSQL; the spec forbids mocks for these guarantees.
+#   make test-integration TEST_DATABASE_URL='postgres://...'
+test-integration:
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" go test -tags=integration ./... -v
+
 vet:
 	go vet ./...
 
@@ -18,8 +23,8 @@ vet:
 LINT_VERSION := v2.12.2
 lint:
 	@command -v golangci-lint >/dev/null 2>&1 \
-		&& golangci-lint run ./... \
-		|| go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION) run ./...
+		&& golangci-lint run --build-tags=integration ./... \
+		|| go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION) run --build-tags=integration ./...
 
 tidy:
 	go mod tidy

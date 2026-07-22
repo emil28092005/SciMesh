@@ -130,14 +130,23 @@ func (uc *CompleteTask) Execute(ctx context.Context, in CompleteTaskInput) (*dom
 			return err
 		}
 		now := uc.clock.Now()
+		before := task.Version
 		if err := task.CompleteWith(in.ResultURI, in.ResultSHA256, in.Metrics,
 			in.WorkerID, in.Attempt, now); err != nil {
 			return err
 		}
+		out = task
+
+		// A replay of an already-recorded result leaves the entity untouched.
+		// Writing anyway would fail the optimistic-concurrency guard (the stored
+		// version already equals ours) and turn an idempotent call into a 409.
+		if task.Version == before {
+			return nil
+		}
+
 		if err := uc.tasks.Update(ctx, task); err != nil {
 			return err
 		}
-		out = task
 		return syncJobStatus(ctx, uc.jobs, uc.tasks, task.JobID, now)
 	})
 	if err != nil {
