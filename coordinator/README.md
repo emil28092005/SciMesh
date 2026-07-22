@@ -111,6 +111,18 @@ See `.env.example`; only `DATABASE_URL` is required.
 | GET    | `/jobs/{job_id}`              | Aggregate job progress                     |
 | GET    | `/health`                     | Liveness (unauthenticated)                 |
 
+## Poking the API
+
+Two ways, both checked in:
+
+```sh
+make smoke                    # every endpoint, asserted; non-zero exit on failure
+```
+
+`api/requests.http` runs the same calls one at a time from an editor with a REST
+client (VSCodium/VS Code "REST Client", JetBrains HTTP Client). Later requests
+reuse ids captured from earlier responses, so it doubles as API documentation.
+
 ## Status
 
 The queue works end to end: a job can be submitted, split into tasks, leased to

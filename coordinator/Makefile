@@ -63,3 +63,10 @@ rebuild:
 
 psql:
 	docker compose exec postgres psql -U scimesh -d scimesh
+
+# --- api ------------------------------------------------------------------
+# Exercises every endpoint against a running coordinator; exits non-zero on the
+# first unexpected status. See also api/requests.http for clicking through them
+# one at a time in an editor.
+smoke:
+	./scripts/smoke.sh

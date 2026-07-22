@@ -1,0 +1,157 @@
+# SciMesh Coordinator — API requests
+#
+# Runnable from any editor with a REST client (VSCodium/VS Code "REST Client",
+# JetBrains HTTP Client). Click "Send Request" above each block, top to bottom:
+# later requests reuse ids captured from earlier responses.
+#
+# Start the stack first:  docker compose up -d
+
+@host = http://localhost:8080
+@token = change-me
+@worker = worker-1
+
+### Health — the only unauthenticated endpoint
+GET {{host}}/health
+
+### Auth check — no token must be rejected with 401
+POST {{host}}/tasks/claim
+Content-Type: application/json
+
+{ "worker_id": "{{worker}}" }
+
+### 1. Create a job and its chunks (201)
+# The coordinator splits the submission into one task per chunk, transactionally.
+# @name createJob
+POST {{host}}/jobs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "workload": "similarity_search",
+  "input_uri": "s3://chembl/full.sdf",
+  "parameters": { "top_k": 10 },
+  "chunks": [
+    { "chunk_index": 0, "input_uri": "s3://chembl/shard-0.sdf", "input_sha256": "aaa", "max_attempts": 3 },
+    { "chunk_index": 1, "input_uri": "s3://chembl/shard-1.sdf", "input_sha256": "bbb", "max_attempts": 3 },
+    { "chunk_index": 2, "input_uri": "s3://chembl/shard-2.sdf", "input_sha256": "ccc", "max_attempts": 3 }
+  ]
+}
+
+@jobId = {{createJob.response.body.id}}
+
+### 2. Claim a task (200, or 204 when the queue is empty)
+# Each call leases a different task; run it repeatedly to see chunk_index advance.
+# @name claim
+POST {{host}}/tasks/claim
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "worker_id": "{{worker}}",
+  "workloads": ["similarity_search"]
+}
+
+@taskId = {{claim.response.body.task_id}}
+@attempt = {{claim.response.body.attempt}}
+
+### 3. Heartbeat — renew the lease while the task is still running (200)
+POST {{host}}/tasks/{{taskId}}/heartbeat
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "worker_id": "{{worker}}",
+  "attempt": {{attempt}}
+}
+
+### 4. Submit the result (200)
+POST {{host}}/tasks/{{taskId}}/result
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "worker_id": "{{worker}}",
+  "attempt": {{attempt}},
+  "result_uri": "s3://results/shard-0.csv",
+  "result_sha256": "r0sha",
+  "metrics": { "elapsed_ms": 1234, "candidates": 50000 }
+}
+
+### 4a. Replay the same result — must be idempotent (200, not 409)
+POST {{host}}/tasks/{{taskId}}/result
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "worker_id": "{{worker}}",
+  "attempt": {{attempt}},
+  "result_uri": "s3://results/shard-0.csv",
+  "result_sha256": "r0sha",
+  "metrics": { "elapsed_ms": 1234, "candidates": 50000 }
+}
+
+### 4b. A different result for the same task — conflict (409)
+POST {{host}}/tasks/{{taskId}}/result
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "worker_id": "{{worker}}",
+  "attempt": {{attempt}},
+  "result_uri": "s3://results/SOMETHING-ELSE.csv",
+  "result_sha256": "different"
+}
+
+### 4c. Another worker submitting for this task — conflict (409)
+POST {{host}}/tasks/{{taskId}}/result
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "worker_id": "impostor",
+  "attempt": {{attempt}},
+  "result_uri": "s3://results/x.csv",
+  "result_sha256": "x"
+}
+
+### 5. Report a failure instead (200)
+# retryable=true returns the task to the queue while attempts remain;
+# retryable=false fails it terminally.
+POST {{host}}/tasks/{{taskId}}/failure
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "worker_id": "{{worker}}",
+  "attempt": {{attempt}},
+  "error_code": "download_failed",
+  "error_message": "checksum mismatch on shard",
+  "retryable": true
+}
+
+### 6. Job progress (200)
+GET {{host}}/jobs/{{jobId}}
+Authorization: Bearer {{token}}
+
+### --- error cases -------------------------------------------------------
+
+### Malformed UUID in the path (400)
+POST {{host}}/tasks/not-a-uuid/result
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "worker_id": "{{worker}}", "attempt": 1, "result_uri": "s3://x", "result_sha256": "x" }
+
+### Unknown field in the body (400) — a misspelled key must not pass silently
+POST {{host}}/tasks/claim
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "worker_ID": "{{worker}}" }
+
+### Unknown job (404)
+GET {{host}}/jobs/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{token}}
+
+### Stitching is not implemented yet (501)
+# Any endpoint whose use case is still a stub answers 501.
