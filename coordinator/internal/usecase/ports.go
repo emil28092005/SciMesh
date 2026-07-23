@@ -9,6 +9,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/google/uuid"
@@ -66,6 +67,22 @@ type JobRepository interface {
 type WorkerRepository interface {
 	Insert(ctx context.Context, w *domain.Worker) error
 	Get(ctx context.Context, id uuid.UUID) (*domain.Worker, error)
+}
+
+// ArtifactRepository persists artifact metadata. The bytes live in a BlobStore;
+// this keeps only the record that points at them.
+type ArtifactRepository interface {
+	Insert(ctx context.Context, a *domain.Artifact) error
+	Get(ctx context.Context, id uuid.UUID) (*domain.Artifact, error)
+}
+
+// BlobStore holds artifact bytes, addressed by an opaque storage key. It streams
+// in both directions so a large shard never has to sit in memory, and reports
+// the checksum and size it measured while writing — the coordinator's own
+// numbers, not the client's claim.
+type BlobStore interface {
+	Put(ctx context.Context, key string, r io.Reader) (sha256 string, size int64, err error)
+	Open(ctx context.Context, key string) (io.ReadCloser, error)
 }
 
 // TxManager runs a function inside one database transaction. The transaction

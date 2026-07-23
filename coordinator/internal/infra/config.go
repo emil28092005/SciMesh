@@ -29,6 +29,8 @@ type Config struct {
 	LogLevel string
 	// Path to a rotated log file. Empty logs to stdout only.
 	LogFile string
+	// Directory where artifact bytes are stored.
+	StorageDir string
 
 	// Connection pool upper bound.
 	DBMaxConns int32
@@ -73,6 +75,7 @@ func LoadConfig() (Config, error) {
 		Token:              getEnv("COORDINATOR_TOKEN", os.Getenv("WORKER_AUTH_TOKEN")),
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 		LogFile:            os.Getenv("LOG_FILE"),
+		StorageDir:         getEnv("COORDINATOR_STORAGE_DIR", "./data"),
 		DBMaxConns:         10,
 		DBConnectTimeout:   30 * time.Second,
 		RequestTimeout:     15 * time.Second,
