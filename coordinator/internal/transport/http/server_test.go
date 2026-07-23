@@ -140,7 +140,7 @@ func TestUIRequiresDistinctCredentialAndRendersDashboard(t *testing.T) {
 		t.Fatalf("UI status: %d", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "SciMesh operator UI") {
+	if !strings.Contains(string(body), "Панель оператора SciMesh") {
 		t.Errorf("dashboard body missing title")
 	}
 }

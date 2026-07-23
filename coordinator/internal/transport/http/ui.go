@@ -2,6 +2,7 @@ package http
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
 	"io"
 	"mime"
@@ -18,8 +19,117 @@ import (
 var uiFiles embed.FS
 
 var uiTemplates = template.Must(template.New("ui").Funcs(template.FuncMap{
-	"time": func(t time.Time) string { return t.UTC().Format(time.RFC3339) },
+	"time":              formatUITime,
+	"statusLabel":       uiStatusLabel,
+	"statusHint":        uiStatusHint,
+	"statusClass":       uiStatusClass,
+	"workerStatusLabel": uiWorkerStatusLabel,
+	"workloadLabel":     uiWorkloadLabel,
+	"progressPercent":   uiProgressPercent,
+	"bytes":             uiBytes,
+	"add":               func(a, b int) int { return a + b },
 }).ParseFS(uiFiles, "templates/*.html"))
+
+func formatUITime(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	return t.UTC().Format("02.01.2006 15:04 UTC")
+}
+
+func uiStatusLabel(status string) string {
+	switch status {
+	case "pending":
+		return "Ожидает worker"
+	case "leased":
+		return "Выдана worker"
+	case "running":
+		return "Выполняется"
+	case "completed":
+		return "Задачи завершены"
+	case "failed":
+		return "Требует внимания"
+	default:
+		return status
+	}
+}
+
+func uiStatusHint(status string) string {
+	switch status {
+	case "pending":
+		return "Ожидает свободный worker с нужной возможностью."
+	case "leased":
+		return "Worker уже забрал задачу и должен скоро начать вычисление."
+	case "running":
+		return "Worker читает shard, считает fingerprints и загружает результат через coordinator."
+	case "completed":
+		return "Все shard-задачи завершены. Доступные ниже файлы пока являются частичными результатами."
+	case "failed":
+		return "Одна или несколько shard-задач завершились ошибкой. Откройте список задач ниже."
+	default:
+		return "Статус получен от coordinator."
+	}
+}
+
+func uiStatusClass(status string) string {
+	switch status {
+	case "completed":
+		return "success"
+	case "failed":
+		return "danger"
+	case "running", "leased":
+		return "active"
+	default:
+		return "waiting"
+	}
+}
+
+func uiWorkerStatusLabel(status string) string {
+	switch status {
+	case "online":
+		return "Доступен"
+	case "offline":
+		return "Нет связи"
+	default:
+		return status
+	}
+}
+
+func uiWorkloadLabel(workload string) string {
+	switch workload {
+	case "similarity-search", "similarity_search":
+		return "Поиск похожих молекул"
+	case "similarity-graph", "similarity_graph":
+		return "Граф молекулярного сходства"
+	default:
+		return workload
+	}
+}
+
+func uiProgressPercent(completed, failed, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	percent := (completed + failed) * 100 / total
+	if percent > 100 {
+		return 100
+	}
+	return percent
+}
+
+func uiBytes(n int64) string {
+	const kib = 1024
+	if n < kib {
+		return fmt.Sprintf("%d Б", n)
+	}
+	if n < kib*kib {
+		return fmt.Sprintf("%.1f КиБ", float64(n)/kib)
+	}
+	if n < kib*kib*kib {
+		return fmt.Sprintf("%.1f МиБ", float64(n)/(kib*kib))
+	}
+	return fmt.Sprintf("%.1f ГиБ", float64(n)/(kib*kib*kib))
+}
 
 func (s *Server) renderUI(w http.ResponseWriter, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

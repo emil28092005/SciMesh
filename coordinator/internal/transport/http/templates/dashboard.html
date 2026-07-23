@@ -1,1 +1,57 @@
-{{define "dashboard.html"}}<!doctype html><html><head><meta charset="utf-8"><title>SciMesh</title><style>body{font:16px system-ui;margin:2rem;max-width:1100px}table{border-collapse:collapse;width:100%;margin:1rem 0}td,th{padding:.5rem;border-bottom:1px solid #ddd;text-align:left}.badge{padding:.2rem .5rem;background:#eef;border-radius:.4rem}a.button{display:inline-block;padding:.6rem .9rem;background:#173b66;color:#fff;border-radius:.3rem;text-decoration:none}</style></head><body><h1>SciMesh operator UI</h1><p><span class="badge">Pipeline diagnostics</span> Partial artifacts are not final scientific results until a reducer is implemented.</p><a class="button" href="/ui/jobs/new">New similarity-search check</a><h2>Recent jobs</h2><table><tr><th>ID</th><th>Workload</th><th>Status</th><th>Progress</th><th>Created</th></tr>{{range .Jobs}}<tr><td><a href="/ui/jobs/{{.ID}}">{{.ID}}</a></td><td>{{.Workload}}</td><td>{{.Status}}</td><td>{{.Completed}} / {{.Total}}</td><td>{{time .CreatedAt}}</td></tr>{{else}}<tr><td colspan="5">No jobs yet.</td></tr>{{end}}</table><h2>Workers</h2><table><tr><th>Name</th><th>Status</th><th>Capabilities</th><th>Last heartbeat</th></tr>{{range .Workers}}<tr><td>{{.Name}}</td><td>{{.Status}}</td><td>{{range .Capabilities}}<code>{{.}}</code> {{end}}</td><td>{{time .LastHeartbeatAt}}</td></tr>{{else}}<tr><td colspan="4">No workers registered.</td></tr>{{end}}</table></body></html>{{end}}
+{{define "dashboard.html"}}
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SciMesh — панель оператора</title>
+  <style>
+    :root{color:#172033;background:#f6f8fc;font:16px/1.5 system-ui,sans-serif}body{margin:0}.page{max-width:1180px;margin:auto;padding:32px 20px 56px}.top{display:flex;justify-content:space-between;gap:24px;align-items:start}.eyebrow{margin:0;color:#50617d;font-size:.86rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em}h1{margin:.2rem 0;font-size:2rem}h2{margin:32px 0 12px;font-size:1.28rem}.lead{margin:0;color:#56657c}.button{display:inline-block;border:0;border-radius:8px;padding:11px 15px;background:#1f5eff;color:#fff;font-weight:700;text-decoration:none;white-space:nowrap}.notice{margin-top:24px;padding:16px 18px;border:1px solid #f2cb72;border-radius:10px;background:#fff8e6}.notice strong{display:block}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}.step,.card{padding:16px;border:1px solid #dfe5f0;border-radius:10px;background:#fff}.step b{display:block;color:#1f5eff}.table-wrap{overflow-x:auto;background:#fff;border:1px solid #dfe5f0;border-radius:10px}table{width:100%;border-collapse:collapse}td,th{padding:13px 14px;border-bottom:1px solid #e8ecf4;text-align:left;vertical-align:top}th{color:#50617d;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em}tr:last-child td{border:0}a{color:#174ecf}small,.muted{color:#68758b}.status{display:inline-block;border-radius:999px;padding:3px 9px;font-size:.84rem;font-weight:700}.status-success{background:#dff6e9;color:#126b3d}.status-danger{background:#ffe4e6;color:#a31135}.status-active{background:#e4edff;color:#174ecf}.status-waiting{background:#edf0f5;color:#50617d}.bar{height:7px;min-width:120px;margin-top:7px;overflow:hidden;border-radius:999px;background:#e6eaf1}.bar>span{display:block;height:100%;background:#1f5eff}.kicker{font-variant-numeric:tabular-nums}.empty{padding:28px;text-align:center;color:#68758b}.worker{display:grid;grid-template-columns:1.3fr .8fr 2fr 1fr;gap:12px;align-items:center}.worker+.worker{border-top:1px solid #e8ecf4;padding-top:12px;margin-top:12px}@media(max-width:760px){.top,.steps{display:block}.button{margin-top:12px}.step{margin-top:10px}.worker{grid-template-columns:1fr}.hide-mobile{display:none}}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="top">
+      <div>
+        <p class="eyebrow">Локальный coordinator</p>
+        <h1>Панель оператора SciMesh</h1>
+        <p class="lead">Здесь видно, где находится вычисление и что нужно сделать дальше.</p>
+      </div>
+      <a class="button" href="/ui/jobs/new">Запустить проверку</a>
+    </header>
+
+    <section class="notice" aria-label="Ограничение текущего pipeline">
+      <strong>Текущий этап — диагностика shard-задач.</strong>
+      <span>Worker загружает частичные CSV в coordinator. Пока reducer не реализован, эти файлы не являются единым финальным научным результатом.</span>
+      <div class="steps"><div class="step"><b>1. Загрузить TSV</b>Coordinator делит файл на shard-задачи.</div><div class="step"><b>2. Дождаться worker</b>Worker берёт shard, вычисляет сходство и возвращает CSV.</div><div class="step"><b>3. Проверить артефакты</b>Скачайте частичный результат из карточки задачи.</div></div>
+    </section>
+
+    <h2>Последние задания</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Вычисление</th><th>Состояние</th><th>Прогресс</th><th class="hide-mobile">Создано</th></tr>
+        {{range .Jobs}}
+        <tr>
+          <td><a href="/ui/jobs/{{.ID}}"><strong>{{workloadLabel .Workload}}</strong></a><br><small>Открыть детали задачи</small></td>
+          <td><span class="status status-{{statusClass .Status}}">{{statusLabel .Status}}</span><br><small>{{statusHint .Status}}</small></td>
+          <td class="kicker"><strong>{{.Completed}} / {{.Total}}</strong> завершено{{if gt .Failed 0}} · <span style="color:#a31135">ошибок: {{.Failed}}</span>{{end}}<div class="bar"><span style="width:{{progressPercent .Completed .Failed .Total}}%"></span></div></td>
+          <td class="hide-mobile"><small>{{time .CreatedAt}}</small></td>
+        </tr>
+        {{else}}
+        <tr><td colspan="4" class="empty"><strong>Заданий пока нет.</strong><br>Нажмите «Запустить проверку», загрузите небольшой TSV и оставьте worker запущенным.</td></tr>
+        {{end}}
+      </table>
+    </div>
+
+    <h2>Workers</h2>
+    <section class="card">
+      {{range .Workers}}
+      <div class="worker"><div><strong>{{.Name}}</strong><br><small>{{.ID}}</small></div><div><span class="status status-{{if eq .Status "online"}}success{{else}}waiting{{end}}">{{workerStatusLabel .Status}}</span></div><div>{{range .Capabilities}}<code>{{.}}</code> {{end}}</div><div class="muted">Последний сигнал<br>{{time .LastHeartbeatAt}}</div></div>
+      {{else}}
+      <div class="empty"><strong>Worker ещё не зарегистрирован.</strong><br>Запустите <code>scimesh-worker</code> с URL coordinator и worker token.</div>
+      {{end}}
+    </section>
+  </main>
+</body>
+</html>
+{{end}}
