@@ -3,8 +3,10 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,10 +29,16 @@ var _ usecase.TaskRepository = (*TaskRepo)(nil)
 // taskColumns is the single source of truth for the shape scanTask expects.
 // Every query that returns a task selects exactly this list, in this order —
 // three hand-written column lists would drift apart within a week.
-const taskColumns = `id, job_id, chunk_index, workload, input_uri, input_sha256,
-	parameters, status, attempt, max_attempts, lease_owner, lease_expires_at,
-	result_uri, result_sha256, metrics, error_code, error_message,
-	created_at, started_at, completed_at, version`
+var taskColumns = []string{
+	"id", "job_id", "chunk_index", "workload", "input_uri", "input_sha256",
+	"parameters", "status", "attempt", "max_attempts", "lease_owner", "lease_expires_at",
+	"result_uri", "result_sha256", "metrics", "error_code", "error_message",
+	"created_at", "started_at", "completed_at", "version",
+}
+
+// taskColumnList is the same set as a comma string, for the raw claim query's
+// RETURNING clause, which the builder does not touch.
+var taskColumnList = strings.Join(taskColumns, ", ")
 
 // scanTask maps one row onto an entity.
 //
@@ -57,14 +65,13 @@ func scanTask(row pgx.Row) (*domain.Task, error) {
 
 // claimNextSQL leases one task in a single statement.
 //
-// FOR UPDATE SKIP LOCKED is what makes concurrent coordinators safe: each
-// process locks a different candidate row instead of queueing on the same one,
-// so no task is ever handed to two workers and no claim blocks behind another.
-// Splitting this into SELECT + UPDATE would reintroduce exactly that race.
-//
-// The CTE column is aliased to cid so the RETURNING list below can use bare
-// column names without colliding with the candidate relation.
-const claimNextSQL = `
+// Left as raw SQL on purpose: it is a data-modifying CTE with FOR UPDATE SKIP
+// LOCKED, which no query builder expresses — and which is the whole point.
+// SKIP LOCKED is what makes concurrent coordinators safe: each process locks a
+// different candidate row instead of queueing on the same one, so no task is
+// ever handed to two workers and no claim blocks behind another. Splitting this
+// into SELECT + UPDATE would reintroduce exactly that race.
+var claimNextSQL = `
 WITH candidate AS (
     SELECT id AS cid
     FROM tasks
@@ -84,7 +91,7 @@ SET status           = 'leased',
     version          = version + 1
 FROM candidate
 WHERE tasks.id = candidate.cid
-RETURNING ` + taskColumns
+RETURNING ` + taskColumnList
 
 // ClaimNext atomically leases the next eligible task.
 func (r *TaskRepo) ClaimNext(ctx context.Context, f usecase.ClaimFilter) (*domain.Task, error) {
@@ -113,12 +120,18 @@ func (r *TaskRepo) ClaimNext(ctx context.Context, f usecase.ClaimFilter) (*domai
 	return task, nil
 }
 
-const getForUpdateSQL = `SELECT ` + taskColumns + ` FROM tasks WHERE id = $1 FOR UPDATE`
-
 // GetForUpdate reads a task and holds its row lock until the caller's
 // transaction ends, so read-modify-write use cases cannot interleave.
 func (r *TaskRepo) GetForUpdate(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
-	t, err := scanTask(conn(ctx, r.pool).QueryRow(ctx, getForUpdateSQL, id))
+	sql, args, err := psql.Select(taskColumns...).
+		From("tasks").
+		Where(sq.Eq{"id": id}).
+		Suffix("FOR UPDATE").
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+	t, err := scanTask(conn(ctx, r.pool).QueryRow(ctx, sql, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrTaskNotFound
 	}
@@ -128,32 +141,32 @@ func (r *TaskRepo) GetForUpdate(ctx context.Context, id uuid.UUID) (*domain.Task
 	return t, nil
 }
 
-// updateTaskSQL writes the mutated entity back under optimistic concurrency.
-//
-// The entity has already incremented its Version in memory, so the new value
-// goes into SET while the guard in WHERE compares against the previous one.
-const updateTaskSQL = `
-UPDATE tasks
-SET status           = $2,
-    attempt          = $3,
-    lease_owner      = $4,
-    lease_expires_at = $5,
-    result_uri       = $6,
-    result_sha256    = $7,
-    metrics          = $8,
-    error_code       = $9,
-    error_message    = $10,
-    started_at       = $11,
-    completed_at     = $12,
-    version          = $13
-WHERE id = $1 AND version = $13 - 1`
-
+// Update writes the mutated entity back under optimistic concurrency. The entity
+// has already incremented its Version in memory, so the new value goes into SET
+// while the WHERE guard matches against the previous one (Version-1).
 func (r *TaskRepo) Update(ctx context.Context, t *domain.Task) error {
-	tag, err := conn(ctx, r.pool).Exec(ctx, updateTaskSQL,
-		t.ID, string(t.Status), t.Attempt, t.LeaseOwner, t.LeaseExpiresAt,
-		t.ResultURI, t.ResultSHA256, t.Metrics, t.ErrorCode, t.ErrorMessage,
-		t.StartedAt, t.CompletedAt, t.Version,
-	)
+	sql, args, err := psql.Update("tasks").
+		SetMap(map[string]any{
+			"status":           string(t.Status),
+			"attempt":          t.Attempt,
+			"lease_owner":      t.LeaseOwner,
+			"lease_expires_at": t.LeaseExpiresAt,
+			"result_uri":       t.ResultURI,
+			"result_sha256":    t.ResultSHA256,
+			"metrics":          t.Metrics,
+			"error_code":       t.ErrorCode,
+			"error_message":    t.ErrorMessage,
+			"started_at":       t.StartedAt,
+			"completed_at":     t.CompletedAt,
+			"version":          t.Version,
+		}).
+		Where(sq.Eq{"id": t.ID, "version": t.Version - 1}).
+		ToSql()
+	if err != nil {
+		return err
+	}
+
+	tag, err := conn(ctx, r.pool).Exec(ctx, sql, args...)
 	if err != nil {
 		return err
 	}
@@ -165,11 +178,6 @@ func (r *TaskRepo) Update(ctx context.Context, t *domain.Task) error {
 	return nil
 }
 
-const insertTaskSQL = `
-INSERT INTO tasks (id, job_id, chunk_index, workload, input_uri, input_sha256,
-                   parameters, status, attempt, max_attempts, created_at, version)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
-
 // InsertBatch writes every task in one round trip. It runs inside the caller's
 // transaction, which is what makes "all tasks or none" hold.
 func (r *TaskRepo) InsertBatch(ctx context.Context, tasks []*domain.Task) error {
@@ -179,10 +187,16 @@ func (r *TaskRepo) InsertBatch(ctx context.Context, tasks []*domain.Task) error 
 
 	batch := &pgx.Batch{}
 	for _, t := range tasks {
-		batch.Queue(insertTaskSQL,
-			t.ID, t.JobID, t.ChunkIndex, t.Workload, t.InputURI, t.InputSHA256,
-			jsonbOrEmpty(t.Parameters), string(t.Status), t.Attempt, t.MaxAttempts, t.CreatedAt, t.Version,
-		)
+		sql, args, err := psql.Insert("tasks").
+			Columns("id", "job_id", "chunk_index", "workload", "input_uri", "input_sha256",
+				"parameters", "status", "attempt", "max_attempts", "created_at", "version").
+			Values(t.ID, t.JobID, t.ChunkIndex, t.Workload, t.InputURI, t.InputSHA256,
+				jsonbOrEmpty(t.Parameters), string(t.Status), t.Attempt, t.MaxAttempts, t.CreatedAt, t.Version).
+			ToSql()
+		if err != nil {
+			return err
+		}
+		batch.Queue(sql, args...)
 	}
 
 	results := conn(ctx, r.pool).SendBatch(ctx, batch)
@@ -195,17 +209,20 @@ func (r *TaskRepo) InsertBatch(ctx context.Context, tasks []*domain.Task) error 
 	return results.Close()
 }
 
-const listCompletedSQL = `
-SELECT ` + taskColumns + `
-FROM tasks
-WHERE job_id = $1 AND status = 'completed'
-ORDER BY chunk_index`
-
 // ListCompleted returns results in chunk order, which the stitcher relies on:
 // a non-deterministic order would make the merged output depend on which worker
 // happened to finish first.
 func (r *TaskRepo) ListCompleted(ctx context.Context, jobID uuid.UUID) ([]*domain.Task, error) {
-	rows, err := conn(ctx, r.pool).Query(ctx, listCompletedSQL, jobID)
+	sql, args, err := psql.Select(taskColumns...).
+		From("tasks").
+		Where(sq.Eq{"job_id": jobID, "status": "completed"}).
+		OrderBy("chunk_index").
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := conn(ctx, r.pool).Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -222,10 +239,17 @@ func (r *TaskRepo) ListCompleted(ctx context.Context, jobID uuid.UUID) ([]*domai
 	return tasks, rows.Err()
 }
 
-const countByStatusSQL = `SELECT status, count(*) FROM tasks WHERE job_id = $1 GROUP BY status`
-
 func (r *TaskRepo) CountByStatus(ctx context.Context, jobID uuid.UUID) (map[domain.TaskStatus]int, error) {
-	rows, err := conn(ctx, r.pool).Query(ctx, countByStatusSQL, jobID)
+	sql, args, err := psql.Select("status", "count(*)").
+		From("tasks").
+		Where(sq.Eq{"job_id": jobID}).
+		GroupBy("status").
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := conn(ctx, r.pool).Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -248,10 +272,11 @@ func (r *TaskRepo) CountByStatus(ctx context.Context, jobID uuid.UUID) (map[doma
 // expireLeasesSQL applies the lease-expiry rule set-based, mirroring
 // domain.Task.ExpireLease: requeue while attempts remain, otherwise fail.
 //
-// It is one statement rather than a load-decide-save loop because several
-// coordinators run it concurrently; an atomic UPDATE makes the duplicate work
-// harmless — the loser simply updates zero rows.
-const expireLeasesSQL = `
+// Left as raw SQL: the branching lives in CASE expressions inside the SET, which
+// a builder cannot express more clearly than this. It is one statement rather
+// than a load-decide-save loop because several coordinators run it concurrently;
+// an atomic UPDATE makes the duplicate work harmless — the loser updates zero rows.
+var expireLeasesSQL = `
 UPDATE tasks
 SET status           = CASE WHEN attempt < max_attempts THEN 'pending'::task_status
                             ELSE 'failed'::task_status END,

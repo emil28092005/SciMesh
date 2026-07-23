@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,27 +22,34 @@ func NewWorkerRepo(pool *pgxpool.Pool) *WorkerRepo {
 	return &WorkerRepo{pool: pool}
 }
 
-const workerColumns = `id, name, capabilities, status, last_heartbeat_at, created_at, updated_at`
-
-const insertWorkerSQL = `
-INSERT INTO workers (` + workerColumns + `)
-VALUES ($1, $2, $3, $4, $5, $6, $7)`
+var workerColumns = []string{"id", "name", "capabilities", "status", "last_heartbeat_at", "created_at", "updated_at"}
 
 func (r *WorkerRepo) Insert(ctx context.Context, w *domain.Worker) error {
-	// capabilities is a jsonb column; pgx marshals the []string to a JSON array.
-	_, err := conn(ctx, r.pool).Exec(ctx, insertWorkerSQL,
-		w.ID, w.Name, w.Capabilities, string(w.Status),
-		w.LastHeartbeatAt, w.CreatedAt, w.UpdatedAt)
+	sql, args, err := psql.Insert("workers").
+		Columns(workerColumns...).
+		// capabilities is a jsonb column; pgx marshals the []string to a JSON array.
+		Values(w.ID, w.Name, w.Capabilities, string(w.Status),
+			w.LastHeartbeatAt, w.CreatedAt, w.UpdatedAt).
+		ToSql()
 	if err != nil {
+		return err
+	}
+	if _, err := conn(ctx, r.pool).Exec(ctx, sql, args...); err != nil {
 		return fmt.Errorf("insert worker: %w", err)
 	}
 	return nil
 }
 
-const getWorkerSQL = `SELECT ` + workerColumns + ` FROM workers WHERE id = $1`
-
 func (r *WorkerRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Worker, error) {
-	w, err := scanWorker(conn(ctx, r.pool).QueryRow(ctx, getWorkerSQL, id))
+	sql, args, err := psql.Select(workerColumns...).
+		From("workers").
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	w, err := scanWorker(conn(ctx, r.pool).QueryRow(ctx, sql, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrWorkerNotFound
 	}
