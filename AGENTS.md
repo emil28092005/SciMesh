@@ -2,12 +2,15 @@
 
 ## Project Structure & Module Organization
 
-SciMesh is a Python package for local molecular-similarity workloads. Source
-lives in `scimesh/`: `chemistry/` reads data and makes fingerprints,
-`workloads/` contains commands, and `core/` provides the workload protocol and
-registry. The worker daemon in `scimesh/worker/` is a coordinator client, not a
-database client. Tests live in `tests/`; task specifications in `docs/`; the
-roadmap is `PLAN.md`.
+SciMesh is a Python package for molecular-similarity workloads. Source lives in
+`scimesh/`: `chemistry/` reads data and makes fingerprints, `workloads/`
+contains commands, and `core/` provides the workload protocol and registry.
+The worker daemon in `scimesh/worker/` is a coordinator client, not a database
+client. Tests are in `tests/`; specifications in `docs/`; roadmap: `PLAN.md`.
+
+For distributed work, read `.agents/`, `docs/api-contract.md`,
+and `STATUS.md`. Use one CTX task per pull request; local workloads are the
+scientific reference.
 
 ## Build, Test, and Development Commands
 
@@ -21,21 +24,20 @@ pip install -e '.[dev]'
 pytest
 ```
 
-Use `pytest tests/test_similarity_graph.py` to focus on one module. Exercise
-the public CLI with `scimesh help` or `scimesh similarity-search --help`.
-Run `python -m build` only when packaging is needed; install `build` first if
-it is not available.
+Use `pytest tests/test_similarity_graph.py` for one module. Exercise the CLI
+with `scimesh help` or `scimesh similarity-search --help`. Run `python -m build`
+only when packaging is needed; install `build` first if necessary.
 
 ## Coding Style & Naming Conventions
 
-Target Python 3.10+ and use type hints for public functions, protocols, and
-data exchanged between modules. Use four spaces, `snake_case` for modules,
+Target Python 3.10+; type public APIs and exchanged data. Use four spaces,
+`snake_case` for modules,
 functions, and variables, `PascalCase` for classes, and descriptive test names
 such as `test_graph_is_deterministic_across_block_sizes`. Keep CLI parsing in
 workload modules and register new workloads through `scimesh/core/registry.py`;
 do not add workload-specific logic to the main CLI.
 
-Prefer small standard-library dependencies. RDKit is the chemistry dependency.
+Prefer few dependencies. RDKit is the chemistry dependency.
 For worker/coordinator work, keep network payloads explicit and multi-line;
 never make the worker access PostgreSQL directly.
 
