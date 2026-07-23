@@ -1,4 +1,4 @@
-.PHONY: build run test vet tidy migrate-up migrate-down up down logs ps rebuild psql
+.PHONY: build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke
 
 # --- build / run ---------------------------------------------------------
 build:
@@ -17,6 +17,19 @@ test-integration:
 
 vet:
 	go vet ./...
+
+# One command that runs everything: unit tests + vet + lint, then brings up the
+# stack and runs the integration suite and the end-to-end smoke test.
+# Needs Docker. Hand this to a reviewer.
+check: vet lint
+	go test -race ./...
+	docker compose up -d --build
+	@echo "waiting for the coordinator to be ready..."
+	@sleep 6
+	TEST_DATABASE_URL='postgres://scimesh:scimesh@localhost:5432/scimesh?sslmode=disable' \
+		go test -tags=integration ./internal/storage/postgres/ -v
+	./scripts/smoke.sh
+	@echo "\nall checks passed ✓"
 
 # Runs golangci-lint without installing it system-wide. Install it for speed:
 #   pacman -S golangci-lint   (Arch)
