@@ -137,30 +137,37 @@ func TestConcurrentClaimGivesEachTaskToExactlyOneWorker(t *testing.T) {
 		claimed = make(map[uuid.UUID]string)
 		wg      sync.WaitGroup
 	)
-	// More workers than tasks, so the surplus must come back empty rather than
-	// steal an already-leased row.
+	// More workers than tasks. With SKIP LOCKED, a concurrent caller can
+	// transiently see no eligible row while every remaining row is locked by a
+	// different claim statement. Poll briefly, as a real worker does, before
+	// treating the queue as empty. This verifies the actual contract: tasks are
+	// unique and all eventually become claimable without lock contention.
 	for i := 0; i < tasks*2; i++ {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			task, err := repo.ClaimNext(context.Background(), usecase.ClaimFilter{
-				Owner:      fmt.Sprintf("worker-%d", n),
-				Now:        now,
-				LeaseUntil: now.Add(time.Minute),
-			})
-			if err != nil {
-				t.Errorf("claim: %v", err)
+			for attempt := 0; attempt < 20; attempt++ {
+				task, err := repo.ClaimNext(context.Background(), usecase.ClaimFilter{
+					Owner:      fmt.Sprintf("worker-%d", n),
+					Now:        now,
+					LeaseUntil: now.Add(time.Minute),
+				})
+				if err != nil {
+					t.Errorf("claim: %v", err)
+					return
+				}
+				if task == nil || task.JobID != job.ID {
+					time.Sleep(time.Millisecond)
+					continue
+				}
+				mu.Lock()
+				if prev, dup := claimed[task.ID]; dup {
+					t.Errorf("task %s handed to both %s and worker-%d", task.ID, prev, n)
+				}
+				claimed[task.ID] = fmt.Sprintf("worker-%d", n)
+				mu.Unlock()
 				return
 			}
-			if task == nil || task.JobID != job.ID {
-				return // empty queue, or a task from another test's job
-			}
-			mu.Lock()
-			defer mu.Unlock()
-			if prev, dup := claimed[task.ID]; dup {
-				t.Errorf("task %s handed to both %s and worker-%d", task.ID, prev, n)
-			}
-			claimed[task.ID] = fmt.Sprintf("worker-%d", n)
 		}(i)
 	}
 	wg.Wait()

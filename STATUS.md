@@ -36,7 +36,7 @@ Docker PostgreSQL stack on 2026-07-23.
 | CTX-08 Distributed similarity-search | Not started | Local reference exists. |
 | CTX-09 Reducer and final-result API | Not started | Depends on CTX-07 and CTX-08. |
 | CTX-10 Distributed similarity-graph | Not started | Local reference exists. |
-| CTX-11 Dashboard/operator view | Not started | Deferred until API and reducer work. |
+| CTX-11 Dashboard/operator view | In progress | `feat/web-interface` adds a protected local view: job/task/worker status, dataset upload, diagnostic partial-artifact download, and polling. Final-result reduction remains CTX-09. |
 | CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
 
 ## Next recommended assignment
@@ -46,8 +46,9 @@ reduction boundaries before implementing distributed search or graph execution.
 
 ## Known constraints
 
-- Planner/reducer semantics are not implemented; use the local `scimesh` CLI
-  for complete workload results.
+- Planner/reducer semantics are not implemented; the operator UI labels
+  `partial_result` files as diagnostic and cannot present them as final output.
+  Use the local `scimesh` CLI for complete workload results.
 - The worker/coordinator flow currently accepts both underscore API workload
   names and hyphenated CLI names while the contract is consolidated.
 - A real-stack worker test uses a small `query_smiles` shard. Resolving a

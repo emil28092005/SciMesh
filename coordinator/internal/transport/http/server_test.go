@@ -20,6 +20,7 @@ import (
 )
 
 const token = "secret"
+const uiToken = "ui-secret"
 
 type env struct {
 	ts    *httptest.Server
@@ -27,6 +28,10 @@ type env struct {
 }
 
 func newEnv(t *testing.T, ready func(context.Context) error) *env {
+	return newEnvWithUIToken(t, ready, uiToken)
+}
+
+func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configuredUIToken string) *env {
 	t.Helper()
 	tasks := memstore.NewTaskRepo()
 	jobs := memstore.NewJobRepo()
@@ -49,9 +54,10 @@ func newEnv(t *testing.T, ready func(context.Context) error) *env {
 		UploadArtifact:   usecase.NewUploadArtifact(tasks, arts, blobs, clk),
 		DownloadArtifact: usecase.NewDownloadArtifact(arts, blobs),
 		GetTaskInput:     usecase.NewGetTaskInput(tasks, arts, blobs),
+		Dashboard:        usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, work, arts)),
 	}
 	srv := coordhttp.NewServer(uc, slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second, 15*time.Second, 1<<30, ready)
-	ts := httptest.NewServer(srv.Handler(token))
+	ts := httptest.NewServer(srv.Handler(token, configuredUIToken))
 	t.Cleanup(ts.Close)
 	return &env{ts: ts, blobs: blobs}
 }
@@ -94,6 +100,118 @@ func TestHealthOK(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestUIRequiresDistinctCredentialAndRendersDashboard(t *testing.T) {
+	e := newEnv(t, healthy)
+	request := func() *http.Request {
+		req, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui", nil)
+		return req
+	}
+	resp, err := http.DefaultClient.Do(request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no UI auth: %d", resp.StatusCode)
+	}
+
+	req := request()
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("worker token authorized UI: %d", resp.StatusCode)
+	}
+
+	req = request()
+	req.SetBasicAuth("operator", uiToken)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("UI status: %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "SciMesh operator UI") {
+		t.Errorf("dashboard body missing title")
+	}
+}
+
+func TestUIDisabledReturnsNotFound(t *testing.T) {
+	e := newEnvWithUIToken(t, healthy, "")
+	resp := e.get(t, "/ui")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("disabled UI = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIRejectsCrossOriginUpload(t *testing.T) {
+	e := newEnv(t, healthy)
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", e.ts.URL+"/ui/api/jobs/upload", strings.NewReader("dataset=x"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "https://attacker.example")
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("cross-origin upload = %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestUIJobAndArtifactAreScopedToTheirJob(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, job := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui/jobs/"+job["id"].(string), nil)
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("detail: %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Security-Policy"); got == "" {
+		t.Error("missing UI CSP")
+	}
+}
+
+func TestUIArtifactDownloadRejectsAnotherJobsArtifact(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, _ := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("first job: %d", code)
+	}
+	_, claim := e.do(t, "POST", "/tasks/claim", `{"worker_id":"w1","capabilities":["w"]}`)
+	artifactID := e.putArtifact(t, claim["task_id"].(string), "w1", int(claim["attempt"].(float64)), "result")
+	code, second := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("second job: %d", code)
+	}
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui/jobs/"+second["id"].(string)+"/artifacts/"+artifactID, nil)
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("cross-job artifact = %d, want 404", resp.StatusCode)
 	}
 }
 

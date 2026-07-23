@@ -27,6 +27,7 @@ type UseCases struct {
 	UploadArtifact   *usecase.UploadArtifact
 	DownloadArtifact *usecase.DownloadArtifact
 	GetTaskInput     *usecase.GetTaskInput
+	Dashboard        *usecase.Dashboard
 }
 
 type Server struct {
@@ -54,7 +55,7 @@ func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval 
 
 // Handler builds the router. Go 1.22's ServeMux matches on method and path
 // wildcards, so no third-party router is needed.
-func (s *Server) Handler(token string) http.Handler {
+func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 	protected := http.NewServeMux()
 	protected.HandleFunc("POST /workers/register", s.handleRegister)
 	protected.HandleFunc("POST /jobs", s.handleCreateJob)
@@ -70,6 +71,22 @@ func (s *Server) Handler(token string) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
+	if len(uiToken) > 0 && uiToken[0] != "" && s.uc.Dashboard != nil {
+		ui := http.NewServeMux()
+		ui.HandleFunc("GET /ui", s.handleUIHome)
+		ui.HandleFunc("GET /ui/jobs/new", s.handleUINewJob)
+		ui.HandleFunc("GET /ui/jobs/{job_id}", s.handleUIJob)
+		ui.HandleFunc("GET /ui/api/jobs/{job_id}", s.handleUIJobJSON)
+		ui.HandleFunc("POST /ui/api/jobs/upload", s.handleUploadDataset)
+		ui.HandleFunc("GET /ui/jobs/{job_id}/artifacts/{artifact_id}", s.handleUIArtifactDownload)
+		mux.Handle("/ui", chain(ui, withRequestID, withAccessLog(s.log), withBasicAuth(uiToken[0]), withSameOrigin))
+		mux.Handle("/ui/", chain(ui, withRequestID, withAccessLog(s.log), withBasicAuth(uiToken[0]), withSameOrigin))
+	} else {
+		// More specific than the protected catch-all: UI absence is not an auth
+		// failure and does not disclose that a UI feature is configured elsewhere.
+		mux.HandleFunc("/ui", http.NotFound)
+		mux.HandleFunc("/ui/", http.NotFound)
+	}
 	mux.Handle("/", chain(protected,
 		withRequestID,        // outermost: every response gets an ID,
 		withAccessLog(s.log), // including the 401s below
