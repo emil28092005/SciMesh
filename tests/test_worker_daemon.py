@@ -11,9 +11,17 @@ import pytest
 from scimesh.worker.config import WorkerConfig
 from scimesh.worker.coordinator import CoordinatorTransientError
 from scimesh.worker.daemon import LeaseHeartbeat, WorkerDaemon
-from scimesh.worker.models import ClaimedTask, InputArtifact, ProducedArtifact, RunResult
+from scimesh.worker.models import (
+    ClaimedTask,
+    InputArtifact,
+    ProducedArtifact,
+    RegisteredWorker,
+    RunResult,
+    UploadedArtifact,
+)
 from scimesh.worker.artifacts import HttpArtifactClient, _SameOriginAuthRedirectHandler, _origin
 from scimesh.worker.runners import SciMeshRunner
+from scimesh.worker.transport import NoRedirectHandler
 
 
 class FakeCoordinator:
@@ -23,6 +31,11 @@ class FakeCoordinator:
     def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
         task, self.task = self.task, None
         return task
+
+    def register(
+        self, name: str, capabilities: tuple[str, ...], cpu_count: int, memory_mb: int | None
+    ) -> RegisteredWorker:
+        return RegisteredWorker("11111111-1111-4111-8111-111111111111", 15)
 
     def submit(self, task: ClaimedTask, payload: dict) -> None:
         self.submissions.append(payload)
@@ -42,9 +55,17 @@ class FakeArtifacts:
     def download(self, uri: str, destination: Path) -> None:
         destination.write_bytes(self.content)
 
-    def upload(self, task: ClaimedTask, worker_id: str, artifact: ProducedArtifact) -> str:
+    def upload(
+        self, task: ClaimedTask, worker_id: str, artifact: ProducedArtifact
+    ) -> UploadedArtifact:
         self.uploaded.append((task.task_id, worker_id, artifact.path))
-        return f"https://example.test/tasks/{task.task_id}/artifacts/{artifact.path.name}"
+        content = artifact.path.read_bytes()
+        return UploadedArtifact(
+            "22222222-2222-4222-8222-222222222222",
+            f"https://example.test/tasks/{task.task_id}/artifacts/{artifact.path.name}",
+            hashlib.sha256(content).hexdigest(),
+            len(content),
+        )
 
 class FakeRunner:
     def __init__(self) -> None:
@@ -75,8 +96,9 @@ def test_claims_runs_uploads_and_submits_csv(tmp_path: Path) -> None:
     assert runner.calls == 1
     assert len(artifacts.uploaded) == 1
     assert coordinator.heartbeats == [("task-1", 1, "worker-1")]
-    assert coordinator.submissions[0]["status"] == "completed"
+    assert "status" not in coordinator.submissions[0]
     assert coordinator.submissions[0]["result"]["content_type"] == "text/csv"
+    assert coordinator.submissions[0]["result"]["artifact_id"] == "22222222-2222-4222-8222-222222222222"
     assert coordinator.submissions[0]["result"]["uri"].startswith("https://example.test/tasks/task-1/artifacts/")
 
 
@@ -93,6 +115,14 @@ def test_bad_checksum_reports_failure_without_running(tmp_path: Path) -> None:
     assert runner.calls == 0
     assert coordinator.failures[0]["error_code"] == "ValueError"
     assert not coordinator.submissions
+
+
+def test_directory_creation_failure_is_reported(tmp_path: Path) -> None:
+    content = b"input fixture"
+    worker, coordinator, _, _, config = daemon(tmp_path, make_task(content), content)
+    (config.work_dir / "task-1" / "1").mkdir(parents=True)
+    assert worker.run_once() is True
+    assert coordinator.failures[0]["error_code"] == "FileExistsError"
 
 
 def test_transient_claim_error_is_propagated_for_bounded_backoff(tmp_path: Path) -> None:
@@ -131,6 +161,12 @@ def test_redirect_to_external_storage_strips_authorization() -> None:
     redirected = handler.redirect_request(source, None, 302, "Found", {}, "https://bucket.example/presigned")
     assert redirected is not None
     assert redirected.get_header("Authorization") is None
+
+
+def test_api_requests_never_follow_redirects() -> None:
+    handler = NoRedirectHandler()
+    request = Request("https://coordinator.example/tasks/claim", headers={"Authorization": "Bearer secret"})
+    assert handler.redirect_request(request, None, 302, "Found", {}, "https://other.example") is None
 
 
 def test_lease_is_renewed_while_a_runner_is_still_working(tmp_path: Path) -> None:
@@ -184,3 +220,50 @@ def test_runner_maps_graph_and_smiles_search_parameters(tmp_path: Path, monkeypa
     assert "--block-size" in commands[0] and "42" in commands[0]
     assert "--max-rows" in commands[0] and "7" in commands[0]
     assert "--query-smiles" in commands[1] and "CCO" in commands[1]
+
+
+def test_claimed_task_rejects_path_traversal_and_invalid_metadata() -> None:
+    payload = {
+        "task_id": "../outside",
+        "attempt": 1,
+        "lease_expires_at": "2026-07-30T00:00:00Z",
+        "workload": "similarity-search",
+        "input": {"uri": "https://example.test/input", "sha256": "a" * 64},
+        "parameters": {},
+    }
+    with pytest.raises(ValueError, match="invalid claimed-task response"):
+        ClaimedTask.from_json(payload)
+
+
+def test_uploaded_artifact_requires_complete_durable_metadata() -> None:
+    artifact = UploadedArtifact.from_json(
+        {
+            "artifact_id": "22222222-2222-4222-8222-222222222222",
+            "uri": "https://coordinator.example/artifacts/222/download",
+            "sha256": "a" * 64,
+            "size_bytes": 12,
+        }
+    )
+    assert artifact.size_bytes == 12
+    with pytest.raises(ValueError, match="artifact size_bytes"):
+        UploadedArtifact.from_json({"artifact_id": "missing"})
+
+
+def test_environment_overrides_allow_cli_only_configuration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("SCIMESH_COORDINATOR_URL", raising=False)
+    config = WorkerConfig.from_environment(
+        {
+            "coordinator_url": "https://coordinator.example",
+            "work_dir": tmp_path,
+            "worker_name": "test-worker",
+        }
+    )
+    assert config.coordinator_url == "https://coordinator.example"
+    assert config.worker_id is None
+
+
+def test_worker_registration_sets_returned_identity(tmp_path: Path) -> None:
+    worker, _, _, _, _ = daemon(tmp_path, None, b"")
+    worker._register_worker()
+    assert worker.worker_id == "11111111-1111-4111-8111-111111111111"
+    assert worker.config.heartbeat_interval == 15

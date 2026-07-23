@@ -14,6 +14,8 @@ pull request as both implementation and contract tests.
 - A task becomes `completed` only after a coordinator-owned artifact is durable.
 - Identical repeated completion is successful; a different result for the same
   attempt is a conflict.
+- Coordinator API calls do not follow redirects. Artifact downloads may follow
+  redirects only after removing the coordinator bearer token on origin change.
 
 ## Worker registration
 

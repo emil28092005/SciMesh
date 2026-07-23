@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 import random
 import shutil
@@ -12,8 +13,8 @@ from datetime import datetime, timezone
 
 from .artifacts import ArtifactClient, sha256_file
 from .config import WorkerConfig
-from .coordinator import CoordinatorClient, CoordinatorTransientError
-from .models import ClaimedTask
+from .coordinator import CoordinatorClient, CoordinatorConflictError, CoordinatorTransientError
+from .models import ClaimedTask, UploadedArtifact
 from .runners import Runner
 
 
@@ -32,6 +33,7 @@ class LeaseHeartbeat:
         self._lease_expires_at = self.coordinator.heartbeat(
             self.task, self.config.worker_id
         )
+        self._next_delay()
         self._thread = threading.Thread(target=self._run, name=f"lease-{self.task.task_id}", daemon=True)
         self._thread.start()
 
@@ -45,18 +47,19 @@ class LeaseHeartbeat:
             raise self._error
 
     def _run(self) -> None:
-        delay = min(self.config.heartbeat_interval, self._seconds_until_expiry() / 2)
+        delay = self._next_delay()
         while not self._stop.wait(max(delay, 0.01)):
             try:
                 self._lease_expires_at = self.coordinator.heartbeat(
                     self.task, self.config.worker_id
                 )
+                delay = self._next_delay()
             except Exception as error:  # Surface the lease loss in the main state machine.
                 self._error = error
                 return
-            delay = min(
-                self.config.heartbeat_interval, self._seconds_until_expiry() / 2
-            )
+
+    def _next_delay(self) -> float:
+        return min(self.config.heartbeat_interval, self._seconds_until_expiry() / 2)
 
     def _seconds_until_expiry(self) -> float:
         try:
@@ -72,12 +75,16 @@ class LeaseHeartbeat:
 class WorkerDaemon:
     def __init__(self, config: WorkerConfig, coordinator: CoordinatorClient, artifacts: ArtifactClient, runner: Runner) -> None:
         self.config, self.coordinator, self.artifacts, self.runner = config, coordinator, artifacts, runner
+        self.worker_id = config.worker_id
+        self._registered = False
         self.log = logging.getLogger("scimesh.worker")
 
     def run_forever(self) -> None:
         failures = 0
         while True:
             try:
+                if not self._registered:
+                    self._register_worker()
                 self._cleanup_expired_directories()
                 claimed = self.run_once()
                 failures = 0
@@ -89,16 +96,17 @@ class WorkerDaemon:
                 self._sleep(min(self.config.poll_interval * 2 ** min(failures, 6), 60.0))
 
     def run_once(self) -> bool:
+        worker_id = self._worker_id()
         self._log("claiming")
-        task = self.coordinator.claim(self.config.worker_id, self.config.capabilities)
+        task = self.coordinator.claim(worker_id, self.config.capabilities)
         if task is None:
             self._log("idle")
             return False
         started = time.monotonic()
         task_dir = self.config.work_dir / task.task_id / str(task.attempt)
-        task_dir.mkdir(parents=True, exist_ok=False)
         heartbeat = LeaseHeartbeat(task, self.coordinator, self.config)
         try:
+            task_dir.mkdir(parents=True, exist_ok=False)
             heartbeat.start()
             self._log("downloading", task)
             input_path = task_dir / "input"
@@ -108,20 +116,28 @@ class WorkerDaemon:
             self._log("running", task)
             result = self.runner.run(task, task_dir)
             heartbeat.raise_if_failed()
-            manifests = [
-                {
-                    "uri": self.artifacts.upload(task, self.config.worker_id, artifact),
-                    "sha256": sha256_file(artifact.path),
-                    "content_type": artifact.content_type,
-                }
-                for artifact in result.artifacts
-            ]
-            if not manifests:
-                raise ValueError("runner produced no artifacts")
+            if len(result.artifacts) != 1:
+                raise ValueError("runner must produce exactly one result artifact")
+            artifact = result.artifacts[0]
+            uploaded = self.artifacts.upload(task, worker_id, artifact)
+            manifest = self._result_manifest(uploaded, artifact.content_type)
             self._log("submitting", task)
             heartbeat.raise_if_failed()
-            self.coordinator.submit(task, {"worker_id": self.config.worker_id, "attempt": task.attempt, "status": "completed", "result": manifests[0], "artifacts": manifests, "metrics": {**result.metrics, "elapsed_seconds": round(time.monotonic() - started, 3)}})
+            self.coordinator.submit(
+                task,
+                {
+                    "worker_id": worker_id,
+                    "attempt": task.attempt,
+                    "result": manifest,
+                    "metrics": {
+                        **result.metrics,
+                        "elapsed_seconds": round(time.monotonic() - started, 3),
+                    },
+                },
+            )
             self._log("idle", task, elapsed_seconds=round(time.monotonic() - started, 3))
+        except CoordinatorConflictError as error:
+            self._log("lease_lost", task, error_type=type(error).__name__)
         except Exception as error:
             self._log("failed", task, error_type=type(error).__name__)
             self._report_failure(task, error)
@@ -132,11 +148,41 @@ class WorkerDaemon:
     def _report_failure(self, task: ClaimedTask, error: Exception) -> None:
         message = str(error).replace(str(self.config.work_dir), "<worker-dir>")[:300]
         try:
-            self.coordinator.fail(task, {"worker_id": self.config.worker_id, "attempt": task.attempt, "error_code": type(error).__name__, "error_message": message})
+            self.coordinator.fail(task, {"worker_id": self._worker_id(), "attempt": task.attempt, "error_code": type(error).__name__, "error_message": message})
         except CoordinatorTransientError:
             raise
         except Exception:
             self._log("failed", task, error_type="FailureReportError")
+
+    def _register_worker(self) -> None:
+        registered = self.coordinator.register(
+            self.config.worker_name,
+            self.config.capabilities,
+            self.config.cpu_count,
+            self.config.memory_mb,
+        )
+        self.worker_id = registered.worker_id
+        self.config = replace(
+            self.config,
+            worker_id=registered.worker_id,
+            heartbeat_interval=registered.heartbeat_interval_seconds,
+        )
+        self._registered = True
+        self._log("registered")
+
+    def _worker_id(self) -> str:
+        if not self.worker_id:
+            raise ValueError("worker is not registered")
+        return self.worker_id
+
+    @staticmethod
+    def _result_manifest(uploaded: UploadedArtifact, content_type: str) -> dict[str, object]:
+        return {
+            "artifact_id": uploaded.artifact_id,
+            "uri": uploaded.uri,
+            "sha256": uploaded.sha256,
+            "content_type": content_type,
+        }
 
     def _log(self, state: str, task: ClaimedTask | None = None, **extra: object) -> None:
         fields = {"worker_id": self.config.worker_id, "task_id": task.task_id if task else None, "attempt": task.attempt if task else None, "state": state, **extra}

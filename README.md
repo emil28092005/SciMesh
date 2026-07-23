@@ -1,6 +1,11 @@
 # SciMesh
 
-SciMesh is a small local framework for scientific workloads on molecular datasets. It currently provides exact molecular similarity search and exact sparse similarity-graph construction. It runs in one local Python process: there is no network service, multiprocessing, coordinator, database, or dense similarity matrix.
+SciMesh is a scientific-workload framework for molecular datasets. Its public CLI
+currently runs exact similarity search and sparse similarity-graph construction
+locally in one Python process; it creates no dense similarity matrix. A Python
+Worker client and the planned Go/PostgreSQL coordinator contract are tracked in
+the repository, but distributed execution is not available yet; see
+[`STATUS.md`](STATUS.md).
 
 The ChEMBL TSV database is intentionally not included in this repository. Download it separately and pass its path to the commands below. The expected columns are `chembl_id` and `canonical_smiles`.
 
