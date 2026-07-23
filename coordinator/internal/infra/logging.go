@@ -29,7 +29,7 @@ func NewLogger(cfg Config) (*slog.Logger, io.Closer, error) {
 	)
 
 	if cfg.LogFile != "" {
-		if err := os.MkdirAll(filepath.Dir(cfg.LogFile), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(cfg.LogFile), 0o750); err != nil {
 			return nil, nil, fmt.Errorf("create log directory: %w", err)
 		}
 		rotator := &lumberjack.Logger{

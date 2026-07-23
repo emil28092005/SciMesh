@@ -84,6 +84,15 @@ func jsonbOrEmpty(m map[string]any) map[string]any {
 	return m
 }
 
+// nullIfEmpty maps "" to a SQL NULL, so an absent optional string is stored as
+// NULL rather than an empty string that would defeat a NOT-NULL-or check.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 // conn returns the transaction bound to ctx, or the pool when there is none.
 func conn(ctx context.Context, pool *pgxpool.Pool) querier {
 	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {

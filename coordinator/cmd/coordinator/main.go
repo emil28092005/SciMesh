@@ -70,6 +70,7 @@ func run() error {
 	useCases := httptransport.UseCases{
 		RegisterWorker:   usecase.NewRegisterWorker(workerRepo, clk),
 		CreateJob:        usecase.NewCreateJob(jobRepo, taskRepo, tx, clk),
+		SubmitDataset:    usecase.NewSubmitDataset(blobStore, artifactRepo, jobRepo, taskRepo, tx, clk),
 		ClaimTask:        usecase.NewClaimTask(taskRepo, clk, cfg.LeaseDuration),
 		RenewLease:       usecase.NewRenewLease(taskRepo, tx, clk, cfg.LeaseDuration),
 		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, tx, clk),
@@ -77,6 +78,7 @@ func run() error {
 		GetJobStatus:     usecase.NewGetJobStatus(jobRepo, taskRepo),
 		UploadArtifact:   usecase.NewUploadArtifact(taskRepo, artifactRepo, blobStore, clk),
 		DownloadArtifact: usecase.NewDownloadArtifact(artifactRepo, blobStore),
+		GetTaskInput:     usecase.NewGetTaskInput(taskRepo, artifactRepo, blobStore),
 	}
 
 	// Background workers are tracked so shutdown can wait for them. Without

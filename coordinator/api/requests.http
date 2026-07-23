@@ -34,6 +34,41 @@ Content-Type: application/json
 
 @workerId = {{register.response.body.worker_id}}
 
+### 0b. Upload a dataset — the coordinator splits it into shard tasks (201)
+# Text fields first, the file part last (it is streamed, not buffered).
+# @name uploadJob
+POST {{host}}/jobs/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=----scimesh
+
+------scimesh
+Content-Disposition: form-data; name="workload"
+
+similarity_search
+------scimesh
+Content-Disposition: form-data; name="parameters"
+
+{"top_k":10}
+------scimesh
+Content-Disposition: form-data; name="chunk_rows"
+
+2
+------scimesh
+Content-Disposition: form-data; name="file"; filename="chembl.tsv"
+Content-Type: text/tab-separated-values
+
+id	smiles
+A	CC
+B	CCC
+C	CCCC
+D	CCCCC
+------scimesh--
+
+### Download a task's input shard (200) — taskId must be a shard task from an
+### uploaded job (claim one first; its input.uri is /tasks/{id}/input).
+GET {{host}}/tasks/{{taskId}}/input
+Authorization: Bearer {{token}}
+
 ### 1. Create a job and its chunks (201)
 # The coordinator splits the submission into one task per chunk, transactionally.
 # @name createJob

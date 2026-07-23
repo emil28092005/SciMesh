@@ -18,13 +18,31 @@ const (
 
 // Job is one user submission that fans out into one or more tasks.
 type Job struct {
-	ID          uuid.UUID
-	Workload    string
-	InputURI    string
-	Parameters  map[string]any
-	Status      JobStatus
-	CreatedAt   time.Time
-	CompletedAt *time.Time
+	ID              uuid.UUID
+	Workload        string
+	InputURI        string     // external input URI; empty for uploaded datasets
+	InputArtifactID *uuid.UUID // uploaded input artifact; nil for URI submissions
+	Parameters      map[string]any
+	Status          JobStatus
+	CreatedAt       time.Time
+	CompletedAt     *time.Time
+}
+
+// NewUploadedJob builds a job whose input was uploaded to the coordinator. The
+// job's id is generated here so the input artifact can reference it; the reverse
+// link (jobs.input_artifact_id) is left unset — the input is found via the
+// artifact's job_id — which also sidesteps the circular job↔artifact FK.
+func NewUploadedJob(workload string, params map[string]any, now time.Time) (*Job, error) {
+	if workload == "" {
+		return nil, ErrInvalidInput
+	}
+	return &Job{
+		ID:         uuid.New(),
+		Workload:   workload,
+		Parameters: params,
+		Status:     JobPending,
+		CreatedAt:  now,
+	}, nil
 }
 
 // ChunkSpec describes one piece a job is split into. Callers build these from

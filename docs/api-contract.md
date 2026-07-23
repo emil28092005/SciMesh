@@ -24,7 +24,8 @@ must be updated in the same change as any behaviour it describes.
 | `GET /jobs/{id}` | progress | ✅ done |
 | `PUT /tasks/{id}/artifacts/{name}` | upload partial | ✅ done |
 | `GET /artifacts/{id}/download` | download by id | ✅ done |
-| `GET /tasks/{id}/input` | download shard | ❌ needs input artifacts (upload+chunking) |
+| `POST /jobs/upload` | upload dataset, coordinator chunks it | ✅ done |
+| `GET /tasks/{id}/input` | download shard | ✅ done |
 
 ---
 
@@ -36,6 +37,28 @@ GET /health
 
 `200 {"status":"ok"}` when the database is reachable; `503 {"status":"unavailable"}`
 otherwise. Unauthenticated.
+
+## Submit a dataset (submitter-side)
+
+```http
+POST /jobs/upload
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+```
+
+Fields, in order (text fields first, file last — the file is streamed):
+`workload`, `parameters` (JSON), `chunk_rows` (int, default 1000), and the file
+part `file`. The coordinator stores the input, splits the TSV into shard
+artifacts (header repeated per shard), and creates one task per shard.
+
+`201`:
+
+```json
+{ "job_id": "uuid", "task_count": 3, "input_artifact_id": "uuid" }
+```
+
+Each resulting task's claim response carries `input.uri = /tasks/{id}/input`,
+served by §5.4.
 
 ## Register worker
 

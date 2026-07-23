@@ -148,6 +148,56 @@ check "unknown json field → 400"           400 -X POST "${HOST}/tasks/claim" "
 check "unknown job → 404"                  404 "${HOST}/jobs/00000000-0000-0000-0000-000000000000" "${auth[@]}"
 
 echo
+echo "dataset upload → chunking"
+# Upload a 5-row TSV split at 2 rows/shard → expect 3 shard tasks. The text
+# fields precede the file part, which the coordinator streams.
+up=$(curl -sS "${bearer[@]}" -X POST "${HOST}/jobs/upload" \
+	-F 'workload=similarity_search' \
+	-F 'parameters={"top_k":10}' \
+	-F 'chunk_rows=2' \
+	-F 'file=@-;filename=chembl.tsv;type=text/tab-separated-values' <<'TSV'
+id	smiles
+A	CC
+B	CCC
+C	CCCC
+D	CCCCC
+E	CCCCCC
+TSV
+)
+up_job=$(printf '%s' "$up" | python3 -c 'import json,sys;print(json.load(sys.stdin)["job_id"])' 2>/dev/null)
+up_count=$(printf '%s' "$up" | python3 -c 'import json,sys;print(json.load(sys.stdin)["task_count"])' 2>/dev/null)
+
+if [[ "$up_count" == "3" ]]; then
+	printf '  \033[32m✓\033[0m %-46s task_count=3\n' "POST /jobs/upload (5 rows / 2)"
+	pass=$((pass + 1))
+else
+	printf '  \033[31m✗\033[0m %-46s got task_count=%s, want 3\n' "POST /jobs/upload" "${up_count:-?}"
+	printf '      %s\n' "$up"
+	fail=$((fail + 1))
+fi
+
+# Claim one of this job's shard tasks and pull its input shard from the coordinator.
+up_input=""
+for _ in $(seq 1 30); do
+	c=$(curl -sS "${bearer[@]}" -H 'Content-Type: application/json' -X POST "${HOST}/tasks/claim" \
+		-d '{"worker_id":"up-w","capabilities":["similarity_search"]}')
+	[[ -z "$c" ]] && break
+	cj=$(printf '%s' "$c" | python3 -c 'import json,sys;print(json.load(sys.stdin)["job_id"])' 2>/dev/null)
+	[[ "$cj" != "$up_job" ]] && continue
+	up_input=$(printf '%s' "$c" | python3 -c 'import json,sys;print(json.load(sys.stdin)["input"]["uri"])' 2>/dev/null)
+	break
+done
+
+if [[ "$up_input" == /tasks/*/input ]]; then
+	printf '  \033[32m✓\033[0m %-46s %s\n' "claim → input.uri points at coordinator" "$up_input"
+	pass=$((pass + 1))
+else
+	printf '  \033[31m✗\033[0m %-46s got %q\n' "claim shard input.uri" "$up_input"
+	fail=$((fail + 1))
+fi
+check "download shard input"               200 "${HOST}${up_input}" "${bearer[@]}"
+
+echo
 curl -sS "${HOST}/jobs/${job_id}" "${auth[@]}"
 echo
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

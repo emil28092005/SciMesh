@@ -32,7 +32,8 @@ type Task struct {
 	JobID            uuid.UUID
 	ChunkIndex       int
 	Workload         string
-	InputURI         string
+	InputURI         string     // external input URI; empty for uploaded shards
+	InputArtifactID  *uuid.UUID // coordinator-stored shard; nil for URI inputs
 	InputSHA256      string
 	Parameters       map[string]any
 	Status           TaskStatus
@@ -81,6 +82,33 @@ func NewTask(jobID uuid.UUID, chunkIndex int, workload, inputURI, inputSHA256 st
 	}, nil
 }
 
+// NewShardTask builds a pending task whose input is a coordinator-stored shard
+// artifact rather than an external URI. The worker fetches it from the
+// coordinator, so no InputURI is set — inputSHA256 is the shard's checksum.
+func NewShardTask(jobID uuid.UUID, chunkIndex int, workload string, inputArtifactID uuid.UUID,
+	inputSHA256 string, params map[string]any, maxAttempts int, now time.Time) (*Task, error) {
+
+	if inputArtifactID == uuid.Nil || inputSHA256 == "" || chunkIndex < 0 {
+		return nil, ErrInvalidInput
+	}
+	if maxAttempts <= 0 {
+		maxAttempts = DefaultMaxAttempts
+	}
+	return &Task{
+		ID:              uuid.New(),
+		JobID:           jobID,
+		ChunkIndex:      chunkIndex,
+		Workload:        workload,
+		InputArtifactID: &inputArtifactID,
+		InputSHA256:     inputSHA256,
+		Parameters:      params,
+		Status:          TaskPending,
+		Attempt:         0,
+		MaxAttempts:     maxAttempts,
+		CreatedAt:       now,
+	}, nil
+}
+
 // DefaultMaxAttempts applies when a task does not specify its own ceiling.
 const DefaultMaxAttempts = 3
 
@@ -96,14 +124,15 @@ func (t *Task) IsLeaseHeldBy(worker string, attempt int) bool {
 // everything needed to execute, nothing it has no business seeing.
 func (t *Task) AsClaimed() ClaimedTask {
 	ct := ClaimedTask{
-		TaskID:      t.ID,
-		JobID:       t.JobID,
-		ChunkIndex:  t.ChunkIndex,
-		Workload:    t.Workload,
-		InputURI:    t.InputURI,
-		InputSHA256: t.InputSHA256,
-		Parameters:  t.Parameters,
-		Attempt:     t.Attempt,
+		TaskID:          t.ID,
+		JobID:           t.JobID,
+		ChunkIndex:      t.ChunkIndex,
+		Workload:        t.Workload,
+		InputURI:        t.InputURI,
+		InputArtifactID: t.InputArtifactID,
+		InputSHA256:     t.InputSHA256,
+		Parameters:      t.Parameters,
+		Attempt:         t.Attempt,
 	}
 	if t.LeaseOwner != nil {
 		ct.LeaseOwner = *t.LeaseOwner
@@ -217,18 +246,21 @@ func (t *Task) ExpireLease(now time.Time) {
 	t.CompletedAt = &now
 }
 
-// ClaimedTask is the worker-facing projection of a leased task.
+// ClaimedTask is the worker-facing projection of a leased task. Input is either
+// an external URI or a coordinator-stored shard (InputArtifactID set); the
+// transport turns the latter into a coordinator download URL.
 type ClaimedTask struct {
-	TaskID         uuid.UUID
-	JobID          uuid.UUID
-	ChunkIndex     int
-	Workload       string
-	InputURI       string
-	InputSHA256    string
-	Parameters     map[string]any
-	Attempt        int
-	LeaseOwner     string
-	LeaseExpiresAt time.Time
+	TaskID          uuid.UUID
+	JobID           uuid.UUID
+	ChunkIndex      int
+	Workload        string
+	InputURI        string
+	InputArtifactID *uuid.UUID
+	InputSHA256     string
+	Parameters      map[string]any
+	Attempt         int
+	LeaseOwner      string
+	LeaseExpiresAt  time.Time
 }
 
 // ResultManifest is a completed task's output, ordered for the stitcher. It

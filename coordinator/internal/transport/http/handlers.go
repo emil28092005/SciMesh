@@ -2,10 +2,13 @@ package http
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -175,6 +178,107 @@ func (s *Server) handleFailure(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, taskResponse{ID: task.ID, JobID: task.JobID, Status: string(task.Status)})
 }
 
+// defaultChunkRows is the shard size used when a request omits chunk_rows.
+const defaultChunkRows = 1000
+
+// handleUploadDataset accepts a multipart submission — the dataset file plus the
+// workload/parameters/chunk_rows fields — and hands the file, streamed, to the
+// chunker. The text fields MUST precede the file part: the file is streamed, not
+// buffered, so by the time it arrives the other fields are already parsed.
+func (s *Server) handleUploadDataset(w http.ResponseWriter, r *http.Request) {
+	mr, err := r.MultipartReader()
+	if err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+
+	var (
+		workload   string
+		params     map[string]any
+		rows       = defaultChunkRows
+		result     usecase.SubmitDatasetResult
+		gotDataset bool
+	)
+
+	for {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			s.writeError(w, r, domain.ErrInvalidInput)
+			return
+		}
+
+		switch part.FormName() {
+		case "workload":
+			b, _ := io.ReadAll(io.LimitReader(part, 1<<10))
+			workload = strings.TrimSpace(string(b))
+		case "parameters":
+			b, _ := io.ReadAll(io.LimitReader(part, 1<<16))
+			if len(b) > 0 {
+				if err := json.Unmarshal(b, &params); err != nil {
+					s.writeError(w, r, domain.ErrInvalidInput)
+					return
+				}
+			}
+		case "chunk_rows":
+			b, _ := io.ReadAll(io.LimitReader(part, 32))
+			if n, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+				rows = n
+			}
+		case "file", "dataset":
+			filename := part.FileName()
+			if filename == "" {
+				filename = "dataset"
+			}
+			result, err = s.uc.SubmitDataset.Execute(r.Context(), usecase.SubmitDatasetInput{
+				Workload:     workload,
+				Parameters:   params,
+				RowsPerShard: rows,
+				Filename:     filename,
+				ContentType:  part.Header.Get("Content-Type"),
+				Body:         part,
+			})
+			if err != nil {
+				s.writeError(w, r, err)
+				return
+			}
+			gotDataset = true
+		}
+		_ = part.Close()
+	}
+
+	if !gotDataset {
+		s.writeError(w, r, domain.ErrInvalidInput) // no file part
+		return
+	}
+	writeJSON(w, http.StatusCreated, uploadJobResponse{
+		JobID:           result.JobID,
+		TaskCount:       result.TaskCount,
+		InputArtifactID: result.InputArtifactID,
+	})
+}
+
+// handleGetTaskInput streams a task's input shard back to the worker.
+func (s *Server) handleGetTaskInput(w http.ResponseWriter, r *http.Request) {
+	taskID, ok := s.pathUUID(w, r, "task_id")
+	if !ok {
+		return
+	}
+	art, body, err := s.uc.GetTaskInput.Execute(r.Context(), taskID)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	defer func() { _ = body.Close() }()
+
+	w.Header().Set("Content-Type", art.ContentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(art.SizeBytes, 10))
+	w.Header().Set("X-Checksum-SHA256", art.SHA256)
+	_, _ = io.Copy(w, body)
+}
+
 // handleUploadArtifact streams a worker's partial result into blob storage. It
 // deliberately does not use the short request timeout — a large shard upload
 // would trip it — and reads identity from headers per the contract (§5.5).
@@ -220,7 +324,7 @@ func (s *Server) handleDownloadArtifact(w http.ResponseWriter, r *http.Request) 
 		s.writeError(w, r, err)
 		return
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 
 	w.Header().Set("Content-Type", art.ContentType)
 	w.Header().Set("Content-Length", strconv.FormatInt(art.SizeBytes, 10))

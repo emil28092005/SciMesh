@@ -30,7 +30,7 @@ var _ usecase.TaskRepository = (*TaskRepo)(nil)
 // Every query that returns a task selects exactly this list, in this order —
 // three hand-written column lists would drift apart within a week.
 var taskColumns = []string{
-	"id", "job_id", "chunk_index", "workload", "input_uri", "input_sha256",
+	"id", "job_id", "chunk_index", "workload", "input_uri", "input_artifact_id", "input_sha256",
 	"parameters", "status", "attempt", "max_attempts", "lease_owner", "lease_expires_at",
 	"result_artifact_id", "metrics", "error_code", "error_message",
 	"created_at", "started_at", "completed_at", "version",
@@ -49,15 +49,21 @@ func scanTask(row pgx.Row) (*domain.Task, error) {
 	var (
 		t      domain.Task
 		status string
+		// input_uri is nullable now (uploaded shards have none), so it cannot
+		// scan straight into a string; NULL becomes the empty InputURI.
+		inputURI *string
 	)
 	err := row.Scan(
-		&t.ID, &t.JobID, &t.ChunkIndex, &t.Workload, &t.InputURI, &t.InputSHA256,
+		&t.ID, &t.JobID, &t.ChunkIndex, &t.Workload, &inputURI, &t.InputArtifactID, &t.InputSHA256,
 		&t.Parameters, &status, &t.Attempt, &t.MaxAttempts, &t.LeaseOwner, &t.LeaseExpiresAt,
 		&t.ResultArtifactID, &t.Metrics, &t.ErrorCode, &t.ErrorMessage,
 		&t.CreatedAt, &t.StartedAt, &t.CompletedAt, &t.Version,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if inputURI != nil {
+		t.InputURI = *inputURI
 	}
 	t.Status = domain.TaskStatus(status)
 	return &t, nil
@@ -206,10 +212,12 @@ func (r *TaskRepo) InsertBatch(ctx context.Context, tasks []*domain.Task) error 
 	batch := &pgx.Batch{}
 	for _, t := range tasks {
 		sql, args, err := psql.Insert("tasks").
-			Columns("id", "job_id", "chunk_index", "workload", "input_uri", "input_sha256",
-				"parameters", "status", "attempt", "max_attempts", "created_at", "version").
-			Values(t.ID, t.JobID, t.ChunkIndex, t.Workload, t.InputURI, t.InputSHA256,
-				jsonbOrEmpty(t.Parameters), string(t.Status), t.Attempt, t.MaxAttempts, t.CreatedAt, t.Version).
+			Columns("id", "job_id", "chunk_index", "workload", "input_uri", "input_artifact_id",
+				"input_sha256", "parameters", "status", "attempt", "max_attempts", "created_at", "version").
+			// input_uri is stored NULL (not "") when empty, so the ck_tasks_has_input
+			// check actually bites: a task with neither a URI nor an artifact fails.
+			Values(t.ID, t.JobID, t.ChunkIndex, t.Workload, nullIfEmpty(t.InputURI), t.InputArtifactID,
+				t.InputSHA256, jsonbOrEmpty(t.Parameters), string(t.Status), t.Attempt, t.MaxAttempts, t.CreatedAt, t.Version).
 			ToSql()
 		if err != nil {
 			return err

@@ -88,16 +88,26 @@ type taskResponse struct {
 	Status string    `json:"status"`
 }
 
+type inputRef struct {
+	URI    string `json:"uri"`
+	SHA256 string `json:"sha256"`
+}
+
 type claimedTaskResponse struct {
 	TaskID         uuid.UUID      `json:"task_id"`
 	JobID          uuid.UUID      `json:"job_id"`
 	ChunkIndex     int            `json:"chunk_index"`
 	Workload       string         `json:"workload"`
-	InputURI       string         `json:"input_uri"`
-	InputSHA256    string         `json:"input_sha256"`
+	Input          inputRef       `json:"input"`
 	Parameters     map[string]any `json:"parameters"`
 	Attempt        int            `json:"attempt"`
 	LeaseExpiresAt time.Time      `json:"lease_expires_at"`
+}
+
+type uploadJobResponse struct {
+	JobID           uuid.UUID `json:"job_id"`
+	TaskCount       int       `json:"task_count"`
+	InputArtifactID uuid.UUID `json:"input_artifact_id"`
 }
 
 type jobProgressResponse struct {
@@ -123,13 +133,18 @@ type errorResponse struct {
 }
 
 func toClaimedTaskResponse(c domain.ClaimedTask) claimedTaskResponse {
+	// A shard's input lives in the coordinator; hand the worker a URL to fetch
+	// it from. A URI-based task keeps its external URI.
+	uri := c.InputURI
+	if c.InputArtifactID != nil {
+		uri = "/tasks/" + c.TaskID.String() + "/input"
+	}
 	return claimedTaskResponse{
 		TaskID:         c.TaskID,
 		JobID:          c.JobID,
 		ChunkIndex:     c.ChunkIndex,
 		Workload:       c.Workload,
-		InputURI:       c.InputURI,
-		InputSHA256:    c.InputSHA256,
+		Input:          inputRef{URI: uri, SHA256: c.InputSHA256},
 		Parameters:     c.Parameters,
 		Attempt:        c.Attempt,
 		LeaseExpiresAt: c.LeaseExpiresAt,

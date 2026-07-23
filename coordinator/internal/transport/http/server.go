@@ -18,6 +18,7 @@ import (
 type UseCases struct {
 	RegisterWorker   *usecase.RegisterWorker
 	CreateJob        *usecase.CreateJob
+	SubmitDataset    *usecase.SubmitDataset
 	ClaimTask        *usecase.ClaimTask
 	RenewLease       *usecase.RenewLease
 	CompleteTask     *usecase.CompleteTask
@@ -25,6 +26,7 @@ type UseCases struct {
 	GetJobStatus     *usecase.GetJobStatus
 	UploadArtifact   *usecase.UploadArtifact
 	DownloadArtifact *usecase.DownloadArtifact
+	GetTaskInput     *usecase.GetTaskInput
 }
 
 type Server struct {
@@ -54,8 +56,10 @@ func (s *Server) Handler(token string) http.Handler {
 	protected := http.NewServeMux()
 	protected.HandleFunc("POST /workers/register", s.handleRegister)
 	protected.HandleFunc("POST /jobs", s.handleCreateJob)
+	protected.HandleFunc("POST /jobs/upload", s.handleUploadDataset)
 	protected.HandleFunc("GET /jobs/{job_id}", s.handleGetJob)
 	protected.HandleFunc("POST /tasks/claim", s.handleClaim)
+	protected.HandleFunc("GET /tasks/{task_id}/input", s.handleGetTaskInput)
 	protected.HandleFunc("POST /tasks/{task_id}/heartbeat", s.handleHeartbeat)
 	protected.HandleFunc("POST /tasks/{task_id}/result", s.handleResult)
 	protected.HandleFunc("POST /tasks/{task_id}/failure", s.handleFailure)

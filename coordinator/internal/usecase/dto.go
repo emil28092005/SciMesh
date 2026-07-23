@@ -49,6 +49,21 @@ type CompleteTaskInput struct {
 	Metrics          map[string]any
 }
 
+type SubmitDatasetInput struct {
+	Workload     string
+	Parameters   map[string]any
+	RowsPerShard int
+	Filename     string
+	ContentType  string
+	Body         io.Reader
+}
+
+type SubmitDatasetResult struct {
+	JobID           uuid.UUID
+	TaskCount       int
+	InputArtifactID uuid.UUID
+}
+
 type UploadArtifactInput struct {
 	TaskID      uuid.UUID
 	WorkerID    string

@@ -28,7 +28,7 @@ var _ usecase.BlobStore = (*FSStore)(nil)
 // rename is only atomic within one filesystem.
 func NewFSStore(dir string) (*FSStore, error) {
 	staging := filepath.Join(dir, ".staging")
-	if err := os.MkdirAll(staging, 0o755); err != nil {
+	if err := os.MkdirAll(staging, 0o750); err != nil {
 		return nil, fmt.Errorf("create blob dirs: %w", err)
 	}
 	return &FSStore{dir: dir, staging: staging}, nil
@@ -85,7 +85,9 @@ func (s *FSStore) Open(ctx context.Context, key string) (io.ReadCloser, error) {
 	if err := checkKey(key); err != nil {
 		return nil, err
 	}
-	f, err := os.Open(filepath.Join(s.dir, key))
+	// checkKey has rejected any traversal, so the joined path stays under s.dir.
+	f, err := os.Open(filepath.Join(s.dir, key)) //nolint:gosec // key validated by checkKey
+
 	if err != nil {
 		return nil, err
 	}
