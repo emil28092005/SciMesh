@@ -98,7 +98,20 @@ CHEMBL25,CHEMBL139,0.87
 GET {{host}}/artifacts/{{artifactId}}/download
 Authorization: Bearer {{token}}
 
-### 4. Submit the result (200)
+### 3c. Upload a second artifact — used by the conflict check below (200)
+# @name uploadArtifact2
+PUT {{host}}/tasks/{{taskId}}/artifacts/secondary.csv
+Authorization: Bearer {{token}}
+Content-Type: text/csv
+X-Worker-ID: {{worker}}
+X-Task-Attempt: {{attempt}}
+
+query,match,score
+CHEMBL25,CHEMBL521,0.42
+
+@artifactId2 = {{uploadArtifact2.response.body.artifact_id}}
+
+### 4. Submit the result, referencing the uploaded artifact (200)
 POST {{host}}/tasks/{{taskId}}/result
 Authorization: Bearer {{token}}
 Content-Type: application/json
@@ -106,8 +119,7 @@ Content-Type: application/json
 {
   "worker_id": "{{worker}}",
   "attempt": {{attempt}},
-  "result_uri": "s3://results/shard-0.csv",
-  "result_sha256": "r0sha",
+  "result": { "artifact_id": "{{artifactId}}", "content_type": "text/csv" },
   "metrics": { "elapsed_ms": 1234, "candidates": 50000 }
 }
 
@@ -119,12 +131,10 @@ Content-Type: application/json
 {
   "worker_id": "{{worker}}",
   "attempt": {{attempt}},
-  "result_uri": "s3://results/shard-0.csv",
-  "result_sha256": "r0sha",
-  "metrics": { "elapsed_ms": 1234, "candidates": 50000 }
+  "result": { "artifact_id": "{{artifactId}}" }
 }
 
-### 4b. A different result for the same task — conflict (409)
+### 4b. A different artifact for the same task — conflict (409)
 POST {{host}}/tasks/{{taskId}}/result
 Authorization: Bearer {{token}}
 Content-Type: application/json
@@ -132,8 +142,7 @@ Content-Type: application/json
 {
   "worker_id": "{{worker}}",
   "attempt": {{attempt}},
-  "result_uri": "s3://results/SOMETHING-ELSE.csv",
-  "result_sha256": "different"
+  "result": { "artifact_id": "{{artifactId2}}" }
 }
 
 ### 4c. Another worker submitting for this task — conflict (409)
@@ -144,8 +153,7 @@ Content-Type: application/json
 {
   "worker_id": "impostor",
   "attempt": {{attempt}},
-  "result_uri": "s3://results/x.csv",
-  "result_sha256": "x"
+  "result": { "artifact_id": "{{artifactId}}" }
 }
 
 ### 5. Report a failure instead (200)

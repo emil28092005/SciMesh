@@ -9,9 +9,11 @@ import (
 )
 
 var (
-	testNow    = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
-	testLater  = testNow.Add(time.Hour)
-	testWorker = "worker-1"
+	testNow       = time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	testLater     = testNow.Add(time.Hour)
+	testWorker    = "worker-1"
+	testResult    = uuid.New()
+	testResultAlt = uuid.New()
 )
 
 // leasedTask builds a task already leased to testWorker at the given attempt.
@@ -32,7 +34,7 @@ func leasedTask(attempt, maxAttempts int) *Task {
 func TestCompleteWithRecordsResult(t *testing.T) {
 	task := leasedTask(1, 3)
 
-	if err := task.CompleteWith("s3://r.csv", "abc", nil, testWorker, 1, testNow); err != nil {
+	if err := task.CompleteWith(testResult, nil, testWorker, 1, testNow); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if task.Status != TaskCompleted {
@@ -50,12 +52,12 @@ func TestCompleteWithRecordsResult(t *testing.T) {
 // rather than fail on the lease it has already given up.
 func TestCompleteWithIsIdempotentForSameManifest(t *testing.T) {
 	task := leasedTask(1, 3)
-	if err := task.CompleteWith("s3://r.csv", "abc", nil, testWorker, 1, testNow); err != nil {
+	if err := task.CompleteWith(testResult, nil, testWorker, 1, testNow); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 	versionAfterFirst := task.Version
 
-	if err := task.CompleteWith("s3://r.csv", "abc", nil, testWorker, 1, testLater); err != nil {
+	if err := task.CompleteWith(testResult, nil, testWorker, 1, testLater); err != nil {
 		t.Fatalf("replay must be idempotent, got %v", err)
 	}
 	if task.Version != versionAfterFirst {
@@ -65,11 +67,11 @@ func TestCompleteWithIsIdempotentForSameManifest(t *testing.T) {
 
 func TestCompleteWithRejectsDifferentManifest(t *testing.T) {
 	task := leasedTask(1, 3)
-	if err := task.CompleteWith("s3://r.csv", "abc", nil, testWorker, 1, testNow); err != nil {
+	if err := task.CompleteWith(testResult, nil, testWorker, 1, testNow); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 
-	err := task.CompleteWith("s3://other.csv", "def", nil, testWorker, 1, testLater)
+	err := task.CompleteWith(testResultAlt, nil, testWorker, 1, testLater)
 	if !errors.Is(err, ErrResultConflict) {
 		t.Errorf("err = %v, want ErrResultConflict", err)
 	}
@@ -78,7 +80,7 @@ func TestCompleteWithRejectsDifferentManifest(t *testing.T) {
 func TestCompleteWithRejectsForeignWorker(t *testing.T) {
 	task := leasedTask(1, 3)
 
-	err := task.CompleteWith("s3://r.csv", "abc", nil, "worker-2", 1, testNow)
+	err := task.CompleteWith(testResult, nil, "worker-2", 1, testNow)
 	if !errors.Is(err, ErrLeaseConflict) {
 		t.Errorf("err = %v, want ErrLeaseConflict", err)
 	}
@@ -87,7 +89,7 @@ func TestCompleteWithRejectsForeignWorker(t *testing.T) {
 func TestCompleteWithRejectsStaleAttempt(t *testing.T) {
 	task := leasedTask(2, 3) // task is on attempt 2
 
-	err := task.CompleteWith("s3://r.csv", "abc", nil, testWorker, 1, testNow) // worker thinks it is 1
+	err := task.CompleteWith(testResult, nil, testWorker, 1, testNow) // worker thinks it is 1
 	if !errors.Is(err, ErrStaleAttempt) {
 		t.Errorf("err = %v, want ErrStaleAttempt", err)
 	}

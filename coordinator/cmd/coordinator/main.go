@@ -72,7 +72,7 @@ func run() error {
 		CreateJob:        usecase.NewCreateJob(jobRepo, taskRepo, tx, clk),
 		ClaimTask:        usecase.NewClaimTask(taskRepo, clk, cfg.LeaseDuration),
 		RenewLease:       usecase.NewRenewLease(taskRepo, tx, clk, cfg.LeaseDuration),
-		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, tx, clk),
+		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, tx, clk),
 		FailTask:         usecase.NewFailTask(taskRepo, jobRepo, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobRepo, taskRepo),
 		UploadArtifact:   usecase.NewUploadArtifact(taskRepo, artifactRepo, blobStore, clk),

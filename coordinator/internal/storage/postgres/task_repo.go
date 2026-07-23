@@ -32,7 +32,7 @@ var _ usecase.TaskRepository = (*TaskRepo)(nil)
 var taskColumns = []string{
 	"id", "job_id", "chunk_index", "workload", "input_uri", "input_sha256",
 	"parameters", "status", "attempt", "max_attempts", "lease_owner", "lease_expires_at",
-	"result_uri", "result_sha256", "metrics", "error_code", "error_message",
+	"result_artifact_id", "metrics", "error_code", "error_message",
 	"created_at", "started_at", "completed_at", "version",
 }
 
@@ -53,7 +53,7 @@ func scanTask(row pgx.Row) (*domain.Task, error) {
 	err := row.Scan(
 		&t.ID, &t.JobID, &t.ChunkIndex, &t.Workload, &t.InputURI, &t.InputSHA256,
 		&t.Parameters, &status, &t.Attempt, &t.MaxAttempts, &t.LeaseOwner, &t.LeaseExpiresAt,
-		&t.ResultURI, &t.ResultSHA256, &t.Metrics, &t.ErrorCode, &t.ErrorMessage,
+		&t.ResultArtifactID, &t.Metrics, &t.ErrorCode, &t.ErrorMessage,
 		&t.CreatedAt, &t.StartedAt, &t.CompletedAt, &t.Version,
 	)
 	if err != nil {
@@ -166,18 +166,17 @@ func (r *TaskRepo) GetForUpdate(ctx context.Context, id uuid.UUID) (*domain.Task
 func (r *TaskRepo) Update(ctx context.Context, t *domain.Task) error {
 	sql, args, err := psql.Update("tasks").
 		SetMap(map[string]any{
-			"status":           string(t.Status),
-			"attempt":          t.Attempt,
-			"lease_owner":      t.LeaseOwner,
-			"lease_expires_at": t.LeaseExpiresAt,
-			"result_uri":       t.ResultURI,
-			"result_sha256":    t.ResultSHA256,
-			"metrics":          t.Metrics,
-			"error_code":       t.ErrorCode,
-			"error_message":    t.ErrorMessage,
-			"started_at":       t.StartedAt,
-			"completed_at":     t.CompletedAt,
-			"version":          t.Version,
+			"status":             string(t.Status),
+			"attempt":            t.Attempt,
+			"lease_owner":        t.LeaseOwner,
+			"lease_expires_at":   t.LeaseExpiresAt,
+			"result_artifact_id": t.ResultArtifactID,
+			"metrics":            t.Metrics,
+			"error_code":         t.ErrorCode,
+			"error_message":      t.ErrorMessage,
+			"started_at":         t.StartedAt,
+			"completed_at":       t.CompletedAt,
+			"version":            t.Version,
 		}).
 		Where(sq.Eq{"id": t.ID, "version": t.Version - 1}).
 		ToSql()

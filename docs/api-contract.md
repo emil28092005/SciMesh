@@ -19,7 +19,7 @@ must be updated in the same change as any behaviour it describes.
 | `POST /workers/register` | register + capabilities | ✅ done |
 | `POST /tasks/claim` | atomic lease | ✅ done |
 | `POST /tasks/{id}/heartbeat` | renew lease | ✅ done |
-| `POST /tasks/{id}/result` | complete | 🟡 done, but result is a URI today; moves to `artifact_id` next |
+| `POST /tasks/{id}/result` | complete | ✅ done, references `artifact_id` |
 | `POST /tasks/{id}/failure` | fail | ✅ done |
 | `GET /jobs/{id}` | progress | ✅ done |
 | `PUT /tasks/{id}/artifacts/{name}` | upload partial | ✅ done |
@@ -146,10 +146,10 @@ Content-Type: application/json
 }
 ```
 
-> **Transitional:** the coordinator currently accepts `result_uri` + `result_sha256`
-> instead of `result.artifact_id`. This switches to the artifact form in CTX-05,
-> once upload exists. Until then no worker-supplied `file://`/`worker://` URI is
-> valid in persisted metadata.
+The worker uploads its partial result first (§5.5), then completes with that
+`artifact_id`. The coordinator verifies the artifact was stored for this exact
+task before accepting it — a worker cannot complete one task with another task's
+artifact. No worker-supplied URI is ever persisted.
 
 ```http
 POST /tasks/{task_id}/failure

@@ -102,8 +102,17 @@ fi
 check "heartbeat"                          200 -X POST "${HOST}/tasks/${task_id}/heartbeat" "${auth[@]}" \
 	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt}}"
 
-# --- artifacts (while the task is still leased) ---------------------------
+# --- artifacts + result (uploads happen while the task is still leased) ---
 bearer=(-H "Authorization: Bearer ${TOKEN}")
+
+# upload <filename> -> prints the artifact_id
+upload() {
+	curl -sS -X PUT "${HOST}/tasks/${task_id}/artifacts/$1" "${bearer[@]}" \
+		-H 'Content-Type: text/csv' -H 'X-Worker-ID: w1' -H "X-Task-Attempt: ${attempt}" \
+		--data-binary $'query,match,score\nA,B,0.9\n' |
+		python3 -c 'import json,sys;print(json.load(sys.stdin)["artifact_id"])' 2>/dev/null
+}
+
 check "upload artifact"                    200 -X PUT "${HOST}/tasks/${task_id}/artifacts/result.csv" "${bearer[@]}" \
 	-H 'Content-Type: text/csv' -H 'X-Worker-ID: w1' -H "X-Task-Attempt: ${attempt}" \
 	--data-binary $'query,match,score\nA,B,0.9\n'
@@ -111,26 +120,26 @@ check "foreign worker upload → 409"        409 -X PUT "${HOST}/tasks/${task_id
 	-H 'Content-Type: text/csv' -H 'X-Worker-ID: impostor' -H "X-Task-Attempt: ${attempt}" \
 	--data-binary 'x'
 
-# Round-trip: upload one more, then download it by id and confirm the bytes.
-art=$(curl -sS -X PUT "${HOST}/tasks/${task_id}/artifacts/dl.csv" "${bearer[@]}" \
-	-H 'Content-Type: text/csv' -H 'X-Worker-ID: w1' -H "X-Task-Attempt: ${attempt}" --data-binary 'a,b,c')
-art_id=$(printf '%s' "$art" | python3 -c 'import json,sys;print(json.load(sys.stdin)["artifact_id"])' 2>/dev/null)
+# Two result artifacts, uploaded now while the lease is held: one to complete
+# with, a second to prove a different manifest is rejected after completion.
+art_id=$(upload primary.csv)
+art_id2=$(upload secondary.csv)
 check "download artifact"                  200 "${HOST}/artifacts/${art_id}/download" "${bearer[@]}"
 
 check "foreign worker submits → 409"       409 -X POST "${HOST}/tasks/${task_id}/result" "${auth[@]}" \
-	-d "{\"worker_id\":\"impostor\",\"attempt\":${attempt},\"result_uri\":\"s3://x\",\"result_sha256\":\"x\"}"
+	-d "{\"worker_id\":\"impostor\",\"attempt\":${attempt},\"result\":{\"artifact_id\":\"${art_id}\"}}"
 check "submit result"                      200 -X POST "${HOST}/tasks/${task_id}/result" "${auth[@]}" \
-	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt},\"result_uri\":\"s3://r0\",\"result_sha256\":\"rrr\"}"
+	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt},\"result\":{\"artifact_id\":\"${art_id}\"}}"
 check "replay same result → idempotent"    200 -X POST "${HOST}/tasks/${task_id}/result" "${auth[@]}" \
-	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt},\"result_uri\":\"s3://r0\",\"result_sha256\":\"rrr\"}"
+	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt},\"result\":{\"artifact_id\":\"${art_id}\"}}"
 check "different result → 409"             409 -X POST "${HOST}/tasks/${task_id}/result" "${auth[@]}" \
-	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt},\"result_uri\":\"s3://other\",\"result_sha256\":\"zzz\"}"
+	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt},\"result\":{\"artifact_id\":\"${art_id2}\"}}"
 check "GET /jobs/{id}"                     200 "${HOST}/jobs/${job_id}" "${auth[@]}"
 
 echo
 echo "input validation"
 check "malformed uuid → 400"               400 -X POST "${HOST}/tasks/not-a-uuid/result" "${auth[@]}" \
-	-d '{"worker_id":"w1","attempt":1,"result_uri":"s3://x","result_sha256":"x"}'
+	-d '{"worker_id":"w1","attempt":1,"result":{"artifact_id":"00000000-0000-0000-0000-000000000000"}}'
 # Note: Go's encoding/json matches field names case-insensitively, so
 # "worker_ID" would be accepted as "worker_id". Only a genuinely unknown key
 # trips DisallowUnknownFields.

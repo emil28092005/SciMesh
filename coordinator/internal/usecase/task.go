@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 )
 
@@ -105,14 +107,16 @@ func (uc *RenewLease) Execute(ctx context.Context, in RenewLeaseInput) (*domain.
 // --- CompleteTask --------------------------------------------------------
 
 type CompleteTask struct {
-	tasks TaskRepository
-	jobs  JobRepository
-	tx    TxManager
-	clock Clock
+	tasks     TaskRepository
+	jobs      JobRepository
+	artifacts ArtifactRepository
+	tx        TxManager
+	clock     Clock
 }
 
-func NewCompleteTask(tasks TaskRepository, jobs JobRepository, tx TxManager, clock Clock) *CompleteTask {
-	return &CompleteTask{tasks: tasks, jobs: jobs, tx: tx, clock: clock}
+func NewCompleteTask(tasks TaskRepository, jobs JobRepository, artifacts ArtifactRepository,
+	tx TxManager, clock Clock) *CompleteTask {
+	return &CompleteTask{tasks: tasks, jobs: jobs, artifacts: artifacts, tx: tx, clock: clock}
 }
 
 // Execute applies the result and, when that was the job's last outstanding
@@ -129,9 +133,14 @@ func (uc *CompleteTask) Execute(ctx context.Context, in CompleteTaskInput) (*dom
 		if err != nil {
 			return err
 		}
+		// Rule 10: never trust a worker-supplied artifact reference. The result
+		// must be an artifact the coordinator itself stored for *this* task.
+		if err := uc.verifyResultArtifact(ctx, in.TaskID, in.ResultArtifactID); err != nil {
+			return err
+		}
 		now := uc.clock.Now()
 		before := task.Version
-		if err := task.CompleteWith(in.ResultURI, in.ResultSHA256, in.Metrics,
+		if err := task.CompleteWith(in.ResultArtifactID, in.Metrics,
 			in.WorkerID, in.Attempt, now); err != nil {
 			return err
 		}
@@ -153,6 +162,20 @@ func (uc *CompleteTask) Execute(ctx context.Context, in CompleteTaskInput) (*dom
 		return nil, err
 	}
 	return out, nil
+}
+
+// verifyResultArtifact enforces that the referenced artifact was stored by the
+// coordinator for this exact task. It stops a worker from completing task B with
+// an artifact it uploaded for task A, and from naming an id that isn't a result.
+func (uc *CompleteTask) verifyResultArtifact(ctx context.Context, taskID, artifactID uuid.UUID) error {
+	art, err := uc.artifacts.Get(ctx, artifactID)
+	if err != nil {
+		return err
+	}
+	if art.TaskID == nil || *art.TaskID != taskID || art.Kind != domain.ArtifactPartialResult {
+		return domain.ErrResultConflict
+	}
+	return nil
 }
 
 // --- FailTask ------------------------------------------------------------

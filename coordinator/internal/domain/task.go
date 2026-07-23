@@ -28,27 +28,26 @@ const ErrCodeLeaseExpired = "lease_expired"
 // Nullable columns are pointers so "no lease" stays distinguishable from
 // "lease owned by the empty string" — a plain string cannot express both.
 type Task struct {
-	ID             uuid.UUID
-	JobID          uuid.UUID
-	ChunkIndex     int
-	Workload       string
-	InputURI       string
-	InputSHA256    string
-	Parameters     map[string]any
-	Status         TaskStatus
-	Attempt        int
-	MaxAttempts    int
-	LeaseOwner     *string
-	LeaseExpiresAt *time.Time
-	ResultURI      *string
-	ResultSHA256   *string
-	Metrics        map[string]any
-	ErrorCode      *string
-	ErrorMessage   *string
-	CreatedAt      time.Time
-	StartedAt      *time.Time
-	CompletedAt    *time.Time
-	Version        int
+	ID               uuid.UUID
+	JobID            uuid.UUID
+	ChunkIndex       int
+	Workload         string
+	InputURI         string
+	InputSHA256      string
+	Parameters       map[string]any
+	Status           TaskStatus
+	Attempt          int
+	MaxAttempts      int
+	LeaseOwner       *string
+	LeaseExpiresAt   *time.Time
+	ResultArtifactID *uuid.UUID
+	Metrics          map[string]any
+	ErrorCode        *string
+	ErrorMessage     *string
+	CreatedAt        time.Time
+	StartedAt        *time.Time
+	CompletedAt      *time.Time
+	Version          int
 }
 
 // NewTask builds a pending task. maxAttempts <= 0 falls back to the default.
@@ -146,17 +145,16 @@ func (t *Task) RenewLease(worker string, attempt int, until time.Time) error {
 // retry the same manifest, and that must succeed rather than trip the lease
 // check on a task the coordinator already finished. A *different* manifest for
 // an already-completed task is a genuine conflict.
-func (t *Task) CompleteWith(resultURI, resultSHA256 string, metrics map[string]any,
+func (t *Task) CompleteWith(resultArtifactID uuid.UUID, metrics map[string]any,
 	worker string, attempt int, now time.Time) error {
 
-	if resultURI == "" || resultSHA256 == "" {
+	if resultArtifactID == uuid.Nil {
 		return ErrInvalidInput
 	}
 
 	if t.Status == TaskCompleted {
-		if t.Attempt == attempt && t.ResultURI != nil && *t.ResultURI == resultURI &&
-			t.ResultSHA256 != nil && *t.ResultSHA256 == resultSHA256 {
-			return nil // same attempt, same manifest — replay of a successful call
+		if t.Attempt == attempt && t.ResultArtifactID != nil && *t.ResultArtifactID == resultArtifactID {
+			return nil // same attempt, same artifact — replay of a successful call
 		}
 		return ErrResultConflict
 	}
@@ -166,8 +164,7 @@ func (t *Task) CompleteWith(resultURI, resultSHA256 string, metrics map[string]a
 	}
 
 	t.Status = TaskCompleted
-	t.ResultURI = &resultURI
-	t.ResultSHA256 = &resultSHA256
+	t.ResultArtifactID = &resultArtifactID
 	t.Metrics = metrics
 	t.CompletedAt = &now
 	t.LeaseOwner = nil
@@ -234,11 +231,11 @@ type ClaimedTask struct {
 	LeaseExpiresAt time.Time
 }
 
-// ResultManifest is a completed task's output, ordered for the stitcher.
+// ResultManifest is a completed task's output, ordered for the stitcher. It
+// points at the coordinator-owned result artifact rather than a worker URI.
 type ResultManifest struct {
-	TaskID       uuid.UUID
-	ChunkIndex   int
-	ResultURI    string
-	ResultSHA256 string
-	Metrics      map[string]any
+	TaskID           uuid.UUID
+	ChunkIndex       int
+	ResultArtifactID uuid.UUID
+	Metrics          map[string]any
 }

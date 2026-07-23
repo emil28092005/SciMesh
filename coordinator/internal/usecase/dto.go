@@ -42,12 +42,11 @@ type RenewLeaseInput struct {
 }
 
 type CompleteTaskInput struct {
-	TaskID       uuid.UUID
-	WorkerID     string
-	Attempt      int
-	ResultURI    string
-	ResultSHA256 string
-	Metrics      map[string]any
+	TaskID           uuid.UUID
+	WorkerID         string
+	Attempt          int
+	ResultArtifactID uuid.UUID
+	Metrics          map[string]any
 }
 
 type UploadArtifactInput struct {

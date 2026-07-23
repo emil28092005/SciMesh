@@ -99,15 +99,14 @@ func (uc *ListResults) Execute(ctx context.Context, jobID uuid.UUID) ([]domain.R
 
 	manifests := make([]domain.ResultManifest, 0, len(tasks))
 	for _, t := range tasks {
-		if t.ResultURI == nil || t.ResultSHA256 == nil {
-			continue // a completed task always carries both; skip defensively
+		if t.ResultArtifactID == nil {
+			continue // a completed task always references its result; skip defensively
 		}
 		manifests = append(manifests, domain.ResultManifest{
-			TaskID:       t.ID,
-			ChunkIndex:   t.ChunkIndex,
-			ResultURI:    *t.ResultURI,
-			ResultSHA256: *t.ResultSHA256,
-			Metrics:      t.Metrics,
+			TaskID:           t.ID,
+			ChunkIndex:       t.ChunkIndex,
+			ResultArtifactID: *t.ResultArtifactID,
+			Metrics:          t.Metrics,
 		})
 	}
 	return manifests, nil

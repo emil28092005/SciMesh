@@ -133,12 +133,11 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	}
 
 	task, err := s.uc.CompleteTask.Execute(ctx, usecase.CompleteTaskInput{
-		TaskID:       taskID,
-		WorkerID:     req.WorkerID,
-		Attempt:      req.Attempt,
-		ResultURI:    req.ResultURI,
-		ResultSHA256: req.ResultSHA256,
-		Metrics:      req.Metrics,
+		TaskID:           taskID,
+		WorkerID:         req.WorkerID,
+		Attempt:          req.Attempt,
+		ResultArtifactID: req.Result.ArtifactID,
+		Metrics:          req.Metrics,
 	})
 	if err != nil {
 		s.writeError(w, r, err)

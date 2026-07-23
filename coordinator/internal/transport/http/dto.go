@@ -54,11 +54,19 @@ type heartbeatRequest struct {
 }
 
 type resultRequest struct {
-	WorkerID     string         `json:"worker_id"`
-	Attempt      int            `json:"attempt"`
-	ResultURI    string         `json:"result_uri"`
-	ResultSHA256 string         `json:"result_sha256"`
-	Metrics      map[string]any `json:"metrics"`
+	WorkerID string         `json:"worker_id"`
+	Attempt  int            `json:"attempt"`
+	Result   resultManifest `json:"result"`
+	Metrics  map[string]any `json:"metrics"`
+}
+
+// resultManifest references the artifact the worker already uploaded. sha256 and
+// content_type are accepted for the worker's own cross-checking; the coordinator
+// trusts its own stored metadata, not these.
+type resultManifest struct {
+	ArtifactID  uuid.UUID `json:"artifact_id"`
+	SHA256      string    `json:"sha256"`
+	ContentType string    `json:"content_type"`
 }
 
 type failureRequest struct {
