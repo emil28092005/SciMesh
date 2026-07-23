@@ -780,6 +780,10 @@ for the exact sparse similarity graph.
 **Goal:** Add a small server-rendered or static HTML UI to inspect jobs, tasks,
 workers, and download final artifacts.
 
+**Detailed delivery plan:** [`docs/web-interface-plan.md`](docs/web-interface-plan.md).
+The plan deliberately starts with a clearly labelled diagnostic UI before
+CTX-09 enables final result downloads.
+
 **Depends on:** CTX-04, CTX-09.
 
 **Acceptance criteria:**
