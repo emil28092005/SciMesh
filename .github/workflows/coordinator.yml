@@ -1,0 +1,66 @@
+name: coordinator
+
+on:
+  push:
+    paths:
+      - "coordinator/**"
+      - ".github/workflows/coordinator.yml"
+  pull_request:
+    paths:
+      - "coordinator/**"
+      - ".github/workflows/coordinator.yml"
+
+defaults:
+  run:
+    working-directory: coordinator
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scimesh
+          POSTGRES_PASSWORD: scimesh
+          POSTGRES_DB: scimesh
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scimesh"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      TEST_DATABASE_URL: postgres://scimesh:scimesh@localhost:5432/scimesh?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: coordinator/go.mod
+          cache-dependency-path: coordinator/go.sum
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+
+      - name: unit tests (race)
+        run: go test -race ./...
+
+      - name: lint
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run --build-tags=integration ./...
+
+      - name: install migrate CLI
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.17.1
+
+      - name: apply migrations
+        run: migrate -path migrations -database "$TEST_DATABASE_URL" up
+
+      - name: integration tests
+        run: go test -tags=integration ./internal/storage/postgres/ -v

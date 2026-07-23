@@ -1,0 +1,6 @@
+/coordinator
+/bin/
+.env
+*.out
+/logs/
+/data/

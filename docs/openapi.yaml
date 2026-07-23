@@ -1,0 +1,552 @@
+openapi: 3.0.3
+info:
+  title: SciMesh Coordinator API
+  version: 1.0.0
+  description: >
+    Durable task-queue server for SciMesh. Workers register, claim tasks one at a
+    time, heartbeat, upload partial-result artifacts, and complete or fail tasks.
+    Submitters create jobs — either with pre-chunked input URIs or by uploading a
+    dataset the coordinator chunks itself.
+
+
+    Machine-readable mirror of `docs/api-contract.md` (v1). All timestamps are
+    UTC, RFC 3339. Every endpoint except `GET /health` requires a bearer token.
+    Unknown JSON fields are rejected with 400.
+
+servers:
+  - url: "{scheme}://{host}"
+    variables:
+      scheme:
+        default: http
+        enum: [http, https]
+      host:
+        default: localhost:8080
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: health
+  - name: workers
+  - name: jobs
+  - name: tasks
+  - name: artifacts
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Readiness (probes the database)
+      security: []
+      responses:
+        "200":
+          description: The coordinator and its database are ready.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "503":
+          description: The database is unreachable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+
+  /workers/register:
+    post:
+      tags: [workers]
+      summary: Register a worker
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Registered.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RegisterResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /jobs:
+    post:
+      tags: [jobs]
+      summary: Create a job from pre-chunked input URIs
+      description: >
+        The submitter supplies each chunk's input URI and checksum. To have the
+        coordinator split a dataset instead, use `POST /jobs/upload`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateJobRequest" }
+      responses:
+        "201":
+          description: Job and its tasks were created transactionally.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobCreated" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /jobs/upload:
+    post:
+      tags: [jobs]
+      summary: Upload a dataset; the coordinator chunks it into shard tasks
+      description: >
+        multipart/form-data. The text fields (`workload`, `parameters`,
+        `chunk_rows`) MUST precede the `file` part: the file is streamed, not
+        buffered, so the fields have to be parsed before it arrives.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/UploadJobForm" }
+            encoding:
+              file:
+                contentType: text/tab-separated-values
+      responses:
+        "201":
+          description: Job, input artifact, shard artifacts, and shard tasks created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadJobResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /jobs/{job_id}:
+    get:
+      tags: [jobs]
+      summary: Aggregate job progress
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: Progress counts and derived status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobProgress" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /tasks/claim:
+    post:
+      tags: [tasks]
+      summary: Atomically lease one task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClaimRequest" }
+      responses:
+        "200":
+          description: A task was leased.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClaimedTask" }
+        "204":
+          description: No compatible task is available.
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /tasks/{task_id}/heartbeat:
+    post:
+      tags: [tasks]
+      summary: Renew the caller's lease
+      description: >
+        The response carries a renewed `lease_expires_at`. Schedule the next
+        heartbeat before half of the remaining TTL, never on a fixed interval alone.
+      parameters:
+        - $ref: "#/components/parameters/TaskID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/IdentityRequest" }
+      responses:
+        "200":
+          description: Lease renewed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClaimedTask" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /tasks/{task_id}/input:
+    get:
+      tags: [tasks]
+      summary: Download the task's input shard
+      description: >
+        Streams the shard bytes for an uploaded-dataset task. The worker verifies
+        the `X-Checksum-SHA256` header (also delivered as `input.sha256` on claim)
+        before executing. URI-based tasks have no coordinator-stored input and
+        return 404.
+      parameters:
+        - $ref: "#/components/parameters/TaskID"
+      responses:
+        "200":
+          description: The shard bytes.
+          headers:
+            X-Checksum-SHA256:
+              schema: { type: string }
+              description: SHA-256 of the shard.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /tasks/{task_id}/artifacts/{filename}:
+    put:
+      tags: [tasks, artifacts]
+      summary: Upload a partial-result artifact
+      description: >
+        Streams the body into blob storage. Identity travels in headers, not the
+        body. The coordinator measures the size and SHA-256 itself and returns them.
+      parameters:
+        - $ref: "#/components/parameters/TaskID"
+        - name: filename
+          in: path
+          required: true
+          schema: { type: string }
+        - name: X-Worker-ID
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-Task-Attempt
+          in: header
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+          text/csv:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Artifact stored.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArtifactUploaded" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /tasks/{task_id}/result:
+    post:
+      tags: [tasks]
+      summary: Complete a task with an uploaded result artifact
+      description: >
+        References an artifact previously uploaded for THIS task. The coordinator
+        verifies ownership before accepting it. Idempotent: replaying the same
+        artifact_id succeeds; a different one for a completed task is a 409.
+      parameters:
+        - $ref: "#/components/parameters/TaskID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResultRequest" }
+      responses:
+        "200":
+          description: Recorded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskState" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /tasks/{task_id}/failure:
+    post:
+      tags: [tasks]
+      summary: Report a task failure
+      description: >
+        `retryable: true` returns the task to the queue while attempts remain;
+        otherwise it fails terminally. Send only sanitized error fields — never a
+        traceback, token, or absolute worker path.
+      parameters:
+        - $ref: "#/components/parameters/TaskID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FailureRequest" }
+      responses:
+        "200":
+          description: Recorded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskState" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /artifacts/{artifact_id}/download:
+    get:
+      tags: [artifacts]
+      summary: Download an artifact by id
+      parameters:
+        - name: artifact_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The artifact bytes.
+          headers:
+            X-Checksum-SHA256:
+              schema: { type: string }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  parameters:
+    JobID:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    TaskID:
+      name: task_id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: Invalid input.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: The referenced job, task, or artifact does not exist.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: Lease not held, stale attempt, or a different result already recorded.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Health:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+
+    Error:
+      type: object
+      properties:
+        error: { type: string, example: "invalid input" }
+        request_id: { type: string, description: Correlates with the server logs. }
+
+    RegisterRequest:
+      type: object
+      required: [capabilities]
+      properties:
+        name: { type: string, example: lab-worker-01 }
+        capabilities:
+          type: array
+          minItems: 1
+          items: { type: string }
+          example: [similarity_search, similarity_graph]
+        cpu_count:
+          type: integer
+          description: Accepted for forward compatibility; not yet persisted.
+        memory_mb:
+          type: integer
+          description: Accepted for forward compatibility; not yet persisted.
+
+    RegisterResponse:
+      type: object
+      properties:
+        worker_id: { type: string, format: uuid }
+        heartbeat_interval_seconds: { type: integer, example: 15 }
+
+    ChunkSpec:
+      type: object
+      required: [chunk_index, input_uri, input_sha256]
+      properties:
+        chunk_index: { type: integer }
+        workload:
+          type: string
+          description: Empty inherits the job's workload.
+        input_uri: { type: string }
+        input_sha256: { type: string }
+        parameters: { type: object, additionalProperties: true }
+        max_attempts: { type: integer }
+
+    CreateJobRequest:
+      type: object
+      required: [workload, input_uri, chunks]
+      properties:
+        workload: { type: string, example: similarity_search }
+        input_uri: { type: string }
+        parameters: { type: object, additionalProperties: true }
+        chunks:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/ChunkSpec" }
+
+    JobCreated:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/JobStatus" }
+
+    UploadJobForm:
+      type: object
+      required: [workload, file]
+      properties:
+        workload: { type: string, example: similarity_search }
+        parameters:
+          type: string
+          description: JSON object, sent as a string form field.
+          example: '{"top_k":10}'
+        chunk_rows:
+          type: integer
+          description: Data rows per shard. Default 1000.
+          example: 1000
+        file:
+          type: string
+          format: binary
+          description: The dataset (TSV; header repeated into each shard).
+
+    UploadJobResponse:
+      type: object
+      properties:
+        job_id: { type: string, format: uuid }
+        task_count: { type: integer, example: 3 }
+        input_artifact_id: { type: string, format: uuid }
+
+    JobProgress:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/JobStatus" }
+        total: { type: integer }
+        pending: { type: integer }
+        leased: { type: integer }
+        completed: { type: integer }
+        failed: { type: integer }
+
+    ClaimRequest:
+      type: object
+      required: [worker_id]
+      properties:
+        worker_id: { type: string }
+        capabilities:
+          type: array
+          items: { type: string }
+          description: Workloads this worker can run. Empty means "any".
+        max_concurrency:
+          type: integer
+          description: Accepted; the coordinator leases one task per call.
+
+    InputRef:
+      type: object
+      properties:
+        uri:
+          type: string
+          description: >
+            For an uploaded shard, a coordinator path `/tasks/{id}/input`. For a
+            URI-based task, the external input URI.
+        sha256: { type: string }
+
+    ClaimedTask:
+      type: object
+      properties:
+        task_id: { type: string, format: uuid }
+        job_id: { type: string, format: uuid }
+        chunk_index: { type: integer }
+        workload: { type: string }
+        input: { $ref: "#/components/schemas/InputRef" }
+        parameters: { type: object, additionalProperties: true }
+        attempt: { type: integer }
+        lease_expires_at: { type: string, format: date-time }
+
+    IdentityRequest:
+      type: object
+      required: [worker_id, attempt]
+      properties:
+        worker_id: { type: string }
+        attempt: { type: integer }
+
+    ResultManifest:
+      type: object
+      required: [artifact_id]
+      properties:
+        artifact_id:
+          type: string
+          format: uuid
+          description: An artifact previously uploaded for this task.
+        sha256:
+          type: string
+          description: Accepted for the worker's own cross-check; the coordinator trusts its stored metadata.
+        content_type: { type: string }
+
+    ResultRequest:
+      type: object
+      required: [worker_id, attempt, result]
+      properties:
+        worker_id: { type: string }
+        attempt: { type: integer }
+        result: { $ref: "#/components/schemas/ResultManifest" }
+        metrics: { type: object, additionalProperties: true }
+
+    FailureRequest:
+      type: object
+      required: [worker_id, attempt, error_code]
+      properties:
+        worker_id: { type: string }
+        attempt: { type: integer }
+        error_code: { type: string, example: download_failed }
+        error_message: { type: string }
+        retryable: { type: boolean }
+
+    ArtifactUploaded:
+      type: object
+      properties:
+        artifact_id: { type: string, format: uuid }
+        uri:
+          type: string
+          description: Coordinator download path, `/artifacts/{id}/download`.
+        sha256: { type: string }
+        size_bytes: { type: integer, format: int64 }
+
+    TaskState:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        job_id: { type: string, format: uuid }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+
+    JobStatus:
+      type: string
+      enum: [pending, running, completed, failed, cancelled]
+
+    TaskStatus:
+      type: string
+      enum: [pending, leased, completed, failed, cancelled]

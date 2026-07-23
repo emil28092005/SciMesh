@@ -1,86 +1,150 @@
-# SciMesh Coordinator API Contract
+# SciMesh coordinator ↔ worker API contract (v1)
 
-**Status:** draft, version 1. This document is the compatibility boundary
-between the Go coordinator and the Python Worker. Change it only in the same
-pull request as both implementation and contract tests.
+**Status marker:** `v1`. This document is the single source of truth for the Go
+coordinator and the Python Worker Daemon. It is derived from `PLAN.md` §5 and
+must be updated in the same change as any behaviour it describes.
 
-## General rules
+> **Machine-readable:** [`openapi.yaml`](openapi.yaml) is the OpenAPI 3.0 mirror
+> of this document — feed it to `openapi-python-client` or `datamodel-code-generator`
+> to generate the Python client/models. This markdown stays the human-readable
+> source; keep the two in sync.
 
-- All worker endpoints require `Authorization: Bearer <token>`.
-- Times use UTC RFC 3339, for example `2026-07-23T12:05:00Z`.
-- JSON requests and responses use `application/json`.
-- `worker_id` and `attempt` identify a lease. The coordinator validates them
-  transactionally on every task mutation.
-- A task becomes `completed` only after a coordinator-owned artifact is durable.
-- Identical repeated completion is successful; a different result for the same
-  attempt is a conflict.
+- **Auth:** every endpoint except readiness requires `Authorization: Bearer <token>`.
+- **Identity:** every mutating worker request carries `worker_id` and `attempt`;
+  they are checked against the current task lease in PostgreSQL. A stale attempt
+  gets `409`.
+- **Timestamps:** UTC, RFC 3339 (e.g. `2026-07-22T12:05:00Z`).
+- **Unknown JSON fields are rejected** with `400`.
 
-## Worker registration
+## Implementation status
+
+| Endpoint | Contract | Coordinator |
+| --- | --- | --- |
+| `GET /health` | readiness incl. DB | ✅ done |
+| `POST /workers/register` | register + capabilities | ✅ done |
+| `POST /tasks/claim` | atomic lease | ✅ done |
+| `POST /tasks/{id}/heartbeat` | renew lease | ✅ done |
+| `POST /tasks/{id}/result` | complete | ✅ done, references `artifact_id` |
+| `POST /tasks/{id}/failure` | fail | ✅ done |
+| `GET /jobs/{id}` | progress | ✅ done |
+| `PUT /tasks/{id}/artifacts/{name}` | upload partial | ✅ done |
+| `GET /artifacts/{id}/download` | download by id | ✅ done |
+| `POST /jobs/upload` | upload dataset, coordinator chunks it | ✅ done |
+| `GET /tasks/{id}/input` | download shard | ✅ done |
+
+---
+
+## Readiness
+
+```http
+GET /health
+```
+
+`200 {"status":"ok"}` when the database is reachable; `503 {"status":"unavailable"}`
+otherwise. Unauthenticated.
+
+## Submit a dataset (submitter-side)
+
+```http
+POST /jobs/upload
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+```
+
+Fields, in order (text fields first, file last — the file is streamed):
+`workload`, `parameters` (JSON), `chunk_rows` (int, default 1000), and the file
+part `file`. The coordinator stores the input, splits the TSV into shard
+artifacts (header repeated per shard), and creates one task per shard.
+
+`201`:
+
+```json
+{ "job_id": "uuid", "task_count": 3, "input_artifact_id": "uuid" }
+```
+
+Each resulting task's claim response carries `input.uri = /tasks/{id}/input`,
+served by §5.4.
+
+## Register worker
 
 ```http
 POST /workers/register
+Authorization: Bearer <token>
+Content-Type: application/json
 
-{"name":"lab-worker-01","capabilities":["similarity-search"],"cpu_count":8,"memory_mb":16384}
-```
-
-Returns `200 OK`:
-
-```json
-{"worker_id":"uuid","heartbeat_interval_seconds":15}
-```
-
-## Task lifecycle
-
-### Claim
-
-```http
-POST /tasks/claim
-
-{"worker_id":"uuid","capabilities":["similarity-search"],"max_concurrency":1}
-```
-
-Returns `204 No Content` when no compatible task exists. A successful atomic
-claim returns `200 OK`:
-
-```json
 {
-  "task_id":"uuid",
-  "attempt":1,
-  "lease_expires_at":"2026-07-23T12:05:00Z",
-  "workload":"similarity-search",
-  "input":{"uri":"https://coordinator.example/tasks/uuid/input","sha256":"hex-sha256"},
-  "parameters":{"query_id":"CHEMBL939","top_k":20}
+  "name": "lab-worker-01",
+  "capabilities": ["similarity-search", "similarity-graph"],
+  "cpu_count": 8,
+  "memory_mb": 16384
 }
 ```
 
-The claim is one PostgreSQL transaction using `FOR UPDATE SKIP LOCKED`.
+`201`:
 
-### Heartbeat
+```json
+{ "worker_id": "uuid", "heartbeat_interval_seconds": 15 }
+```
+
+`cpu_count`/`memory_mb` are accepted for forward compatibility and not yet
+persisted. `capabilities` must be non-empty (an allowlisted workload set).
+
+## Claim task
+
+```http
+POST /tasks/claim
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "worker_id": "uuid", "capabilities": ["similarity-search"], "max_concurrency": 1 }
+```
+
+- `204 No Content`: no compatible task.
+- `200 OK`: a task is leased atomically.
+
+```json
+{
+  "task_id": "uuid",
+  "attempt": 1,
+  "lease_expires_at": "2026-07-22T12:05:00Z",
+  "workload": "similarity-search",
+  "input": { "uri": "https://coordinator/tasks/uuid/input", "sha256": "hex" },
+  "parameters": { "query_id": "CHEMBL939", "top_k": 20 }
+}
+```
+
+`max_concurrency` is accepted; the coordinator leases one task per call for now.
+
+## Renew lease (heartbeat)
 
 ```http
 POST /tasks/{task_id}/heartbeat
+Authorization: Bearer <token>
+Content-Type: application/json
 
-{"worker_id":"uuid","attempt":1}
+{ "worker_id": "uuid", "attempt": 1 }
 ```
 
-Returns `200 OK` and the renewed deadline:
+Response **must** contain a renewed deadline:
 
 ```json
-{"lease_expires_at":"2026-07-23T12:10:00Z"}
+{ "lease_expires_at": "2026-07-22T12:10:00Z" }
 ```
 
-The Worker schedules its next heartbeat before half of the returned TTL.
+The worker schedules the next heartbeat before half of the returned TTL, never
+on a fixed interval alone.
 
-### Input download
+## Download input or shard (CTX-05)
 
-`GET /tasks/{task_id}/input` returns the claimed task input. The Worker verifies
-its SHA-256 before execution. On a redirect to another origin, it removes the
-coordinator bearer token.
+`GET /tasks/{task_id}/input` returns the artifact owned by the current task. The
+worker verifies its SHA-256 before execution. If the URI redirects to another
+origin, the worker removes the coordinator bearer token.
 
-## Artifact upload
+## Upload a partial artifact (CTX-05)
 
 ```http
 PUT /tasks/{task_id}/artifacts/{filename}
+Authorization: Bearer <token>
 Content-Type: text/csv
 X-Worker-ID: uuid
 X-Task-Attempt: 1
@@ -88,64 +152,49 @@ X-Task-Attempt: 1
 <streamed bytes>
 ```
 
-The coordinator streams the body to storage, checks lease ownership, records
-the checksum and returns `201 Created`:
+`200`:
 
 ```json
-{
-  "artifact_id":"uuid",
-  "uri":"https://coordinator.example/artifacts/uuid/download",
-  "sha256":"hex-sha256",
-  "size_bytes":1234
-}
+{ "artifact_id": "uuid", "uri": "https://coordinator/artifacts/uuid/download",
+  "sha256": "hex", "size_bytes": 1234 }
 ```
 
-The returned URI is the only URI the Worker may send in task completion.
-`worker://` and `file://` are invalid.
-
-## Completion and failure
+## Complete or fail task
 
 ```http
 POST /tasks/{task_id}/result
+Authorization: Bearer <token>
+Content-Type: application/json
 
 {
-  "worker_id":"uuid",
-  "attempt":1,
-  "result":{
-    "artifact_id":"uuid",
-    "uri":"https://coordinator.example/artifacts/uuid/download",
-    "sha256":"hex-sha256",
-    "content_type":"text/csv"
-  },
-  "metrics":{"elapsed_seconds":12.4,"processed_rows":10000}
+  "worker_id": "uuid",
+  "attempt": 1,
+  "result": { "artifact_id": "uuid", "sha256": "hex", "content_type": "text/csv" },
+  "metrics": { "elapsed_seconds": 12.4, "processed_rows": 10000 }
 }
 ```
 
-The coordinator returns `200`, `201`, or `202` for a valid completion. It must
-verify that the artifact belongs to that task and attempt before completing it.
+The worker uploads its partial result first (§5.5), then completes with that
+`artifact_id`. The coordinator verifies the artifact was stored for this exact
+task before accepting it — a worker cannot complete one task with another task's
+artifact. No worker-supplied URI is ever persisted.
 
-Use `POST /tasks/{task_id}/failure` only for a failed attempt:
-
-```json
-{"worker_id":"uuid","attempt":1,"error_code":"ValueError","error_message":"input checksum mismatch"}
+```http
+POST /tasks/{task_id}/failure
 ```
 
-Messages are sanitised: no token, traceback, absolute local path, or raw input.
+Same identity fields, plus sanitized `error_code`, `error_message`, `retryable`.
+Never a traceback, token, or absolute worker path.
 
-## Error responses
+## Idempotency and errors
 
 | Situation | Response |
 | --- | --- |
-| Invalid JSON, field, or parameter | `400 Bad Request` |
-| Missing or invalid authentication | `401 Unauthorized` / `403 Forbidden` |
-| Worker/attempt does not own an active lease | `409 Conflict` |
-| Artifact does not belong to the task/attempt | `409 Conflict` |
-| Same attempt, different completion manifest | `409 Conflict` |
-| Unexpected coordinator failure | `500` without internal details |
-
-## Compatibility tests
-
-Contract tests must cover: registration, `204` claim, successful claim,
-heartbeat renewal, foreign worker and stale attempt conflicts, streamed upload,
-checksum mismatch, success after upload, failure through `/failure`, and
-idempotent completion.
+| No compatible task | `204` |
+| Worker/attempt does not own lease | `409` |
+| Artifact does not belong to task/attempt | `409` |
+| Same completion, same manifest | `200` idempotent |
+| Same attempt, different manifest | `409` |
+| Invalid parameters/input | `400` |
+| Auth failure | `401` |
+| Unknown job/task | `404` |

@@ -1,0 +1,81 @@
+name: scimesh
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-scimesh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scimesh}
+      POSTGRES_DB: ${POSTGRES_DB:-scimesh}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Everything else waits on this, so the check must prove the server
+      # accepts queries — not merely that the port is open.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scimesh} -d ${POSTGRES_DB:-scimesh}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # One-shot: applies migrations, then exits. Schema changes stay an explicit
+  # deployment step — the coordinator binary never migrates on startup.
+  migrate:
+    image: migrate/migrate:v4.17.1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations:ro
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-scimesh}:${POSTGRES_PASSWORD:-scimesh}@postgres:5432/${POSTGRES_DB:-scimesh}?sslmode=disable
+      - up
+    restart: on-failure
+
+  coordinator:
+    build:
+      context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Start only once the schema exists, otherwise the first query fails.
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      COORDINATOR_ADDR: ":8080"
+      # Host is the service name: compose resolves it on the project network.
+      DATABASE_URL: postgres://${POSTGRES_USER:-scimesh}:${POSTGRES_PASSWORD:-scimesh}@postgres:5432/${POSTGRES_DB:-scimesh}?sslmode=disable
+      WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN:-dev-token}
+      DB_MAX_CONNS: "10"
+      REQUEST_TIMEOUT: "15s"
+      LEASE_DURATION: "2m"
+      REAPER_INTERVAL: "30s"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Logs are teed to stdout (docker logs) and this rotated file on a named
+      # volume, so they survive a rebuild.
+      LOG_FILE: /var/log/scimesh/coordinator.log
+      # Artifact bytes live on a named volume, durable across rebuilds.
+      COORDINATOR_STORAGE_DIR: /var/lib/scimesh/artifacts
+    ports:
+      - "${COORDINATOR_PORT:-8080}:8080"
+    # Named volumes (not host bind mounts): they inherit the image's directory
+    # ownership, so the non-root process can write to them. A bind mount would
+    # be root-owned and unwritable by uid 10001.
+    volumes:
+      - coordinator_logs:/var/log/scimesh
+      - coordinator_data:/var/lib/scimesh/artifacts
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  coordinator_logs:
+  coordinator_data:
