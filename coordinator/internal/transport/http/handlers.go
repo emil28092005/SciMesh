@@ -40,6 +40,30 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, jobResponse{ID: job.ID, Status: string(job.Status)})
 }
 
+func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+
+	var req registerRequest
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+
+	worker, err := s.uc.RegisterWorker.Execute(ctx, usecase.RegisterWorkerInput{
+		Name:         req.Name,
+		Capabilities: req.Capabilities,
+	})
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, registerResponse{
+		WorkerID:                 worker.ID,
+		HeartbeatIntervalSeconds: int(s.heartbeatInterval.Seconds()),
+	})
+}
+
 func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := s.reqCtx(r)
 	defer cancel()
@@ -52,7 +76,7 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 
 	claimed, err := s.uc.ClaimTask.Execute(ctx, usecase.ClaimTaskInput{
 		WorkerID:  req.WorkerID,
-		Workloads: req.Workloads,
+		Workloads: req.Capabilities,
 	})
 	if err != nil {
 		s.writeError(w, r, err)

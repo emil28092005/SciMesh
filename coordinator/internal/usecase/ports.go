@@ -62,6 +62,12 @@ type JobRepository interface {
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.JobStatus, completedAt *time.Time) error
 }
 
+// WorkerRepository persists the worker registry.
+type WorkerRepository interface {
+	Insert(ctx context.Context, w *domain.Worker) error
+	Get(ctx context.Context, id uuid.UUID) (*domain.Worker, error)
+}
+
 // TxManager runs a function inside one database transaction. The transaction
 // travels in the context, so repositories pick it up without this port ever
 // mentioning pgx.

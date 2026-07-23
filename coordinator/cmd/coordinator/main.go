@@ -1,7 +1,3 @@
-// Command coordinator is the SciMesh task-queue server. It owns all database
-// access; workers reach it only over HTTP and never receive DB credentials.
-// Migrations are a separate explicit command (see Makefile) — this binary never
-// mutates schema at startup.
 package main
 
 import (
@@ -19,52 +15,58 @@ import (
 )
 
 func main() {
-	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-
-	// All work happens in run() so its defers (pool.Close, signal stop) still
-	// execute: os.Exit skips deferred calls entirely.
-	if err := run(log); err != nil {
-		log.Error("fatal", "err", err)
+	// All work happens in run() so its defers (pool.Close, log flush, signal
+	// stop) still execute: os.Exit skips deferred calls entirely.
+	if err := run(); err != nil {
 		os.Exit(1)
 	}
 }
 
-func run(log *slog.Logger) error {
-	cfg, err := infra.Load()
+func run() error {
+	// Bootstrap logger, used only until config says where logs should go. It
+	// writes to stderr so it never contaminates the configured stdout stream.
+	boot := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+
+	cfg, err := infra.LoadConfig()
 	if err != nil {
+		boot.Error("load config", "err", err)
 		return err
 	}
 
-	// One cancellation source for the whole process: HTTP server and reaper
-	// both observe it and wind down together.
+	// The real logger: stdout plus an optional rotated file (LOG_FILE).
+	log, logCloser, err := infra.NewLogger(cfg)
+	if err != nil {
+		boot.Error("init logger", "err", err)
+		return err
+	}
+	defer func() { _ = logCloser.Close() }()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := infra.NewPool(ctx, cfg)
+	pool, err := infra.NewPool(ctx, cfg, log)
 	if err != nil {
+		log.Error("connect database", "err", err)
 		return err
 	}
 	defer pool.Close()
 
-	// --- composition root: the only place that knows concrete types ---
-	//
-	// Wiring reads outward-in: adapters are constructed, then injected into
-	// use cases through their ports. Nothing below this function can see a
-	// pgxpool, and nothing above the repositories can see SQL.
 	var (
-		clk      = infra.NewClock()
-		tx       = postgres.NewTxManager(pool)
-		taskRepo = postgres.NewTaskRepo(pool)
-		jobRepo  = postgres.NewJobRepo(pool)
+		clk        = infra.NewClock()
+		tx         = postgres.NewTxManager(pool)
+		taskRepo   = postgres.NewTaskRepo(pool)
+		jobRepo    = postgres.NewJobRepo(pool)
+		workerRepo = postgres.NewWorkerRepo(pool)
 	)
 
 	useCases := httptransport.UseCases{
-		CreateJob:    usecase.NewCreateJob(jobRepo, taskRepo, tx, clk),
-		ClaimTask:    usecase.NewClaimTask(taskRepo, clk, cfg.LeaseDuration),
-		RenewLease:   usecase.NewRenewLease(taskRepo, tx, clk, cfg.LeaseDuration),
-		CompleteTask: usecase.NewCompleteTask(taskRepo, jobRepo, tx, clk),
-		FailTask:     usecase.NewFailTask(taskRepo, jobRepo, tx, clk),
-		GetJobStatus: usecase.NewGetJobStatus(jobRepo, taskRepo),
+		RegisterWorker: usecase.NewRegisterWorker(workerRepo, clk),
+		CreateJob:      usecase.NewCreateJob(jobRepo, taskRepo, tx, clk),
+		ClaimTask:      usecase.NewClaimTask(taskRepo, clk, cfg.LeaseDuration),
+		RenewLease:     usecase.NewRenewLease(taskRepo, tx, clk, cfg.LeaseDuration),
+		CompleteTask:   usecase.NewCompleteTask(taskRepo, jobRepo, tx, clk),
+		FailTask:       usecase.NewFailTask(taskRepo, jobRepo, tx, clk),
+		GetJobStatus:   usecase.NewGetJobStatus(jobRepo, taskRepo),
 	}
 
 	// Background workers are tracked so shutdown can wait for them. Without
@@ -77,8 +79,10 @@ func run(log *slog.Logger) error {
 		infra.RunReaper(ctx, log, usecase.NewExpireLeases(taskRepo, clk), cfg.ReaperInterval)
 	}()
 
-	api := httptransport.NewServer(useCases, log, cfg.RequestTimeout)
-	err = infra.RunServer(ctx, log, cfg.Addr, api.Handler(cfg.WorkerAuthToken))
+	// pool.Ping backs /health: readiness means the database answers, not just
+	// that the process is alive.
+	api := httptransport.NewServer(useCases, log, cfg.RequestTimeout, cfg.HeartbeatInterval, pool.Ping)
+	err = infra.RunServer(ctx, log, cfg.Addr, api.Handler(cfg.Token))
 
 	// Shutdown order matters, and defers alone cannot express it (they run
 	// LIFO, so the deferred stop() would fire *after* the wait below).

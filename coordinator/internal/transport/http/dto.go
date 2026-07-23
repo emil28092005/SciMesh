@@ -28,9 +28,24 @@ type chunkDTO struct {
 	MaxAttempts int            `json:"max_attempts"`
 }
 
+type registerRequest struct {
+	Name         string   `json:"name"`
+	Capabilities []string `json:"capabilities"`
+	// Accepted per the contract for forward compatibility; not yet persisted.
+	CPUCount int `json:"cpu_count"`
+	MemoryMB int `json:"memory_mb"`
+}
+
+type registerResponse struct {
+	WorkerID                 uuid.UUID `json:"worker_id"`
+	HeartbeatIntervalSeconds int       `json:"heartbeat_interval_seconds"`
+}
+
 type claimRequest struct {
-	WorkerID  string   `json:"worker_id"`
-	Workloads []string `json:"workloads"`
+	WorkerID     string   `json:"worker_id"`
+	Capabilities []string `json:"capabilities"`
+	// Accepted per the contract; the coordinator leases one task per call.
+	MaxConcurrency int `json:"max_concurrency"`
 }
 
 type heartbeatRequest struct {

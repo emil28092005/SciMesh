@@ -46,6 +46,13 @@ check "claim without a token → 401"     401 -X POST "${HOST}/tasks/claim" \
 	-H 'Content-Type: application/json' -d '{"worker_id":"w1"}'
 
 echo
+echo "worker registry"
+check "register worker"                 201 -X POST "${HOST}/workers/register" "${auth[@]}" \
+	-d '{"name":"smoke-worker","capabilities":["similarity_search"],"cpu_count":4,"memory_mb":8192}'
+check "register without capabilities → 400" 400 -X POST "${HOST}/workers/register" "${auth[@]}" \
+	-d '{"name":"bad"}'
+
+echo
 echo "job lifecycle"
 job=$(curl -sS "${auth[@]}" -X POST "${HOST}/jobs" -d '{
   "workload":"similarity_search","input_uri":"s3://chembl","parameters":{"top_k":10},

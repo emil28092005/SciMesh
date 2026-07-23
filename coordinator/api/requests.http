@@ -10,7 +10,7 @@
 @token = change-me
 @worker = worker-1
 
-### Health — the only unauthenticated endpoint
+### Readiness — the only unauthenticated endpoint (probes the database)
 GET {{host}}/health
 
 ### Auth check — no token must be rejected with 401
@@ -18,6 +18,21 @@ POST {{host}}/tasks/claim
 Content-Type: application/json
 
 { "worker_id": "{{worker}}" }
+
+### 0. Register a worker (201)
+# @name register
+POST {{host}}/workers/register
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "lab-worker-01",
+  "capabilities": ["similarity_search"],
+  "cpu_count": 8,
+  "memory_mb": 16384
+}
+
+@workerId = {{register.response.body.worker_id}}
 
 ### 1. Create a job and its chunks (201)
 # The coordinator splits the submission into one task per chunk, transactionally.
@@ -48,7 +63,8 @@ Content-Type: application/json
 
 {
   "worker_id": "{{worker}}",
-  "workloads": ["similarity_search"]
+  "capabilities": ["similarity_search"],
+  "max_concurrency": 1
 }
 
 @taskId = {{claim.response.body.task_id}}

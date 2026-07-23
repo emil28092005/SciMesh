@@ -23,13 +23,23 @@ type Config struct {
 	// PostgreSQL connection string (pgx format / libpq URL).
 	DatabaseURL string
 	// Shared bearer token workers must present. Empty disables auth (dev only).
-	WorkerAuthToken string
+	Token string
+
+	// Minimum log level: debug, info, warn, error.
+	LogLevel string
+	// Path to a rotated log file. Empty logs to stdout only.
+	LogFile string
 
 	// Connection pool upper bound.
 	DBMaxConns int32
+	// How long to keep retrying the initial database connection at startup
+	// before giving up. Covers a Postgres container that is still booting.
+	DBConnectTimeout time.Duration
 	// Per-request context timeout applied to handlers and DB calls.
 	RequestTimeout time.Duration
 
+	// Suggested heartbeat cadence returned to workers on registration.
+	HeartbeatInterval time.Duration
 	// Default lease length handed out on claim.
 	LeaseDuration time.Duration
 	// Default attempt ceiling for newly created tasks.
@@ -43,7 +53,7 @@ type Config struct {
 //
 // A .env file (path overridable via ENV_FILE) is loaded first as a local-dev
 // convenience. It only fills variables the environment does not already define.
-func Load() (Config, error) {
+func LoadConfig() (Config, error) {
 	envFile := os.Getenv("ENV_FILE")
 	if envFile == "" {
 		envFile = defaultEnvFile
@@ -56,11 +66,17 @@ func Load() (Config, error) {
 	}
 
 	cfg := Config{
-		Addr:               getEnv("COORDINATOR_ADDR", ":8080"),
-		DatabaseURL:        os.Getenv("DATABASE_URL"),
-		WorkerAuthToken:    os.Getenv("WORKER_AUTH_TOKEN"),
+		Addr:        getEnv("COORDINATOR_ADDR", ":8080"),
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+		// COORDINATOR_TOKEN is the contract name; WORKER_AUTH_TOKEN is the
+		// former name, still honoured so existing .env files keep working.
+		Token:              getEnv("COORDINATOR_TOKEN", os.Getenv("WORKER_AUTH_TOKEN")),
+		LogLevel:           getEnv("LOG_LEVEL", "info"),
+		LogFile:            os.Getenv("LOG_FILE"),
 		DBMaxConns:         10,
+		DBConnectTimeout:   30 * time.Second,
 		RequestTimeout:     15 * time.Second,
+		HeartbeatInterval:  15 * time.Second,
 		LeaseDuration:      2 * time.Minute,
 		DefaultMaxAttempts: 3,
 		ReaperInterval:     30 * time.Second,
@@ -74,7 +90,13 @@ func Load() (Config, error) {
 	if cfg.DBMaxConns, err = getEnvInt32("DB_MAX_CONNS", cfg.DBMaxConns); err != nil {
 		return Config{}, err
 	}
+	if cfg.DBConnectTimeout, err = getEnvDuration("DB_CONNECT_TIMEOUT", cfg.DBConnectTimeout); err != nil {
+		return Config{}, err
+	}
 	if cfg.RequestTimeout, err = getEnvDuration("REQUEST_TIMEOUT", cfg.RequestTimeout); err != nil {
+		return Config{}, err
+	}
+	if cfg.HeartbeatInterval, err = getEnvDuration("HEARTBEAT_INTERVAL", cfg.HeartbeatInterval); err != nil {
 		return Config{}, err
 	}
 	if cfg.LeaseDuration, err = getEnvDuration("LEASE_DURATION", cfg.LeaseDuration); err != nil {

@@ -53,8 +53,14 @@ services:
       REQUEST_TIMEOUT: "15s"
       LEASE_DURATION: "2m"
       REAPER_INTERVAL: "30s"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Logs are teed to stdout (docker logs) and this rotated file, which lives
+      # on the mounted ./logs directory so it survives a rebuild.
+      LOG_FILE: /var/log/scimesh/coordinator.log
     ports:
       - "${COORDINATOR_PORT:-8080}:8080"
+    volumes:
+      - ./logs:/var/log/scimesh
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
       interval: 10s

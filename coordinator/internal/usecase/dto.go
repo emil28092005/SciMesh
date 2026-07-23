@@ -21,6 +21,11 @@ type ChunkInput struct {
 	MaxAttempts int
 }
 
+type RegisterWorkerInput struct {
+	Name         string
+	Capabilities []string
+}
+
 type ClaimTaskInput struct {
 	WorkerID  string
 	Workloads []string

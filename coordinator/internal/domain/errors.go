@@ -10,6 +10,7 @@ import "errors"
 var (
 	ErrJobNotFound    = errors.New("job not found")
 	ErrTaskNotFound   = errors.New("task not found")
+	ErrWorkerNotFound = errors.New("worker not found")
 	ErrLeaseConflict  = errors.New("task leased to another worker")
 	ErrStaleAttempt   = errors.New("attempt does not match lease")
 	ErrResultConflict = errors.New("different result already recorded")
