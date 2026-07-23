@@ -27,7 +27,9 @@ inside the daemon.
    `scimesh-worker`.
 2. Configuration via environment variables and CLI overrides:
    - `SCIMESH_COORDINATOR_URL` (required);
-   - `SCIMESH_WORKER_ID` (required, stable UUID or hostname-derived value);
+   - `SCIMESH_WORKER_NAME` (optional; defaults to the hostname);
+   - `SCIMESH_WORKER_ID` (optional legacy/test override; production identity is
+     returned by registration);
    - working directory for downloaded inputs and generated outputs;
    - poll interval and request timeout;
    - optional bearer token.
@@ -42,6 +44,28 @@ inside the daemon.
 
 Use JSON over HTTPS. Claiming a task changes its state, so use `POST`, even if
 the initial diagram labels the endpoint as `GET /get_task`.
+
+`docs/api-contract.md` is the authoritative API schema. This document explains
+the daemon workflow and must not introduce a different request or response
+shape.
+
+### Register worker
+
+At daemon startup, register the worker capabilities before claiming tasks:
+
+```http
+POST /workers/register
+Content-Type: application/json
+
+{
+  "name": "lab-worker-01",
+  "capabilities": ["similarity-search", "similarity-graph"],
+  "cpu_count": 8,
+  "memory_mb": 16384
+}
+```
+
+The `worker_id` returned by this endpoint is used for the daemon lifetime.
 
 ### Claim a task
 
@@ -90,8 +114,8 @@ Content-Type: application/json
 {
   "worker_id": "worker-01",
   "attempt": 1,
-  "status": "completed",
   "result": {
+    "artifact_id": "0d2d5a53-4c7e-467e-93d2-45ed2dc18e46",
     "uri": "https://coordinator.example/tasks/0d2d/result.csv",
     "sha256": "...",
     "content_type": "text/csv"
@@ -121,7 +145,10 @@ The coordinator streams the artifact to its configured storage and responds:
 
 ```json
 {
-  "uri": "https://coordinator.example/tasks/0d2d/artifacts/result.csv"
+  "artifact_id": "0d2d5a53-4c7e-467e-93d2-45ed2dc18e46",
+  "uri": "https://coordinator.example/tasks/0d2d/artifacts/result.csv",
+  "sha256": "...",
+  "size_bytes": 1234
 }
 ```
 
@@ -142,7 +169,9 @@ idle -> claiming -> downloading -> running -> uploading -> submitting -> idle
 - Verify the input checksum before running.
 - Create one isolated task directory: `<work-dir>/<task-id>/<attempt>/`.
 - Invoke the runner with an explicit argument list, never `shell=True`.
-- Upload/submit exactly the produced result files listed by the runner.
+- Upload the produced result artifact before submitting its manifest.
+- Version 1 produces exactly one CSV partial result. Multi-artifact manifests
+  require an explicit future API-contract change.
 - Do not mark a task completed until every submitted artifact has a durable
   coordinator-provided URI.
 - A timeout, network error, or rejected submission must leave the local task
