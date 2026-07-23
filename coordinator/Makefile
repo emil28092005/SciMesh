@@ -1,4 +1,4 @@
-.PHONY: build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke
+.PHONY: build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke swagger
 
 # --- build / run ---------------------------------------------------------
 build:
@@ -83,3 +83,12 @@ psql:
 # one at a time in an editor.
 smoke:
 	./scripts/smoke.sh
+
+# --- docs ----------------------------------------------------------------
+# Serve the OpenAPI spec in Swagger UI at http://localhost:8081. Mounts the
+# spec and a fixed initializer so it loads locally with no internet.
+swagger:
+	docker run --rm -p 8081:8080 \
+		-v $(realpath ../docs)/openapi.yaml:/usr/share/nginx/html/openapi.yaml:ro \
+		-v $(realpath ../docs)/swagger-initializer.js:/usr/share/nginx/html/swagger-initializer.js:ro \
+		swaggerapi/swagger-ui
