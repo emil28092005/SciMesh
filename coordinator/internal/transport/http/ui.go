@@ -23,6 +23,8 @@ var uiTemplates = template.Must(template.New("ui").Funcs(template.FuncMap{
 	"statusLabel":       uiStatusLabel,
 	"statusHint":        uiStatusHint,
 	"statusClass":       uiStatusClass,
+	"taskErrorLabel":    uiTaskErrorLabel,
+	"taskErrorHint":     uiTaskErrorHint,
 	"workerStatusLabel": uiWorkerStatusLabel,
 	"workloadLabel":     uiWorkloadLabel,
 	"progressPercent":   uiProgressPercent,
@@ -92,6 +94,43 @@ func uiWorkerStatusLabel(status string) string {
 		return "Offline"
 	default:
 		return status
+	}
+}
+
+// uiTaskErrorLabel deliberately maps worker implementation errors to an
+// operator-facing diagnosis. Raw subprocess commands and local paths belong in
+// the worker terminal, not in the web UI.
+func uiTaskErrorLabel(errorCode string) string {
+	switch errorCode {
+	case "CalledProcessError":
+		return "Local calculation failed"
+	case "ValueError":
+		return "Task input could not be processed"
+	case "CoordinatorTransientError":
+		return "Coordinator connection was interrupted"
+	case "CoordinatorConflictError":
+		return "Worker lease was no longer valid"
+	case "FileNotFoundError":
+		return "Local task file is missing"
+	default:
+		return errorCode
+	}
+}
+
+func uiTaskErrorHint(errorCode string) string {
+	switch errorCode {
+	case "CalledProcessError":
+		return "The local SciMesh command stopped before it could upload a result. Check the worker terminal for the original error."
+	case "ValueError":
+		return "The coordinator task or its downloaded input did not meet the worker validation rules."
+	case "CoordinatorTransientError":
+		return "The worker will retry after the coordinator connection is available again."
+	case "CoordinatorConflictError":
+		return "Another worker or a lease timeout changed this task before completion."
+	case "FileNotFoundError":
+		return "The worker could not find one of its local task files. Restart it with an absolute --work-dir."
+	default:
+		return "Check the worker terminal for the original error details."
 	}
 }
 

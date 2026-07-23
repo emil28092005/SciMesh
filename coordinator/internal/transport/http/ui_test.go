@@ -33,3 +33,12 @@ func TestUIProgressPercent(t *testing.T) {
 		t.Errorf("empty progress = %d, want 0", got)
 	}
 }
+
+func TestUITaskErrorPresentationDoesNotExposeCommand(t *testing.T) {
+	if got := uiTaskErrorLabel("CalledProcessError"); got != "Local calculation failed" {
+		t.Errorf("error label = %q", got)
+	}
+	if got := uiTaskErrorHint("CalledProcessError"); got == "" {
+		t.Error("error hint must explain the failure")
+	}
+}
