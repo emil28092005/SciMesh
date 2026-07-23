@@ -244,13 +244,25 @@ func TestListCompletedIsOrderedByChunkIndex(t *testing.T) {
 	ctx := context.Background()
 	job, tasks := seedJob(t, pool, 4)
 
-	repo, tx := NewTaskRepo(pool), NewTxManager(pool)
+	repo, artifacts, tx := NewTaskRepo(pool), NewArtifactRepo(pool), NewTxManager(pool)
 	now := time.Now().UTC()
 
 	// Complete them out of order to prove the ordering comes from SQL.
 	for _, i := range []int{2, 0, 3, 1} {
 		task := tasks[i]
 		err := tx.WithinTx(ctx, func(ctx context.Context) error {
+			// A completed task must reference a real result artifact (FK + check).
+			taskID := task.ID
+			art, err := domain.NewArtifact(job.ID, &taskID, domain.ArtifactPartialResult,
+				fmt.Sprintf("result-%d.csv", task.ChunkIndex), "text/csv", now)
+			if err != nil {
+				return err
+			}
+			art.SetContent(fmt.Sprintf("rsha-%d", task.ChunkIndex), 1)
+			if err := artifacts.Insert(ctx, art); err != nil {
+				return err
+			}
+
 			fresh, err := repo.GetForUpdate(ctx, task.ID)
 			if err != nil {
 				return err
@@ -260,11 +272,7 @@ func TestListCompletedIsOrderedByChunkIndex(t *testing.T) {
 			fresh.LeaseOwner = &owner
 			expires := now.Add(time.Minute)
 			fresh.LeaseExpiresAt = &expires
-			if err := fresh.CompleteWith(
-				fmt.Sprintf("s3://result-%d", fresh.ChunkIndex),
-				fmt.Sprintf("rsha-%d", fresh.ChunkIndex),
-				nil, owner, fresh.Attempt, now,
-			); err != nil {
+			if err := fresh.CompleteWith(art.ID, nil, owner, fresh.Attempt, now); err != nil {
 				return err
 			}
 			return repo.Update(ctx, fresh)
@@ -296,9 +304,9 @@ func TestCompleteTaskReplayIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	job, _ := seedJob(t, pool, 1)
 
-	tasks, jobs, tx := NewTaskRepo(pool), NewJobRepo(pool), NewTxManager(pool)
+	tasks, jobs, artifacts, tx := NewTaskRepo(pool), NewJobRepo(pool), NewArtifactRepo(pool), NewTxManager(pool)
 	clk := fixedClock{now: time.Now().UTC()}
-	uc := usecase.NewCompleteTask(tasks, jobs, tx, clk)
+	uc := usecase.NewCompleteTask(tasks, jobs, artifacts, tx, clk)
 
 	claimed, err := tasks.ClaimNext(ctx, usecase.ClaimFilter{
 		Owner: "worker-1", Now: clk.now, LeaseUntil: clk.now.Add(time.Minute),
@@ -307,9 +315,12 @@ func TestCompleteTaskReplayIsIdempotent(t *testing.T) {
 		t.Skipf("could not claim this job's task (got %v, %v)", claimed, err)
 	}
 
+	// A partial-result artifact the coordinator stored for this task.
+	art := seedArtifact(t, pool, job.ID, &claimed.ID, domain.ArtifactPartialResult)
+
 	in := usecase.CompleteTaskInput{
 		TaskID: claimed.ID, WorkerID: "worker-1", Attempt: claimed.Attempt,
-		ResultURI: "s3://r0", ResultSHA256: "rsha",
+		ResultArtifactID: art.ID,
 	}
 	if _, err := uc.Execute(ctx, in); err != nil {
 		t.Fatalf("first submission: %v", err)
@@ -318,9 +329,10 @@ func TestCompleteTaskReplayIsIdempotent(t *testing.T) {
 		t.Errorf("replay must be idempotent, got %v", err)
 	}
 
-	// A different manifest for the same task is a genuine conflict.
+	// A different result artifact for the same task is a genuine conflict.
+	art2 := seedArtifact(t, pool, job.ID, &claimed.ID, domain.ArtifactPartialResult)
 	other := in
-	other.ResultURI = "s3://different"
+	other.ResultArtifactID = art2.ID
 	if _, err := uc.Execute(ctx, other); !errors.Is(err, domain.ErrResultConflict) {
 		t.Errorf("err = %v, want ErrResultConflict", err)
 	}
@@ -329,6 +341,109 @@ func TestCompleteTaskReplayIsIdempotent(t *testing.T) {
 type fixedClock struct{ now time.Time }
 
 func (c fixedClock) Now() time.Time { return c.now }
+
+// seedArtifact inserts an artifact and returns it, cleaned up with its job.
+func seedArtifact(t *testing.T, pool *pgxpool.Pool, jobID uuid.UUID, taskID *uuid.UUID, kind domain.ArtifactKind) *domain.Artifact {
+	t.Helper()
+	art, err := domain.NewArtifact(jobID, taskID, kind, "f.csv", "text/csv", time.Now().UTC())
+	if err != nil {
+		t.Fatalf("build artifact: %v", err)
+	}
+	art.SetContent(fmt.Sprintf("sha-%s", art.ID), 3)
+	if err := NewArtifactRepo(pool).Insert(context.Background(), art); err != nil {
+		t.Fatalf("insert artifact: %v", err)
+	}
+	return art
+}
+
+func TestWorkerRepoRoundTrip(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	repo := NewWorkerRepo(pool)
+
+	w, err := domain.NewWorker("lab-int", []string{"similarity_search", "similarity_graph"}, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Insert(ctx, w); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM workers WHERE id = $1`, w.ID) })
+
+	got, err := repo.Get(ctx, w.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Status != domain.WorkerOnline || len(got.Capabilities) != 2 {
+		t.Errorf("round-trip mismatch: %+v", got)
+	}
+	// capabilities must survive the jsonb round-trip.
+	if got.Capabilities[0] != "similarity_search" {
+		t.Errorf("capabilities = %v", got.Capabilities)
+	}
+
+	if _, err := repo.Get(ctx, uuid.New()); !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Errorf("missing worker err = %v, want ErrWorkerNotFound", err)
+	}
+}
+
+func TestArtifactRepoRoundTrip(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	job, _ := seedJob(t, pool, 1)
+
+	art := seedArtifact(t, pool, job.ID, nil, domain.ArtifactInput)
+	got, err := NewArtifactRepo(pool).Get(ctx, art.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Kind != domain.ArtifactInput || got.StorageKey != art.StorageKey || got.SizeBytes != 3 {
+		t.Errorf("round-trip mismatch: %+v", got)
+	}
+	if _, err := NewArtifactRepo(pool).Get(ctx, uuid.New()); !errors.Is(err, domain.ErrArtifactNotFound) {
+		t.Errorf("missing artifact err = %v, want ErrArtifactNotFound", err)
+	}
+}
+
+// A shard task stores its input as an artifact and no URI: this exercises the
+// nullable input_uri column, the input_artifact_id round-trip, and the
+// ck_tasks_has_input check that requires one or the other.
+func TestShardTaskRoundTrip(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+
+	job, err := domain.NewUploadedJob("similarity_search", nil, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs, taskRepo, tx := NewJobRepo(pool), NewTaskRepo(pool), NewTxManager(pool)
+	if err := jobs.Insert(ctx, job); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM jobs WHERE id = $1`, job.ID) })
+
+	shard := seedArtifact(t, pool, job.ID, nil, domain.ArtifactShard)
+	task, err := domain.NewShardTask(job.ID, 0, "similarity_search", shard.ID, shard.SHA256, nil, 0, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.WithinTx(ctx, func(ctx context.Context) error {
+		return taskRepo.InsertBatch(ctx, []*domain.Task{task})
+	}); err != nil {
+		t.Fatalf("insert shard task: %v", err)
+	}
+
+	got, err := taskRepo.Get(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.InputArtifactID == nil || *got.InputArtifactID != shard.ID {
+		t.Errorf("input_artifact_id did not round-trip: %v", got.InputArtifactID)
+	}
+	if got.InputURI != "" {
+		t.Errorf("shard task input_uri = %q, want empty (NULL)", got.InputURI)
+	}
+}
 
 func TestExpireLeasesRequeuesElapsedTasks(t *testing.T) {
 	pool := testPool(t)
