@@ -23,6 +23,7 @@ type Artifact struct {
 	ID          uuid.UUID
 	JobID       uuid.UUID
 	TaskID      *uuid.UUID // nil for a job-level input
+	Attempt     *int       // required for a partial result; nil for non-worker artifacts
 	Kind        ArtifactKind
 	Filename    string
 	StorageKey  string

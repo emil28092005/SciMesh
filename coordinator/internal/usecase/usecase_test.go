@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,17 @@ import (
 var ctx = context.Background()
 
 const lease = 2 * time.Minute
+
+type expiringBlobStore struct {
+	*memstore.BlobStore
+	clock *memstore.Clock
+}
+
+func (s expiringBlobStore) Put(ctx context.Context, key string, body io.Reader) (string, int64, error) {
+	sum, size, err := s.BlobStore.Put(ctx, key, body)
+	s.clock.Advance(lease + time.Second)
+	return sum, size, err
+}
 
 // harness wires every use case to in-memory stores so orchestration can be
 // tested without a database.
@@ -236,6 +248,46 @@ func TestCompleteRejectsForeignArtifact(t *testing.T) {
 	})
 	if !errors.Is(err, domain.ErrResultConflict) {
 		t.Errorf("cross-task artifact: err = %v, want ErrResultConflict", err)
+	}
+}
+
+func TestCompleteRejectsArtifactFromExpiredAttempt(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1)
+	taskID, attemptOne := h.leaseOne(t, "w1", "w")
+	staleArtifact := h.uploadResult(t, taskID, "w1", attemptOne)
+
+	h.clk.Advance(lease + time.Second)
+	if _, err := h.expire.Execute(ctx); err != nil {
+		t.Fatalf("expire lease: %v", err)
+	}
+	_, attemptTwo := h.leaseOne(t, "w2", "w")
+	if attemptTwo != attemptOne+1 {
+		t.Fatalf("attempt = %d, want %d", attemptTwo, attemptOne+1)
+	}
+
+	_, err := h.complete.Execute(ctx, usecase.CompleteTaskInput{
+		TaskID: taskID, WorkerID: "w2", Attempt: attemptTwo, ResultArtifactID: staleArtifact,
+	})
+	if !errors.Is(err, domain.ErrResultConflict) {
+		t.Errorf("stale-attempt artifact: err = %v, want ErrResultConflict", err)
+	}
+}
+
+func TestUploadRejectsLeaseThatExpiresDuringStreaming(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1)
+	taskID, attempt := h.leaseOne(t, "w1", "w")
+	h.uploadArt = usecase.NewUploadArtifact(
+		h.tasks, h.arts, expiringBlobStore{BlobStore: h.blobs, clock: h.clk}, h.clk,
+	)
+
+	_, err := h.uploadArt.Execute(ctx, usecase.UploadArtifactInput{
+		TaskID: taskID, WorkerID: "w1", Attempt: attempt,
+		Filename: "result.csv", ContentType: "text/csv", Body: strings.NewReader("result"),
+	})
+	if !errors.Is(err, domain.ErrLeaseConflict) {
+		t.Errorf("upload after lease expiry: err = %v, want ErrLeaseConflict", err)
 	}
 }
 

@@ -26,14 +26,14 @@ func NewArtifactRepo(pool *pgxpool.Pool) *ArtifactRepo {
 var _ usecase.ArtifactRepository = (*ArtifactRepo)(nil)
 
 var artifactColumns = []string{
-	"id", "job_id", "task_id", "kind", "filename", "storage_key",
+	"id", "job_id", "task_id", "attempt", "kind", "filename", "storage_key",
 	"content_type", "size_bytes", "sha256", "created_at",
 }
 
 func (r *ArtifactRepo) Insert(ctx context.Context, a *domain.Artifact) error {
 	sql, args, err := psql.Insert("artifacts").
 		Columns(artifactColumns...).
-		Values(a.ID, a.JobID, a.TaskID, string(a.Kind), a.Filename, a.StorageKey,
+		Values(a.ID, a.JobID, a.TaskID, a.Attempt, string(a.Kind), a.Filename, a.StorageKey,
 			a.ContentType, a.SizeBytes, a.SHA256, a.CreatedAt).
 		ToSql()
 	if err != nil {
@@ -59,7 +59,7 @@ func (r *ArtifactRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Artifact,
 		kind string
 	)
 	err = conn(ctx, r.pool).QueryRow(ctx, sql, args...).Scan(
-		&a.ID, &a.JobID, &a.TaskID, &kind, &a.Filename, &a.StorageKey,
+		&a.ID, &a.JobID, &a.TaskID, &a.Attempt, &kind, &a.Filename, &a.StorageKey,
 		&a.ContentType, &a.SizeBytes, &a.SHA256, &a.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrArtifactNotFound

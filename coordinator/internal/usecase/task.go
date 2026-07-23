@@ -144,7 +144,7 @@ func (uc *CompleteTask) Execute(ctx context.Context, in CompleteTaskInput) (*dom
 		}
 		// Rule 10: never trust a worker-supplied artifact reference. The result
 		// must be an artifact the coordinator itself stored for *this* task.
-		if err := uc.verifyResultArtifact(ctx, in.TaskID, in.ResultArtifactID); err != nil {
+		if err := uc.verifyResultArtifact(ctx, in.TaskID, in.Attempt, in.ResultArtifactID); err != nil {
 			return err
 		}
 		now := uc.clock.Now()
@@ -176,12 +176,12 @@ func (uc *CompleteTask) Execute(ctx context.Context, in CompleteTaskInput) (*dom
 // verifyResultArtifact enforces that the referenced artifact was stored by the
 // coordinator for this exact task. It stops a worker from completing task B with
 // an artifact it uploaded for task A, and from naming an id that isn't a result.
-func (uc *CompleteTask) verifyResultArtifact(ctx context.Context, taskID, artifactID uuid.UUID) error {
+func (uc *CompleteTask) verifyResultArtifact(ctx context.Context, taskID uuid.UUID, attempt int, artifactID uuid.UUID) error {
 	art, err := uc.artifacts.Get(ctx, artifactID)
 	if err != nil {
 		return err
 	}
-	if art.TaskID == nil || *art.TaskID != taskID || art.Kind != domain.ArtifactPartialResult {
+	if art.TaskID == nil || *art.TaskID != taskID || art.Attempt == nil || *art.Attempt != attempt || art.Kind != domain.ArtifactPartialResult {
 		return domain.ErrResultConflict
 	}
 	return nil
