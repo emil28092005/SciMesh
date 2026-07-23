@@ -169,3 +169,14 @@ make test-integration TEST_DATABASE_URL='postgres://scimesh:scimesh@localhost:54
 
 CI (`.github/workflows/coordinator.yml`) runs vet, gofmt, race tests, lint, and
 the integration suite against a Postgres service on every push and PR.
+
+For the complete local verification, including an isolated Docker PostgreSQL
+and the HTTP smoke flow, run:
+
+```sh
+make check
+```
+
+It uses Compose project `scimesh-check` and ports `55432`/`18080` by default,
+so it does not connect to a PostgreSQL already running on `5432`. Override
+`CHECK_POSTGRES_PORT`, `CHECK_COORDINATOR_PORT`, or `CHECK_PROJECT` if needed.

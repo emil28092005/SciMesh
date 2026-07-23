@@ -194,11 +194,14 @@ func (s *Server) handleUploadDataset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var (
-		workload   string
-		params     map[string]any
-		rows       = defaultChunkRows
-		result     usecase.SubmitDatasetResult
-		gotDataset bool
+		workload    string
+		params      map[string]any
+		rows        = defaultChunkRows
+		result      usecase.SubmitDatasetResult
+		gotDataset  bool
+		gotWorkload bool
+		gotParams   bool
+		gotRows     bool
 	)
 
 	for {
@@ -213,9 +216,18 @@ func (s *Server) handleUploadDataset(w http.ResponseWriter, r *http.Request) {
 
 		switch part.FormName() {
 		case "workload":
+			if gotDataset || gotWorkload {
+				s.writeError(w, r, domain.ErrInvalidInput)
+				return
+			}
 			b, _ := io.ReadAll(io.LimitReader(part, 1<<10))
 			workload = strings.TrimSpace(string(b))
+			gotWorkload = true
 		case "parameters":
+			if gotDataset || gotParams {
+				s.writeError(w, r, domain.ErrInvalidInput)
+				return
+			}
 			b, _ := io.ReadAll(io.LimitReader(part, 1<<16))
 			if len(b) > 0 {
 				if err := json.Unmarshal(b, &params); err != nil {
@@ -223,12 +235,25 @@ func (s *Server) handleUploadDataset(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+			gotParams = true
 		case "chunk_rows":
-			b, _ := io.ReadAll(io.LimitReader(part, 32))
-			if n, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
-				rows = n
+			if gotDataset || gotRows {
+				s.writeError(w, r, domain.ErrInvalidInput)
+				return
 			}
+			b, _ := io.ReadAll(io.LimitReader(part, 32))
+			n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+			if err != nil || n < 1 {
+				s.writeError(w, r, domain.ErrInvalidInput)
+				return
+			}
+			rows = n
+			gotRows = true
 		case "file", "dataset":
+			if gotDataset || workload == "" {
+				s.writeError(w, r, domain.ErrInvalidInput)
+				return
+			}
 			filename := part.FileName()
 			if filename == "" {
 				filename = "dataset"
@@ -246,6 +271,9 @@ func (s *Server) handleUploadDataset(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			gotDataset = true
+		default:
+			s.writeError(w, r, domain.ErrInvalidInput)
+			return
 		}
 		_ = part.Close()
 	}

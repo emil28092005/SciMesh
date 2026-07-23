@@ -47,10 +47,15 @@ def _fingerprinted_molecules(
     tsv_path: Path, max_rows: int | None
 ) -> tuple[list[GraphMolecule], DatasetStats]:
     stats = DatasetStats()
-    molecules = [
-        GraphMolecule(record.molecule_id, fingerprint(record.molecule))
-        for record in iter_valid_molecules(tsv_path, stats, max_rows=max_rows)
-    ]
+    molecules: list[GraphMolecule] = []
+    seen_ids: set[str] = set()
+    for record in iter_valid_molecules(tsv_path, stats, max_rows=max_rows):
+        if not record.molecule_id:
+            raise ValueError("Dataset contains an empty chembl_id")
+        if record.molecule_id in seen_ids:
+            raise ValueError(f"Dataset contains a duplicate chembl_id: {record.molecule_id}")
+        seen_ids.add(record.molecule_id)
+        molecules.append(GraphMolecule(record.molecule_id, fingerprint(record.molecule)))
     return molecules, stats
 
 
@@ -119,6 +124,7 @@ def build_similarity_graph(
 
 def write_graph_edges(output_path: Path, edges: list[SimilarityEdge]) -> None:
     """Write a deterministic sparse edge list CSV."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as destination:
         writer = csv.DictWriter(destination, fieldnames=["source_id", "target_id", "similarity"])
         writer.writeheader()

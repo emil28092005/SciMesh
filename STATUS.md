@@ -1,7 +1,7 @@
 # SciMesh Status
 
 **Updated:** 2026-07-23  
-**Branch baseline:** `planning` at `13f9a0b`
+**Branch baseline:** `main` at `b4a89dd` (coordinator merge)
 
 ## Current state
 
@@ -15,39 +15,43 @@ the reference behaviour for future distributed execution:
 - Python Worker skeleton: claim, heartbeat, input checksum validation,
   artifact upload, completion and failure reporting.
 
-The Go coordinator, PostgreSQL schema, coordinator artifact storage, planner,
-reducer, and end-to-end distributed execution are **not implemented yet**.
+The Go coordinator and its PostgreSQL-backed task lifecycle are implemented:
+registration, atomic claiming, lease renewal, artifact storage, dataset
+chunking, result/failure reporting, and job progress. The Python worker now
+uses the live coordinator contract; its HTTP path was exercised against a real
+Docker PostgreSQL stack on 2026-07-23.
 
 ## Milestone tracker
 
 | CTX | Status | Notes |
 | --- | --- | --- |
-| CTX-00 API and error contract | Ready to implement | `docs/api-contract.md` created; needs owner review/freeze. |
-| CTX-01 Go coordinator bootstrap | Not started | Depends on CTX-00. |
-| CTX-02 PostgreSQL migrations | Not started | Depends on CTX-00 and CTX-01. |
-| CTX-03 Transactional queue | Not started | Depends on CTX-02. |
-| CTX-04 Worker registry and HTTP API | Not started | Depends on CTX-03. |
-| CTX-05 Artifact storage | Not started | Depends on CTX-02 and CTX-04. |
-| CTX-06 Python Worker live-contract alignment | Partially prepared | Worker skeleton exists; needs real Go contract tests. |
+| CTX-00 API and error contract | Implemented | Contract, OpenAPI, and request examples are in `docs/`. |
+| CTX-01 Go coordinator bootstrap | Implemented | Go service and Docker runtime in `coordinator/`. |
+| CTX-02 PostgreSQL migrations | Implemented | Applied by the Compose migration service. |
+| CTX-03 Transactional queue | Implemented | Real-PostgreSQL integration tests cover atomic claims and concurrency. |
+| CTX-04 Worker registry and HTTP API | Implemented | Registration, claim, heartbeat, result, failure, and status endpoints. |
+| CTX-05 Artifact storage | Implemented | Coordinator-owned inputs/results, checksum verification, and upload flow. |
+| CTX-06 Python Worker live-contract alignment | Implemented | Worker completed a real uploaded shard via HTTP on 2026-07-23. |
 | CTX-07 Distributed workload protocol | Not started | Depends on artifact and Worker contracts. |
 | CTX-08 Distributed similarity-search | Not started | Local reference exists. |
 | CTX-09 Reducer and final-result API | Not started | Depends on CTX-07 and CTX-08. |
 | CTX-10 Distributed similarity-graph | Not started | Local reference exists. |
 | CTX-11 Dashboard/operator view | Not started | Deferred until API and reducer work. |
-| CTX-12 Reliability, security, CI | Not started | Final milestone. |
+| CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
 
 ## Next recommended assignment
 
-Assign **CTX-00** to the coordinator role in `.agents/coordinator.md`: review
-and freeze `docs/api-contract.md` against `PLAN.md`. Do not begin coordinator
-or Worker API implementation until the contract owner accepts it.
+Assign **CTX-07** to the workload role: define distributed job planning and
+reduction boundaries before implementing distributed search or graph execution.
 
 ## Known constraints
 
-- Distributed execution is not available; use the local `scimesh` CLI.
-- No Go module, PostgreSQL migrations, runtime configuration, or integration
-  environment exists yet.
-- Local worker unit tests do not prove interoperability with a live coordinator.
+- Planner/reducer semantics are not implemented; use the local `scimesh` CLI
+  for complete workload results.
+- The worker/coordinator flow currently accepts both underscore API workload
+  names and hyphenated CLI names while the contract is consolidated.
+- A real-stack worker test uses a small `query_smiles` shard. Resolving a
+  `query_id` once and sharing it across shards belongs to CTX-07.
 
 ## Update rule
 

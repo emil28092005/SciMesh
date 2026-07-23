@@ -6,7 +6,11 @@ from rdkit import Chem, DataStructs
 
 from scimesh.chemistry.dataset import DatasetStats, find_molecule_by_id, iter_valid_molecules
 from scimesh.chemistry.fingerprints import fingerprint
-from scimesh.workloads.similarity_search import SimilarityMatch, search_similar
+from scimesh.workloads.similarity_search import (
+    SimilarityMatch,
+    search_similar,
+    write_search_results,
+)
 
 
 def test_search_matches_full_sorting_and_skips_query_and_invalid(
@@ -56,3 +60,9 @@ def test_search_can_rank_and_filter_least_similar_molecules(
     assert result.matches == sorted(
         result.matches, key=lambda match: match.sort_key("less")
     )
+
+
+def test_search_writer_creates_missing_output_directory(tmp_path: Path) -> None:
+    output = tmp_path / "nested" / "results.csv"
+    write_search_results(output, [])
+    assert output.read_text(encoding="utf-8").startswith("rank,chembl_id")

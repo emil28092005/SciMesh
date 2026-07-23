@@ -29,7 +29,7 @@ func (uc *UploadArtifact) Execute(ctx context.Context, in UploadArtifactInput) (
 	}
 	// Only the worker holding the current lease at this attempt may upload the
 	// task's output — the coordinator never trusts an ownership claim on faith.
-	if !task.IsLeaseHeldBy(in.WorkerID, in.Attempt) {
+	if !task.IsLeaseHeldBy(in.WorkerID, in.Attempt, uc.clk.Now()) {
 		return nil, domain.ErrLeaseConflict
 	}
 
@@ -39,6 +39,8 @@ func (uc *UploadArtifact) Execute(ctx context.Context, in UploadArtifactInput) (
 	if err != nil {
 		return nil, err
 	}
+	attempt := in.Attempt
+	art.Attempt = &attempt
 
 	// Stream to storage first: size and checksum are measured here, by us, not
 	// taken from the worker. A large shard never sits in memory.
@@ -47,6 +49,19 @@ func (uc *UploadArtifact) Execute(ctx context.Context, in UploadArtifactInput) (
 		return nil, err
 	}
 	art.SetContent(sum, size)
+
+	// The stream may take longer than the lease. Re-check after it finishes so
+	// an expired worker cannot leave a durable result record behind. Completion
+	// performs the same ownership check under its transaction.
+	current, err := uc.tasks.Get(ctx, in.TaskID)
+	if err != nil {
+		_ = uc.blobs.Delete(ctx, art.StorageKey)
+		return nil, err
+	}
+	if !current.IsLeaseHeldBy(in.WorkerID, in.Attempt, uc.clk.Now()) {
+		_ = uc.blobs.Delete(ctx, art.StorageKey)
+		return nil, domain.ErrLeaseConflict
+	}
 
 	// Persist the record. If that fails the blob would be an orphan, so remove it.
 	if err := uc.artifacts.Insert(ctx, art); err != nil {

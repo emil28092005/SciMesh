@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
@@ -24,7 +25,13 @@ func decodeJSON(r *http.Request, dst any) error {
 	// Reject unknown fields: silently ignoring a misspelled "worker_ID" would
 	// surface later as a baffling validation failure.
 	dec.DisallowUnknownFields()
-	return dec.Decode(dst)
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("request body must contain exactly one JSON value")
+	}
+	return nil
 }
 
 // writeError translates domain errors into status codes. This mapping is the

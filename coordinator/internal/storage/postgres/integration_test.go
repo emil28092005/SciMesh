@@ -223,7 +223,7 @@ func TestUpdateRejectsStaleVersion(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := fresh.RenewLease("worker-1", fresh.Attempt, now.Add(2*time.Minute)); err != nil {
+		if err := fresh.RenewLease("worker-1", fresh.Attempt, now, now.Add(2*time.Minute)); err != nil {
 			return err
 		}
 		return repo.Update(ctx, fresh)
@@ -259,6 +259,8 @@ func TestListCompletedIsOrderedByChunkIndex(t *testing.T) {
 				return err
 			}
 			art.SetContent(fmt.Sprintf("rsha-%d", task.ChunkIndex), 1)
+			attempt := 1
+			art.Attempt = &attempt
 			if err := artifacts.Insert(ctx, art); err != nil {
 				return err
 			}
@@ -269,6 +271,7 @@ func TestListCompletedIsOrderedByChunkIndex(t *testing.T) {
 			}
 			owner := "worker-1"
 			fresh.Status = domain.TaskLeased
+			fresh.Attempt = attempt
 			fresh.LeaseOwner = &owner
 			expires := now.Add(time.Minute)
 			fresh.LeaseExpiresAt = &expires
@@ -350,6 +353,10 @@ func seedArtifact(t *testing.T, pool *pgxpool.Pool, jobID uuid.UUID, taskID *uui
 		t.Fatalf("build artifact: %v", err)
 	}
 	art.SetContent(fmt.Sprintf("sha-%s", art.ID), 3)
+	if kind == domain.ArtifactPartialResult {
+		attempt := 1
+		art.Attempt = &attempt
+	}
 	if err := NewArtifactRepo(pool).Insert(context.Background(), art); err != nil {
 		t.Fatalf("insert artifact: %v", err)
 	}
@@ -443,6 +450,32 @@ func TestArtifactRepoRoundTrip(t *testing.T) {
 	}
 	if _, err := NewArtifactRepo(pool).Get(ctx, uuid.New()); !errors.Is(err, domain.ErrArtifactNotFound) {
 		t.Errorf("missing artifact err = %v, want ErrArtifactNotFound", err)
+	}
+}
+
+func TestPartialResultArtifactRoundTripsAttempt(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	job, tasks := seedJob(t, pool, 1)
+	taskID := tasks[0].ID
+	art, err := domain.NewArtifact(job.ID, &taskID, domain.ArtifactPartialResult,
+		"result.csv", "text/csv", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := 2
+	art.Attempt = &attempt
+	art.SetContent("sha", 3)
+	repo := NewArtifactRepo(pool)
+	if err := repo.Insert(ctx, art); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	got, err := repo.Get(ctx, art.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Attempt == nil || *got.Attempt != attempt {
+		t.Fatalf("attempt = %v, want %d", got.Attempt, attempt)
 	}
 }
 

@@ -1,5 +1,15 @@
 .PHONY: build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke
 
+# `check` deliberately uses its own Compose project and host ports. This keeps
+# it from connecting to or replacing a developer's local PostgreSQL instance.
+CHECK_PROJECT ?= scimesh-check
+CHECK_POSTGRES_PORT ?= 55432
+CHECK_COORDINATOR_PORT ?= 18080
+CHECK_HOST ?= http://localhost:$(CHECK_COORDINATOR_PORT)
+CHECK_TOKEN ?= dev-token
+CHECK_DATABASE_URL ?= postgres://scimesh:scimesh@localhost:$(CHECK_POSTGRES_PORT)/scimesh?sslmode=disable
+CHECK_COMPOSE = POSTGRES_PORT=$(CHECK_POSTGRES_PORT) COORDINATOR_PORT=$(CHECK_COORDINATOR_PORT) docker compose -p $(CHECK_PROJECT)
+
 # --- build / run ---------------------------------------------------------
 build:
 	go build ./...
@@ -23,12 +33,16 @@ vet:
 # Needs Docker. Hand this to a reviewer.
 check: vet lint
 	go test -race ./...
-	docker compose up -d --build
+	$(CHECK_COMPOSE) up -d --build
 	@echo "waiting for the coordinator to be ready..."
-	@sleep 6
-	TEST_DATABASE_URL='postgres://scimesh:scimesh@localhost:5432/scimesh?sslmode=disable' \
+	@attempt=0; until curl -fsS "$(CHECK_HOST)/health" >/dev/null; do \
+		attempt=$$((attempt + 1)); \
+		if [ $$attempt -ge 30 ]; then $(CHECK_COMPOSE) logs coordinator; exit 1; fi; \
+		sleep 1; \
+	done
+	TEST_DATABASE_URL="$(CHECK_DATABASE_URL)" \
 		go test -tags=integration ./internal/storage/postgres/ -v
-	./scripts/smoke.sh
+	HOST="$(CHECK_HOST)" TOKEN="$(CHECK_TOKEN)" ./scripts/smoke.sh
 	@echo "\nall checks passed ✓"
 
 # Runs golangci-lint without installing it system-wide. Install it for speed:

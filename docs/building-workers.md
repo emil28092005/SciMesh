@@ -56,6 +56,8 @@ Response: `{ "worker_id": "<uuid>", "heartbeat_interval_seconds": 15 }`.
 - **Keep `worker_id`**. Use it as your identity in every later call. Using the
   registered UUID is what lets the coordinator track your liveness (it marks
   workers offline after they go silent).
+- Current coordinator jobs use `similarity_search` / `similarity_graph`; the
+  reference Python worker also accepts the public CLI spellings with hyphens.
 
 ## 2. Claim a task
 
@@ -185,7 +187,8 @@ next claim.
 Per the worker contract, at minimum:
 
 - `SCIMESH_COORDINATOR_URL` (e.g. `http://coordinator:8080`)
-- `SCIMESH_WORKER_ID` (or derive from hostname)
+- worker name (the coordinator returns its `worker_id` at registration;
+  `SCIMESH_WORKER_ID` is only a legacy/test override)
 - the bearer token
 - poll interval and request timeout
 - a working directory for downloaded inputs and generated outputs
