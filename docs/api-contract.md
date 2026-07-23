@@ -4,6 +4,11 @@
 coordinator and the Python Worker Daemon. It is derived from `PLAN.md` §5 and
 must be updated in the same change as any behaviour it describes.
 
+> **Machine-readable:** [`openapi.yaml`](openapi.yaml) is the OpenAPI 3.0 mirror
+> of this document — feed it to `openapi-python-client` or `datamodel-code-generator`
+> to generate the Python client/models. This markdown stays the human-readable
+> source; keep the two in sync.
+
 - **Auth:** every endpoint except readiness requires `Authorization: Bearer <token>`.
 - **Identity:** every mutating worker request carries `worker_id` and `attempt`;
   they are checked against the current task lease in PostgreSQL. A stale attempt
