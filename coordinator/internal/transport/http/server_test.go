@@ -259,6 +259,37 @@ func TestErrorMappings(t *testing.T) {
 	}
 }
 
+func TestJSONRejectsTrailingValue(t *testing.T) {
+	e := newEnv(t, healthy)
+	if code, _ := e.do(t, "POST", "/workers/register",
+		`{"name":"lab","capabilities":["w"]} {}`); code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", code)
+	}
+}
+
+func TestUploadDatasetRejectsAmbiguousMultipartInput(t *testing.T) {
+	e := newEnv(t, healthy)
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("workload", "w")
+	_ = mw.WriteField("chunk_rows", "not-a-number")
+	fw, _ := mw.CreateFormFile("file", "chembl.tsv")
+	_, _ = io.Copy(fw, strings.NewReader("id\tsmiles\nA\tCC\n"))
+	_ = mw.Close()
+
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", e.ts.URL+"/jobs/upload", &buf)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
 // --- helpers -------------------------------------------------------------
 
 func (e *env) putArtifact(t *testing.T, taskID, worker string, attempt int, data string) string {

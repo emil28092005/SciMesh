@@ -20,9 +20,13 @@ class SciMeshRunner:
     def run(self, task: ClaimedTask, task_dir: Path) -> RunResult:
         input_path = task_dir / "input"
         output_path = task_dir / "result.csv"
-        command = [sys.executable, "-m", "scimesh.cli", task.workload, str(input_path)]
+        # The coordinator contract historically used underscores while the
+        # public SciMesh CLI uses hyphens. Accept both spellings at this narrow
+        # boundary so an API job cannot turn into an opaque worker failure.
+        workload = task.workload.replace("_", "-")
+        command = [sys.executable, "-m", "scimesh.cli", workload, str(input_path)]
         params = task.parameters
-        if task.workload == "similarity-search":
+        if workload == "similarity-search":
             self._reject_unknown(params, {"query_id", "query_smiles", "top_k", "threshold", "threshold_direction", "max_rows", "progress_every"})
             query_id, query_smiles = params.get("query_id"), params.get("query_smiles")
             if (query_id is None) == (query_smiles is None):
@@ -31,7 +35,7 @@ class SciMeshRunner:
             command += ["--query-id", self._string(params, "query_id")] if query_id is not None else ["--query-smiles", self._string(params, "query_smiles")]
             command += ["--top-k", str(top_k)]
             self._append_common_options(command, params)
-        elif task.workload == "similarity-graph":
+        elif workload == "similarity-graph":
             self._reject_unknown(params, {"threshold", "threshold_direction", "block_size", "max_rows", "progress_every"})
             threshold = self._number(params, "threshold")
             command += ["--threshold", str(threshold)]

@@ -223,7 +223,7 @@ func TestUpdateRejectsStaleVersion(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if err := fresh.RenewLease("worker-1", fresh.Attempt, now.Add(2*time.Minute)); err != nil {
+		if err := fresh.RenewLease("worker-1", fresh.Attempt, now, now.Add(2*time.Minute)); err != nil {
 			return err
 		}
 		return repo.Update(ctx, fresh)

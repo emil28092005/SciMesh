@@ -91,7 +91,8 @@ func (uc *RenewLease) Execute(ctx context.Context, in RenewLeaseInput) (*domain.
 		if err != nil {
 			return err
 		}
-		if err := task.RenewLease(in.WorkerID, in.Attempt, uc.clock.Now().Add(uc.leaseDuration)); err != nil {
+		now := uc.clock.Now()
+		if err := task.RenewLease(in.WorkerID, in.Attempt, now, now.Add(uc.leaseDuration)); err != nil {
 			return err
 		}
 		if err := uc.tasks.Update(ctx, task); err != nil {

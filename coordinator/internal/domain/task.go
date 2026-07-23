@@ -117,8 +117,10 @@ const DefaultMaxAttempts = 3
 func (t *Task) CanRetry() bool { return t.Attempt < t.MaxAttempts }
 
 // IsLeaseHeldBy reports whether worker currently holds this task at attempt.
-func (t *Task) IsLeaseHeldBy(worker string, attempt int) bool {
-	return t.LeaseOwner != nil && *t.LeaseOwner == worker && t.Attempt == attempt
+func (t *Task) IsLeaseHeldBy(worker string, attempt int, now time.Time) bool {
+	return t.LeaseOwner != nil && t.LeaseExpiresAt != nil && now.Before(*t.LeaseExpiresAt) &&
+		*t.LeaseOwner == worker && t.Attempt == attempt &&
+		(t.Status == TaskLeased || t.Status == TaskRunning)
 }
 
 // AsClaimed projects the task into the trimmed view handed to a worker:
@@ -146,7 +148,7 @@ func (t *Task) AsClaimed() ClaimedTask {
 
 // verifyLease is the guard every worker-driven transition shares: the caller
 // must own the lease and reference the attempt it was granted.
-func (t *Task) verifyLease(worker string, attempt int) error {
+func (t *Task) verifyLease(worker string, attempt int, now time.Time) error {
 	// A task is worker-owned while leased or running: the first heartbeat moves
 	// it from leased to running, but ownership rules are identical for both.
 	if t.Status != TaskLeased && t.Status != TaskRunning {
@@ -158,13 +160,16 @@ func (t *Task) verifyLease(worker string, attempt int) error {
 	if t.Attempt != attempt {
 		return ErrStaleAttempt
 	}
+	if t.LeaseExpiresAt == nil || !now.Before(*t.LeaseExpiresAt) {
+		return ErrLeaseConflict
+	}
 	return nil
 }
 
 // RenewLease extends the lease of the worker that holds it. The first heartbeat
 // also acknowledges start, moving the task from leased to running.
-func (t *Task) RenewLease(worker string, attempt int, until time.Time) error {
-	if err := t.verifyLease(worker, attempt); err != nil {
+func (t *Task) RenewLease(worker string, attempt int, now, until time.Time) error {
+	if err := t.verifyLease(worker, attempt, now); err != nil {
 		return err
 	}
 	t.LeaseExpiresAt = &until
@@ -195,7 +200,7 @@ func (t *Task) CompleteWith(resultArtifactID uuid.UUID, metrics map[string]any,
 		return ErrResultConflict
 	}
 
-	if err := t.verifyLease(worker, attempt); err != nil {
+	if err := t.verifyLease(worker, attempt, now); err != nil {
 		return err
 	}
 
@@ -214,7 +219,7 @@ func (t *Task) CompleteWith(resultArtifactID uuid.UUID, metrics map[string]any,
 // Fail records a worker-reported failure. A retryable failure with attempts
 // left returns the task to the queue; otherwise it terminates as failed.
 func (t *Task) Fail(worker string, attempt int, code, message string, retryable bool, now time.Time) error {
-	if err := t.verifyLease(worker, attempt); err != nil {
+	if err := t.verifyLease(worker, attempt, now); err != nil {
 		return err
 	}
 	t.ErrorCode = &code

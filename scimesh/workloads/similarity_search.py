@@ -135,6 +135,7 @@ def search_similar(
 
 def write_search_results(output_path: Path, matches: list[SimilarityMatch]) -> None:
     """Write ranked matches to a deterministic CSV file."""
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as destination:
         writer = csv.DictWriter(
             destination,

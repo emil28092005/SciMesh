@@ -29,7 +29,7 @@ func (uc *UploadArtifact) Execute(ctx context.Context, in UploadArtifactInput) (
 	}
 	// Only the worker holding the current lease at this attempt may upload the
 	// task's output — the coordinator never trusts an ownership claim on faith.
-	if !task.IsLeaseHeldBy(in.WorkerID, in.Attempt) {
+	if !task.IsLeaseHeldBy(in.WorkerID, in.Attempt, uc.clk.Now()) {
 		return nil, domain.ErrLeaseConflict
 	}
 
