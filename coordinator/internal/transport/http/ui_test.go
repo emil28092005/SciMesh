@@ -8,10 +8,10 @@ func TestUIStatusPresentation(t *testing.T) {
 		label  string
 		class  string
 	}{
-		{"pending", "Ожидает worker", "waiting"},
-		{"running", "Выполняется", "active"},
-		{"completed", "Задачи завершены", "success"},
-		{"failed", "Требует внимания", "danger"},
+		{"pending", "Waiting for a worker", "waiting"},
+		{"running", "Running", "active"},
+		{"completed", "Tasks complete", "success"},
+		{"failed", "Needs attention", "danger"},
 	}
 	for _, test := range tests {
 		t.Run(test.status, func(t *testing.T) {

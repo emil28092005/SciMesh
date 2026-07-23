@@ -40,15 +40,15 @@ func formatUITime(t time.Time) string {
 func uiStatusLabel(status string) string {
 	switch status {
 	case "pending":
-		return "Ожидает worker"
+		return "Waiting for a worker"
 	case "leased":
-		return "Выдана worker"
+		return "Assigned to a worker"
 	case "running":
-		return "Выполняется"
+		return "Running"
 	case "completed":
-		return "Задачи завершены"
+		return "Tasks complete"
 	case "failed":
-		return "Требует внимания"
+		return "Needs attention"
 	default:
 		return status
 	}
@@ -57,17 +57,17 @@ func uiStatusLabel(status string) string {
 func uiStatusHint(status string) string {
 	switch status {
 	case "pending":
-		return "Ожидает свободный worker с нужной возможностью."
+		return "Waiting for an available worker with the required capability."
 	case "leased":
-		return "Worker уже забрал задачу и должен скоро начать вычисление."
+		return "A worker has claimed the task and should begin processing shortly."
 	case "running":
-		return "Worker читает shard, считает fingerprints и загружает результат через coordinator."
+		return "A worker is reading a shard, calculating fingerprints, and uploading its result through the coordinator."
 	case "completed":
-		return "Все shard-задачи завершены. Доступные ниже файлы пока являются частичными результатами."
+		return "Every shard task is complete. Files below are still partial results."
 	case "failed":
-		return "Одна или несколько shard-задач завершились ошибкой. Откройте список задач ниже."
+		return "One or more shard tasks failed. Open the task list below for details."
 	default:
-		return "Статус получен от coordinator."
+		return "Status reported by the coordinator."
 	}
 }
 
@@ -87,9 +87,9 @@ func uiStatusClass(status string) string {
 func uiWorkerStatusLabel(status string) string {
 	switch status {
 	case "online":
-		return "Доступен"
+		return "Available"
 	case "offline":
-		return "Нет связи"
+		return "Offline"
 	default:
 		return status
 	}
@@ -98,9 +98,9 @@ func uiWorkerStatusLabel(status string) string {
 func uiWorkloadLabel(workload string) string {
 	switch workload {
 	case "similarity-search", "similarity_search":
-		return "Поиск похожих молекул"
+		return "Molecule similarity search"
 	case "similarity-graph", "similarity_graph":
-		return "Граф молекулярного сходства"
+		return "Molecular similarity graph"
 	default:
 		return workload
 	}
@@ -120,15 +120,15 @@ func uiProgressPercent(completed, failed, total int) int {
 func uiBytes(n int64) string {
 	const kib = 1024
 	if n < kib {
-		return fmt.Sprintf("%d Б", n)
+		return fmt.Sprintf("%d B", n)
 	}
 	if n < kib*kib {
-		return fmt.Sprintf("%.1f КиБ", float64(n)/kib)
+		return fmt.Sprintf("%.1f KiB", float64(n)/kib)
 	}
 	if n < kib*kib*kib {
-		return fmt.Sprintf("%.1f МиБ", float64(n)/(kib*kib))
+		return fmt.Sprintf("%.1f MiB", float64(n)/(kib*kib))
 	}
-	return fmt.Sprintf("%.1f ГиБ", float64(n)/(kib*kib*kib))
+	return fmt.Sprintf("%.1f GiB", float64(n)/(kib*kib*kib))
 }
 
 func (s *Server) renderUI(w http.ResponseWriter, name string, data any) {

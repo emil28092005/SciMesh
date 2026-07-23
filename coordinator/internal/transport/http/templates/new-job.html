@@ -1,69 +1,29 @@
 {{define "new-job.html"}}
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Создать проверку — SciMesh</title>
+  <title>Create a check — SciMesh</title>
   <style>
     :root{color:#172033;background:#f6f8fc;font:16px/1.5 system-ui,sans-serif}body{margin:0}.page{max-width:760px;margin:auto;padding:32px 20px 56px}a{color:#174ecf}.back{text-decoration:none}.eyebrow{margin:28px 0 4px;color:#50617d;font-size:.86rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em}h1{margin:0;font-size:2rem}.lead{color:#56657c}.notice{margin:22px 0;padding:16px 18px;border:1px solid #f2cb72;border-radius:10px;background:#fff8e6}.notice strong{display:block}.card{padding:22px;border:1px solid #dfe5f0;border-radius:12px;background:#fff}label{display:block;margin:18px 0 4px;font-weight:700}input{box-sizing:border-box;width:100%;padding:10px;border:1px solid #bac5d8;border-radius:7px;font:inherit}input[type=file]{padding:8px;background:#f8faff}.hint{margin:4px 0;color:#68758b;font-size:.9rem}.button{margin-top:22px;border:0;border-radius:8px;padding:11px 16px;background:#1f5eff;color:#fff;font:inherit;font-weight:700;cursor:pointer}.button:disabled{opacity:.6;cursor:wait}.error{margin-top:16px;color:#a31135}.working{margin-top:16px;color:#174ecf}.checklist{margin:8px 0;padding-left:20px;color:#56657c}.checklist li{margin:5px 0}
   </style>
 </head>
 <body>
   <main class="page">
-    <a class="back" href="/ui">← К списку заданий</a>
-    <p class="eyebrow">Пошаговый запуск</p>
-    <h1>Поиск похожих молекул</h1>
-    <p class="lead">Создаёт диагностическую задачу <code>similarity-search</code>: worker найдёт top-k молекул, похожих на заданный SMILES.</p>
-
-    <section class="notice">
-      <strong>Перед запуском</strong>
-      <ul class="checklist"><li>Оставьте хотя бы один <code>scimesh-worker</code> запущенным.</li><li>Для ручной проверки используйте небольшой TSV.</li><li><b>«Строк в shard» не ограничивает размер файла.</b> Он делит весь загруженный файл на задачи: большой ChEMBL TSV при 1000 строках создаст тысячи задач.</li></ul>
-    </section>
-
+    <a class="back" href="/ui">← Back to jobs</a><p class="eyebrow">Guided run</p><h1>Search for similar molecules</h1><p class="lead">Creates a diagnostic <code>similarity-search</code> job: a worker finds the top-k molecules most similar to a target SMILES.</p>
+    <section class="notice"><strong>Before starting</strong><ul class="checklist"><li>Keep at least one <code>scimesh-worker</code> running.</li><li>Use a small TSV for a hands-on check.</li><li><b>“Rows per shard” does not limit the file size.</b> It splits the entire upload into tasks: a full ChEMBL TSV at 1,000 rows per shard creates thousands of tasks.</li></ul></section>
     <form id="run" class="card">
-      <label for="file">ChEMBL TSV</label>
-      <input id="file" type="file" name="file" required accept=".tsv,.txt,text/tab-separated-values">
-      <p class="hint">Ожидаются столбцы <code>chembl_id</code> и <code>canonical_smiles</code>.</p>
-
-      <label for="query-smiles">Целевая молекула (SMILES)</label>
-      <input id="query-smiles" name="query_smiles" required maxlength="200" value="CCO" autocomplete="off">
-      <p class="hint">Пример <code>CCO</code> — этанол. Для гефитиниба используйте его SMILES или локальный CLI с <code>--query-id</code>.</p>
-
-      <label for="top-k">Сколько совпадений вернуть</label>
-      <input id="top-k" name="top_k" type="number" min="1" max="100000" value="20" required>
-      <p class="hint">Top-k для каждого shard. Это пока не глобальный top-k всего датасета.</p>
-
-      <label for="chunk-rows">Строк в одном shard</label>
-      <input id="chunk-rows" name="chunk_rows" type="number" min="1" max="100000" value="1000" required>
-      <p class="hint">Меньше строк — больше задач и более наглядный прогресс; больше строк — меньше задач, но дольше каждая.</p>
-
-      <button class="button" id="submit" type="submit">Загрузить файл и создать задачу</button>
-      <p id="working" class="working" hidden aria-live="polite">Загружаем файл и создаём shard-задачи… Не закрывайте страницу.</p>
-      <p id="error" class="error" role="alert"></p>
+      <label for="file">ChEMBL TSV</label><input id="file" type="file" name="file" required accept=".tsv,.txt,text/tab-separated-values"><p class="hint">Expected columns: <code>chembl_id</code> and <code>canonical_smiles</code>.</p>
+      <label for="query-smiles">Target molecule (SMILES)</label><input id="query-smiles" name="query_smiles" required maxlength="200" value="CCO" autocomplete="off"><p class="hint"><code>CCO</code> is ethanol. For gefitinib, use its SMILES here or the local CLI with <code>--query-id</code>.</p>
+      <label for="top-k">Matches to return</label><input id="top-k" name="top_k" type="number" min="1" max="100000" value="20" required><p class="hint">This is the top-k within each shard, not a global top-k for the whole dataset yet.</p>
+      <label for="chunk-rows">Rows per shard</label><input id="chunk-rows" name="chunk_rows" type="number" min="1" max="100000" value="1000" required><p class="hint">Fewer rows mean more tasks and more visible progress; more rows mean fewer, longer tasks.</p>
+      <button class="button" id="submit" type="submit">Upload file and create job</button><p id="working" class="working" hidden aria-live="polite">Uploading the file and creating shard tasks… Keep this page open.</p><p id="error" class="error" role="alert"></p>
     </form>
   </main>
   <script>
     const form=document.querySelector('#run'),button=document.querySelector('#submit'),working=document.querySelector('#working'),error=document.querySelector('#error');
-    form.addEventListener('submit',async event=>{
-      event.preventDefault();error.textContent='';
-      const fields=new FormData(form),file=fields.get('file');
-      if(!(file instanceof File)||file.size===0){error.textContent='Выберите непустой TSV-файл.';return}
-      const parameters={query_smiles:fields.get('query_smiles'),top_k:Number(fields.get('top_k')),progress_every:0};
-      const upload=new FormData();
-      // The coordinator streams the file, therefore metadata must precede it.
-      upload.append('workload','similarity-search');upload.append('parameters',JSON.stringify(parameters));upload.append('chunk_rows',fields.get('chunk_rows'));upload.append('file',file,file.name);
-      button.disabled=true;working.hidden=false;
-      try{
-        const response=await fetch('/ui/api/jobs/upload',{method:'POST',body:upload});
-        const data=await response.json();
-        if(!response.ok)throw Error(data.error||'Не удалось создать задачу.');
-        location.href='/ui/jobs/'+data.job_id;
-      }catch(err){
-        error.textContent=err.message==='invalid input'?'Проверьте TSV и заполненные поля: coordinator не смог принять запрос.':err.message;
-        button.disabled=false;working.hidden=true;
-      }
-    });
+    form.addEventListener('submit',async event=>{event.preventDefault();error.textContent='';const fields=new FormData(form),file=fields.get('file');if(!(file instanceof File)||file.size===0){error.textContent='Choose a non-empty TSV file.';return}const parameters={query_smiles:fields.get('query_smiles'),top_k:Number(fields.get('top_k')),progress_every:0},upload=new FormData();upload.append('workload','similarity-search');upload.append('parameters',JSON.stringify(parameters));upload.append('chunk_rows',fields.get('chunk_rows'));upload.append('file',file,file.name);button.disabled=true;working.hidden=false;try{const response=await fetch('/ui/api/jobs/upload',{method:'POST',body:upload}),data=await response.json();if(!response.ok)throw Error(data.error||'Unable to create the job.');location.href='/ui/jobs/'+data.job_id}catch(err){error.textContent=err.message==='invalid input'?'Check the TSV and fields: the coordinator could not accept this request.':err.message;button.disabled=false;working.hidden=true}});
   </script>
 </body>
 </html>
