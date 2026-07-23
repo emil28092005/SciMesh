@@ -54,16 +54,19 @@ services:
       LEASE_DURATION: "2m"
       REAPER_INTERVAL: "30s"
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      # Logs are teed to stdout (docker logs) and this rotated file, which lives
-      # on the mounted ./logs directory so it survives a rebuild.
+      # Logs are teed to stdout (docker logs) and this rotated file on a named
+      # volume, so they survive a rebuild.
       LOG_FILE: /var/log/scimesh/coordinator.log
-      # Artifact bytes land on the mounted ./data directory, durable across rebuilds.
+      # Artifact bytes live on a named volume, durable across rebuilds.
       COORDINATOR_STORAGE_DIR: /var/lib/scimesh/artifacts
     ports:
       - "${COORDINATOR_PORT:-8080}:8080"
+    # Named volumes (not host bind mounts): they inherit the image's directory
+    # ownership, so the non-root process can write to them. A bind mount would
+    # be root-owned and unwritable by uid 10001.
     volumes:
-      - ./logs:/var/log/scimesh
-      - ./data:/var/lib/scimesh/artifacts
+      - coordinator_logs:/var/log/scimesh
+      - coordinator_data:/var/lib/scimesh/artifacts
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
       interval: 10s
@@ -74,3 +77,5 @@ services:
 
 volumes:
   pgdata:
+  coordinator_logs:
+  coordinator_data:

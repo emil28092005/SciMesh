@@ -33,7 +33,12 @@ FROM alpine:3.20
 
 # ca-certificates for outbound TLS; wget backs the container healthcheck.
 RUN apk add --no-cache ca-certificates wget \
- && adduser -D -H -u 10001 coordinator
+ && adduser -D -H -u 10001 coordinator \
+ # Pre-create the storage and log dirs owned by the non-root user. A named
+ # volume mounted here inherits this ownership from the image, so the process
+ # can write to it — a host bind mount, owned by root, cannot.
+ && mkdir -p /var/lib/scimesh/artifacts /var/log/scimesh \
+ && chown -R coordinator:coordinator /var/lib/scimesh /var/log/scimesh
 
 COPY --from=build /out/coordinator /usr/local/bin/coordinator
 
