@@ -101,15 +101,24 @@ See `.env.example`; only `DATABASE_URL` is required.
 
 ## Endpoints
 
-| Method | Path                          | Purpose                                    |
-| ------ | ----------------------------- | ------------------------------------------ |
-| POST   | `/jobs`                       | Create job + pending tasks transactionally |
-| POST   | `/tasks/claim`                | Atomically lease one task (`204` if none)  |
-| POST   | `/tasks/{task_id}/heartbeat`  | Renew the caller's lease                   |
-| POST   | `/tasks/{task_id}/result`     | Record a completed result (idempotent)     |
-| POST   | `/tasks/{task_id}/failure`    | Record failure / retryable state           |
-| GET    | `/jobs/{job_id}`              | Aggregate job progress                     |
-| GET    | `/health`                     | Liveness (unauthenticated)                 |
+| Method | Path                               | Purpose                                       |
+| ------ | ---------------------------------- | --------------------------------------------- |
+| POST   | `/workers/register`                | Register a worker, get its id                 |
+| POST   | `/jobs`                            | Create job + tasks from chunk URIs            |
+| POST   | `/jobs/upload`                     | Upload a dataset; coordinator chunks it       |
+| GET    | `/jobs/{job_id}`                   | Aggregate job progress                        |
+| POST   | `/tasks/claim`                     | Atomically lease one task (`204` if none)     |
+| GET    | `/tasks/{task_id}/input`           | Download the task's input shard               |
+| POST   | `/tasks/{task_id}/heartbeat`       | Renew the caller's lease (→ `running`)        |
+| PUT    | `/tasks/{task_id}/artifacts/{name}`| Upload a partial-result artifact              |
+| POST   | `/tasks/{task_id}/result`          | Complete with an artifact id (idempotent)     |
+| POST   | `/tasks/{task_id}/failure`         | Record failure / retryable state              |
+| GET    | `/artifacts/{artifact_id}/download`| Download an artifact by id                    |
+| GET    | `/health`                          | Readiness incl. database (unauthenticated)    |
+
+The full contract is in [`docs/api-contract.md`](../docs/api-contract.md) and
+[`docs/openapi.yaml`](../docs/openapi.yaml); a worker-author guide is in
+[`docs/building-workers.md`](../docs/building-workers.md).
 
 ## Poking the API
 
@@ -125,32 +134,38 @@ reuse ids captured from earlier responses, so it doubles as API documentation.
 
 ## Status
 
-The queue works end to end: a job can be submitted, split into tasks, leased to
-workers one at a time, heartbeated, completed, and reflected in job progress.
+Works end to end: a worker registers, a dataset is uploaded and chunked into
+shard tasks (or a job is created from chunk URIs), tasks are leased one at a
+time, downloaded, heartbeated (`leased → running`), completed via uploaded
+result artifacts, and reflected in job progress. A reaper reclaims expired
+leases and marks silent workers offline.
 
-Roadmap:
+Done: schema + migrations, atomic claim (`FOR UPDATE SKIP LOCKED`), optimistic
+concurrency, result/failure paths, lease expiry, worker registry + liveness,
+artifact storage, dataset upload + chunking, request-size limits.
 
-1. schema + migrations ✅
-2. `ClaimNext`, `InsertBatch` — atomic claim via `FOR UPDATE SKIP LOCKED` ✅
-3. `GetForUpdate`, `Update`, `CountByStatus` — result/failure paths ✅
-4. file upload / chunk download — **next**
-5. `ExpireLeases` ✅ (reaper + a sweep before every claim)
-6. stitcher: merge per-chunk top-k into the final CSV
-7. more integration coverage as features land
-
-Still stubbed: `StitchJob.Execute`, and there is no `POST /upload` or
-`GET /download_chunk` yet — so chunk files must be referenced by URI for now.
+Still stubbed: `StitchJob.Execute` — merging per-chunk top-k into the final CSV
+is workload semantics that belongs to the Python side (reducer).
 
 ## Tests
 
-`internal/domain` is covered by unit tests that need **no database** — lease
-ownership, stale attempts, idempotent replays, retry budgets, and expiry are all
-pure functions of entity state:
+Unit tests need **no database** — domain rules, use-case orchestration (over
+in-memory `internal/memstore`), and HTTP handlers (via `httptest`):
 
 ```sh
-go test ./...
-go vet ./...
+make test           # go test ./...
+make vet
+make lint
+go test -race ./...
 ```
 
-Integration tests (concurrent claiming, migrations) come in phase 7 and require
-a real PostgreSQL instance supplied through `TEST_DATABASE_URL`.
+Integration tests run against a **real PostgreSQL** (the spec forbids mocks
+here — they verify `FOR UPDATE SKIP LOCKED`, optimistic concurrency, rollback):
+
+```sh
+docker compose up -d
+make test-integration TEST_DATABASE_URL='postgres://scimesh:scimesh@localhost:5432/scimesh?sslmode=disable'
+```
+
+CI (`.github/workflows/coordinator.yml`) runs vet, gofmt, race tests, lint, and
+the integration suite against a Postgres service on every push and PR.
