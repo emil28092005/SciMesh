@@ -206,6 +206,27 @@ func TestClaimNextReturnsNilOnEmptyQueue(t *testing.T) {
 	}
 }
 
+func TestCancelJobCancelsEveryUnfinishedTask(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	job, _ := seedJob(t, pool, 3)
+	clk := fixedClock{now: time.Now().UTC()}
+	uc := usecase.NewCancelJob(NewJobRepo(pool), NewTaskRepo(pool), NewTxManager(pool), clk)
+
+	cancelled, err := uc.Execute(ctx, job.ID)
+	if err != nil || cancelled != 3 {
+		t.Fatalf("cancel = (%d, %v), want (3, nil)", cancelled, err)
+	}
+	stored, err := NewJobRepo(pool).Get(ctx, job.ID)
+	if err != nil || stored.Status != domain.JobCancelled {
+		t.Fatalf("job after cancel = (%+v, %v)", stored, err)
+	}
+	counts, err := NewTaskRepo(pool).CountByStatus(ctx, job.ID)
+	if err != nil || counts[domain.TaskCancelled] != 3 {
+		t.Fatalf("cancelled tasks = %d, err = %v", counts[domain.TaskCancelled], err)
+	}
+}
+
 func TestUpdateRejectsStaleVersion(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()

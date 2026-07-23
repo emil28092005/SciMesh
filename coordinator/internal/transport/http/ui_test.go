@@ -26,10 +26,10 @@ func TestUIStatusPresentation(t *testing.T) {
 }
 
 func TestUIProgressPercent(t *testing.T) {
-	if got := uiProgressPercent(3, 1, 8); got != 50 {
+	if got := uiProgressPercent(3, 1, 0, 8); got != 50 {
 		t.Errorf("progress = %d, want 50", got)
 	}
-	if got := uiProgressPercent(1, 1, 0); got != 0 {
+	if got := uiProgressPercent(1, 1, 0, 0); got != 0 {
 		t.Errorf("empty progress = %d, want 0", got)
 	}
 }

@@ -259,6 +259,24 @@ func (t *Task) ExpireLease(now time.Time) {
 	t.CompletedAt = &now
 }
 
+// Cancel prevents any further worker transition for a task that has not
+// reached a terminal result. A cancelled lease deliberately becomes invalid:
+// a worker still running locally must not upload or complete after its job was
+// stopped by the operator.
+func (t *Task) Cancel(now time.Time) bool {
+	if t.Status == TaskCompleted || t.Status == TaskFailed || t.Status == TaskCancelled {
+		return false
+	}
+	t.Status = TaskCancelled
+	t.LeaseOwner = nil
+	t.LeaseExpiresAt = nil
+	t.ErrorCode = nil
+	t.ErrorMessage = nil
+	t.CompletedAt = &now
+	t.Version++
+	return true
+}
+
 // ClaimedTask is the worker-facing projection of a leased task. Input is either
 // an external URI or a coordinator-stored shard (InputArtifactID set); the
 // transport turns the latter into a coordinator download URL.

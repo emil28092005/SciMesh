@@ -30,6 +30,7 @@ type JobCard struct {
 	Running   int       `json:"running"`
 	Completed int       `json:"completed"`
 	Failed    int       `json:"failed"`
+	Cancelled int       `json:"cancelled"`
 }
 
 type TaskCard struct {
@@ -166,9 +167,11 @@ func jobCard(job domain.Job, tasks []domain.Task) JobCard {
 			c.Completed++
 		case domain.TaskFailed:
 			c.Failed++
+		case domain.TaskCancelled:
+			c.Cancelled++
 		}
 	}
-	p := domain.JobProgress{Job: job, Total: c.Total, Pending: c.Pending, Leased: c.Leased + c.Running, Done: c.Completed, Failed: c.Failed}
+	p := domain.JobProgress{Job: job, Total: c.Total, Pending: c.Pending, Leased: c.Leased + c.Running, Done: c.Completed, Failed: c.Failed, Cancelled: c.Cancelled}
 	c.Status = string(p.DeriveStatus())
 	return c
 }

@@ -77,6 +77,7 @@ func run() error {
 		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, tx, clk),
 		FailTask:         usecase.NewFailTask(taskRepo, jobRepo, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobRepo, taskRepo),
+		CancelJob:        usecase.NewCancelJob(jobRepo, taskRepo, tx, clk),
 		UploadArtifact:   usecase.NewUploadArtifact(taskRepo, artifactRepo, blobStore, clk),
 		DownloadArtifact: usecase.NewDownloadArtifact(artifactRepo, blobStore),
 		GetTaskInput:     usecase.NewGetTaskInput(taskRepo, artifactRepo, blobStore),

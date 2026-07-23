@@ -173,6 +173,9 @@ Rules:
 - TSV file, required, streamed; show expected columns
   `chembl_id` and `canonical_smiles`.
 - `chunk_rows`: integer 1--100000, default 1000.
+- `max_rows`: optional positive integer. The coordinator creates shards only
+  from the first N data rows, so a user can test a large upload without
+  creating thousands of tasks. It does not truncate the stored source blob.
 - optional human-readable run name is a later schema/API addition; v1 does not
   silently store it.
 - display file name and client-side size only as convenience; server limits and

@@ -64,7 +64,7 @@ func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (Su
 		cleanup()
 		return SubmitDatasetResult{}, err
 	}
-	splitErr := chunk.SplitTSV(rc, in.RowsPerShard, func(index int, shard io.Reader) error {
+	splitErr := chunk.SplitTSVLimit(rc, in.RowsPerShard, in.MaxRows, func(index int, shard io.Reader) error {
 		art, err := domain.NewArtifact(job.ID, nil, domain.ArtifactShard,
 			fmt.Sprintf("shard-%d.tsv", index), in.ContentType, now)
 		if err != nil {

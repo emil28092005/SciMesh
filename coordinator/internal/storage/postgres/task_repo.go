@@ -295,6 +295,29 @@ func (r *TaskRepo) CountByStatus(ctx context.Context, jobID uuid.UUID) (map[doma
 	return counts, rows.Err()
 }
 
+// cancelByJobSQL mirrors domain.Task.Cancel in one set-based update. It runs in
+// the same transaction as the job-status update, so no claimable shard remains
+// after an operator receives a successful cancellation response.
+const cancelByJobSQL = `
+UPDATE tasks
+SET status           = 'cancelled'::task_status,
+    lease_owner      = NULL,
+    lease_expires_at = NULL,
+    error_code       = NULL,
+    error_message    = NULL,
+    completed_at     = $2,
+    version          = version + 1
+WHERE job_id = $1
+  AND status IN ('pending','leased','running')`
+
+func (r *TaskRepo) CancelByJob(ctx context.Context, jobID uuid.UUID, now time.Time) (int64, error) {
+	tag, err := conn(ctx, r.pool).Exec(ctx, cancelByJobSQL, jobID, now)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // expireLeasesSQL applies the lease-expiry rule set-based, mirroring
 // domain.Task.ExpireLease: requeue while attempts remain, otherwise fail.
 //

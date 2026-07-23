@@ -111,13 +111,14 @@ type uploadJobResponse struct {
 }
 
 type jobProgressResponse struct {
-	ID      uuid.UUID `json:"id"`
-	Status  string    `json:"status"`
-	Total   int       `json:"total"`
-	Pending int       `json:"pending"`
-	Leased  int       `json:"leased"`
-	Done    int       `json:"completed"`
-	Failed  int       `json:"failed"`
+	ID        uuid.UUID `json:"id"`
+	Status    string    `json:"status"`
+	Total     int       `json:"total"`
+	Pending   int       `json:"pending"`
+	Leased    int       `json:"leased"`
+	Done      int       `json:"completed"`
+	Failed    int       `json:"failed"`
+	Cancelled int       `json:"cancelled"`
 }
 
 type uploadArtifactResponse struct {
@@ -153,12 +154,13 @@ func toClaimedTaskResponse(c domain.ClaimedTask) claimedTaskResponse {
 
 func toJobProgressResponse(p domain.JobProgress) jobProgressResponse {
 	return jobProgressResponse{
-		ID:      p.Job.ID,
-		Status:  string(p.DeriveStatus()),
-		Total:   p.Total,
-		Pending: p.Pending,
-		Leased:  p.Leased,
-		Done:    p.Done,
-		Failed:  p.Failed,
+		ID:        p.Job.ID,
+		Status:    string(p.DeriveStatus()),
+		Total:     p.Total,
+		Pending:   p.Pending,
+		Leased:    p.Leased,
+		Done:      p.Done,
+		Failed:    p.Failed,
+		Cancelled: p.Cancelled,
 	}
 }

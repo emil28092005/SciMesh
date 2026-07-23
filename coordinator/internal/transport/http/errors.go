@@ -50,7 +50,8 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, domain.ErrLeaseConflict),
 		errors.Is(err, domain.ErrStaleAttempt),
 		errors.Is(err, domain.ErrResultConflict),
-		errors.Is(err, domain.ErrTaskNotLeased):
+		errors.Is(err, domain.ErrTaskNotLeased),
+		errors.Is(err, domain.ErrJobNotCancellable):
 		status = http.StatusConflict
 	case errors.Is(err, usecase.ErrNotImplemented):
 		status = http.StatusNotImplemented

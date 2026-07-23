@@ -52,9 +52,11 @@ Content-Type: multipart/form-data
 ```
 
 Fields, in order (text fields first, file last — the file is streamed):
-`workload`, `parameters` (JSON), `chunk_rows` (int, default 1000), and the file
-part `file`. The coordinator stores the input, splits the TSV into shard
-artifacts (header repeated per shard), and creates one task per shard.
+`workload`, `parameters` (JSON), `chunk_rows` (int, default 1000), optional
+`max_rows` (positive int), and the file part `file`. `max_rows` limits the
+leading data rows that become shards; it does not change the stored source
+artifact. The coordinator splits the selected TSV rows into shard artifacts
+(header repeated per shard) and creates one task per shard.
 
 `201`:
 
@@ -64,6 +66,24 @@ artifacts (header repeated per shard), and creates one task per shard.
 
 Each resulting task's claim response carries `input.uri = /tasks/{id}/input`,
 served by §5.4.
+
+## Stop a job
+
+```http
+POST /jobs/{job_id}/cancel
+Authorization: Bearer <token>
+```
+
+The coordinator transactionally marks every pending, leased, or running shard
+as `cancelled`, invalidates its lease, and marks the job `cancelled`. Completed
+and terminally failed shards remain as history. Repeating a cancellation of an
+already cancelled job is safe.
+
+`200`:
+
+```json
+{ "job_id": "uuid", "status": "cancelled", "cancelled_tasks": 12 }
+```
 
 ## Register worker
 

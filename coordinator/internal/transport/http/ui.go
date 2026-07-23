@@ -28,6 +28,7 @@ var uiTemplates = template.Must(template.New("ui").Funcs(template.FuncMap{
 	"workerStatusLabel": uiWorkerStatusLabel,
 	"workloadLabel":     uiWorkloadLabel,
 	"progressPercent":   uiProgressPercent,
+	"cancellable":       uiCancellable,
 	"bytes":             uiBytes,
 	"add":               func(a, b int) int { return a + b },
 }).ParseFS(uiFiles, "templates/*.html"))
@@ -51,6 +52,8 @@ func uiStatusLabel(status string) string {
 		return "Tasks complete"
 	case "failed":
 		return "Needs attention"
+	case "cancelled":
+		return "Stopped"
 	default:
 		return status
 	}
@@ -68,6 +71,8 @@ func uiStatusHint(status string) string {
 		return "Every shard task is complete. Files below are still partial results."
 	case "failed":
 		return "One or more shard tasks failed. Open the task list below for details."
+	case "cancelled":
+		return "The operator stopped this job. No new shards can be claimed."
 	default:
 		return "Status reported by the coordinator."
 	}
@@ -79,6 +84,8 @@ func uiStatusClass(status string) string {
 		return "success"
 	case "failed":
 		return "danger"
+	case "cancelled":
+		return "waiting"
 	case "running", "leased":
 		return "active"
 	default:
@@ -145,11 +152,15 @@ func uiWorkloadLabel(workload string) string {
 	}
 }
 
-func uiProgressPercent(completed, failed, total int) int {
+func uiCancellable(status string) bool {
+	return status == "pending" || status == "running"
+}
+
+func uiProgressPercent(completed, failed, cancelled, total int) int {
 	if total <= 0 {
 		return 0
 	}
-	percent := (completed + failed) * 100 / total
+	percent := (completed + failed + cancelled) * 100 / total
 	if percent > 100 {
 		return 100
 	}

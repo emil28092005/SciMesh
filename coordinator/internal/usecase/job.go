@@ -62,6 +62,45 @@ type GetJobStatus struct {
 	tasks TaskRepository
 }
 
+// --- CancelJob -----------------------------------------------------------
+
+type CancelJob struct {
+	jobs  JobRepository
+	tasks TaskRepository
+	tx    TxManager
+	clock Clock
+}
+
+func NewCancelJob(jobs JobRepository, tasks TaskRepository, tx TxManager, clock Clock) *CancelJob {
+	return &CancelJob{jobs: jobs, tasks: tasks, tx: tx, clock: clock}
+}
+
+// Execute stops a job atomically. Completed and finally failed tasks are kept
+// as historical evidence; all other tasks are cancelled, including leased and
+// running ones. A repeated cancel of an already cancelled job is idempotent.
+func (uc *CancelJob) Execute(ctx context.Context, jobID uuid.UUID) (int64, error) {
+	now := uc.clock.Now()
+	var cancelled int64
+	err := uc.tx.WithinTx(ctx, func(ctx context.Context) error {
+		job, err := uc.jobs.Get(ctx, jobID)
+		if err != nil {
+			return err
+		}
+		if job.Status == domain.JobCancelled {
+			return nil
+		}
+		if job.Status == domain.JobCompleted || job.Status == domain.JobFailed {
+			return domain.ErrJobNotCancellable
+		}
+		cancelled, err = uc.tasks.CancelByJob(ctx, jobID, now)
+		if err != nil {
+			return err
+		}
+		return uc.jobs.UpdateStatus(ctx, jobID, domain.JobCancelled, &now)
+	})
+	return cancelled, err
+}
+
 func NewGetJobStatus(jobs JobRepository, tasks TaskRepository) *GetJobStatus {
 	return &GetJobStatus{jobs: jobs, tasks: tasks}
 }
@@ -144,9 +183,10 @@ func progressFrom(job domain.Job, counts map[domain.TaskStatus]int) domain.JobPr
 		Job:     job,
 		Pending: counts[domain.TaskPending],
 		// Leased and running are both "in flight" for progress purposes.
-		Leased: counts[domain.TaskLeased] + counts[domain.TaskRunning],
-		Done:   counts[domain.TaskCompleted],
-		Failed: counts[domain.TaskFailed],
+		Leased:    counts[domain.TaskLeased] + counts[domain.TaskRunning],
+		Done:      counts[domain.TaskCompleted],
+		Failed:    counts[domain.TaskFailed],
+		Cancelled: counts[domain.TaskCancelled],
 	}
 	for _, n := range counts {
 		p.Total += n

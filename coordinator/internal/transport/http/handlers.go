@@ -182,7 +182,7 @@ func (s *Server) handleFailure(w http.ResponseWriter, r *http.Request) {
 const defaultChunkRows = 1000
 
 // handleUploadDataset accepts a multipart submission — the dataset file plus the
-// workload/parameters/chunk_rows fields — and hands the file, streamed, to the
+// workload/parameters/chunk_rows/max_rows fields — and hands the file, streamed, to the
 // chunker. The text fields MUST precede the file part: the file is streamed, not
 // buffered, so by the time it arrives the other fields are already parsed.
 func (s *Server) handleUploadDataset(w http.ResponseWriter, r *http.Request) {
@@ -197,11 +197,13 @@ func (s *Server) handleUploadDataset(w http.ResponseWriter, r *http.Request) {
 		workload    string
 		params      map[string]any
 		rows        = defaultChunkRows
+		maxRows     int
 		result      usecase.SubmitDatasetResult
 		gotDataset  bool
 		gotWorkload bool
 		gotParams   bool
 		gotRows     bool
+		gotMaxRows  bool
 	)
 
 	for {
@@ -249,6 +251,19 @@ func (s *Server) handleUploadDataset(w http.ResponseWriter, r *http.Request) {
 			}
 			rows = n
 			gotRows = true
+		case "max_rows":
+			if gotDataset || gotMaxRows {
+				s.writeError(w, r, domain.ErrInvalidInput)
+				return
+			}
+			b, _ := io.ReadAll(io.LimitReader(part, 32))
+			n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+			if err != nil || n < 1 {
+				s.writeError(w, r, domain.ErrInvalidInput)
+				return
+			}
+			maxRows = n
+			gotMaxRows = true
 		case "file", "dataset":
 			if gotDataset || workload == "" {
 				s.writeError(w, r, domain.ErrInvalidInput)
@@ -262,6 +277,7 @@ func (s *Server) handleUploadDataset(w http.ResponseWriter, r *http.Request) {
 				Workload:     workload,
 				Parameters:   params,
 				RowsPerShard: rows,
+				MaxRows:      maxRows,
 				Filename:     filename,
 				ContentType:  part.Header.Get("Content-Type"),
 				Body:         part,
@@ -377,6 +393,27 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, toJobProgressResponse(progress))
+}
+
+// handleCancelJob stops all non-terminal shards for an operator-requested job.
+// It is available to both the bearer API and the separately authenticated UI.
+func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	jobID, ok := s.pathUUID(w, r, "job_id")
+	if !ok {
+		return
+	}
+	cancelled, err := s.uc.CancelJob.Execute(ctx, jobID)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"job_id":          jobID,
+		"status":          domain.JobCancelled,
+		"cancelled_tasks": cancelled,
+	})
 }
 
 // --- helpers ---
