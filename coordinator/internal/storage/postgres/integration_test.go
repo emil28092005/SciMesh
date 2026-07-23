@@ -387,6 +387,47 @@ func TestWorkerRepoRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWorkerLivenessAndOfflineReaper(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	repo := NewWorkerRepo(pool)
+
+	w, err := domain.NewWorker("liveness", []string{"similarity_search"}, time.Now().UTC().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Insert(ctx, w); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM workers WHERE id = $1`, w.ID) })
+
+	// A fresh heartbeat bumps it online.
+	now := time.Now().UTC()
+	if err := repo.Touch(ctx, w.ID, now); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	if got, _ := repo.Get(ctx, w.ID); got.Status != domain.WorkerOnline {
+		t.Errorf("status = %q, want online after touch", got.Status)
+	}
+
+	// Touching an unregistered id is a harmless no-op.
+	if err := repo.Touch(ctx, uuid.New(), now); err != nil {
+		t.Errorf("touch of unknown worker returned %v, want nil", err)
+	}
+
+	// The reaper marks it offline once its heartbeat is older than the cutoff.
+	n, err := repo.MarkStaleOffline(ctx, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("mark offline: %v", err)
+	}
+	if n < 1 {
+		t.Errorf("marked %d offline, want at least 1", n)
+	}
+	if got, _ := repo.Get(ctx, w.ID); got.Status != domain.WorkerOffline {
+		t.Errorf("status = %q, want offline after reaper", got.Status)
+	}
+}
+
 func TestArtifactRepoRoundTrip(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()

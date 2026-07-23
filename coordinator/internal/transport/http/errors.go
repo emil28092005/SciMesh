@@ -15,8 +15,12 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// maxJSONBody caps a JSON request body. The DTOs are tiny; anything larger is a
+// mistake or an attack, and must not be read into memory unbounded.
+const maxJSONBody = 1 << 20 // 1 MiB
+
 func decodeJSON(r *http.Request, dst any) error {
-	dec := json.NewDecoder(r.Body)
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxJSONBody))
 	// Reject unknown fields: silently ignoring a misspelled "worker_ID" would
 	// surface later as a baffling validation failure.
 	dec.DisallowUnknownFields()

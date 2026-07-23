@@ -168,6 +168,42 @@ func TestExpireLeaseIgnoresUnleasedTasks(t *testing.T) {
 	}
 }
 
+func TestFirstHeartbeatMovesLeasedToRunning(t *testing.T) {
+	task := leasedTask(1, 3)
+	until := testLater.Add(time.Hour)
+
+	if err := task.RenewLease(testWorker, 1, until); err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != TaskRunning {
+		t.Errorf("status = %q, want running after first heartbeat", task.Status)
+	}
+	// A second heartbeat keeps it running.
+	if err := task.RenewLease(testWorker, 1, until); err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != TaskRunning {
+		t.Errorf("status = %q, want running", task.Status)
+	}
+}
+
+func TestRunningTaskCanBeCompletedAndExpired(t *testing.T) {
+	// Complete works from running.
+	task := leasedTask(1, 3)
+	_ = task.RenewLease(testWorker, 1, testLater) // -> running
+	if err := task.CompleteWith(testResult, nil, testWorker, 1, testNow); err != nil {
+		t.Errorf("complete from running: %v", err)
+	}
+
+	// Expire reclaims a running task too.
+	task2 := leasedTask(1, 3)
+	_ = task2.RenewLease(testWorker, 1, testLater) // -> running
+	task2.ExpireLease(testNow)
+	if task2.Status != TaskPending {
+		t.Errorf("status = %q, want pending after a running lease expires", task2.Status)
+	}
+}
+
 func TestRenewLeaseExtendsOnlyForHolder(t *testing.T) {
 	task := leasedTask(1, 3)
 	until := testLater.Add(time.Hour)

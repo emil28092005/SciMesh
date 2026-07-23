@@ -42,7 +42,7 @@ func newEnv(t *testing.T, ready func(context.Context) error) *env {
 		CreateJob:        usecase.NewCreateJob(jobs, tasks, tx, clk),
 		SubmitDataset:    usecase.NewSubmitDataset(blobs, arts, jobs, tasks, tx, clk),
 		ClaimTask:        usecase.NewClaimTask(tasks, clk, lease),
-		RenewLease:       usecase.NewRenewLease(tasks, tx, clk, lease),
+		RenewLease:       usecase.NewRenewLease(tasks, work, tx, clk, lease),
 		CompleteTask:     usecase.NewCompleteTask(tasks, jobs, arts, tx, clk),
 		FailTask:         usecase.NewFailTask(tasks, jobs, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobs, tasks),
@@ -50,7 +50,7 @@ func newEnv(t *testing.T, ready func(context.Context) error) *env {
 		DownloadArtifact: usecase.NewDownloadArtifact(arts, blobs),
 		GetTaskInput:     usecase.NewGetTaskInput(tasks, arts, blobs),
 	}
-	srv := coordhttp.NewServer(uc, slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second, 15*time.Second, ready)
+	srv := coordhttp.NewServer(uc, slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second, 15*time.Second, 1<<30, ready)
 	ts := httptest.NewServer(srv.Handler(token))
 	t.Cleanup(ts.Close)
 	return &env{ts: ts, blobs: blobs}

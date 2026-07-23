@@ -186,6 +186,7 @@ const defaultChunkRows = 1000
 // chunker. The text fields MUST precede the file part: the file is streamed, not
 // buffered, so by the time it arrives the other fields are already parsed.
 func (s *Server) handleUploadDataset(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxUploadBytes)
 	mr, err := r.MultipartReader()
 	if err != nil {
 		s.writeError(w, r, domain.ErrInvalidInput)
@@ -292,6 +293,7 @@ func (s *Server) handleUploadArtifact(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, domain.ErrInvalidInput)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxUploadBytes)
 
 	art, err := s.uc.UploadArtifact.Execute(r.Context(), usecase.UploadArtifactInput{
 		TaskID:      taskID,

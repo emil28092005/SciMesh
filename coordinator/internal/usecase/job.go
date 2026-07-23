@@ -143,9 +143,10 @@ func progressFrom(job domain.Job, counts map[domain.TaskStatus]int) domain.JobPr
 	p := domain.JobProgress{
 		Job:     job,
 		Pending: counts[domain.TaskPending],
-		Leased:  counts[domain.TaskLeased],
-		Done:    counts[domain.TaskCompleted],
-		Failed:  counts[domain.TaskFailed],
+		// Leased and running are both "in flight" for progress purposes.
+		Leased: counts[domain.TaskLeased] + counts[domain.TaskRunning],
+		Done:   counts[domain.TaskCompleted],
+		Failed: counts[domain.TaskFailed],
 	}
 	for _, n := range counts {
 		p.Total += n

@@ -72,6 +72,12 @@ type JobRepository interface {
 type WorkerRepository interface {
 	Insert(ctx context.Context, w *domain.Worker) error
 	Get(ctx context.Context, id uuid.UUID) (*domain.Worker, error)
+	// Touch records liveness for a heartbeating worker, marking it online. A
+	// no-op for an id that is not a registered worker.
+	Touch(ctx context.Context, id uuid.UUID, at time.Time) error
+	// MarkStaleOffline flips every worker last seen before cutoff to offline and
+	// reports how many changed.
+	MarkStaleOffline(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
 // ArtifactRepository persists artifact metadata. The bytes live in a BlobStore;

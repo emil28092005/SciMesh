@@ -34,18 +34,20 @@ type Server struct {
 	log               *slog.Logger
 	requestTimeout    time.Duration
 	heartbeatInterval time.Duration
+	maxUploadBytes    int64
 	// ready probes downstream dependencies (the database) for /health. Kept as
 	// a func so the transport layer never imports pgx.
 	ready func(context.Context) error
 }
 
 func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval time.Duration,
-	ready func(context.Context) error) *Server {
+	maxUploadBytes int64, ready func(context.Context) error) *Server {
 	return &Server{
 		uc:                uc,
 		log:               log,
 		requestTimeout:    requestTimeout,
 		heartbeatInterval: heartbeatInterval,
+		maxUploadBytes:    maxUploadBytes,
 		ready:             ready,
 	}
 }

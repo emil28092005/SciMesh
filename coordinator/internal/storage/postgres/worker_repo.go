@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
@@ -57,6 +58,37 @@ func (r *WorkerRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Worker, err
 		return nil, fmt.Errorf("get worker: %w", err)
 	}
 	return w, nil
+}
+
+func (r *WorkerRepo) Touch(ctx context.Context, id uuid.UUID, at time.Time) error {
+	sql, args, err := psql.Update("workers").
+		SetMap(map[string]any{"last_heartbeat_at": at, "status": "online", "updated_at": at}).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return err
+	}
+	// A worker that never registered simply matches no row; that is not an error.
+	if _, err := conn(ctx, r.pool).Exec(ctx, sql, args...); err != nil {
+		return fmt.Errorf("touch worker: %w", err)
+	}
+	return nil
+}
+
+func (r *WorkerRepo) MarkStaleOffline(ctx context.Context, cutoff time.Time) (int64, error) {
+	sql, args, err := psql.Update("workers").
+		SetMap(map[string]any{"status": "offline", "updated_at": cutoff}).
+		Where(sq.Lt{"last_heartbeat_at": cutoff}).
+		Where(sq.NotEq{"status": "offline"}).
+		ToSql()
+	if err != nil {
+		return 0, err
+	}
+	tag, err := conn(ctx, r.pool).Exec(ctx, sql, args...)
+	if err != nil {
+		return 0, fmt.Errorf("mark stale workers offline: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func scanWorker(row pgx.Row) (*domain.Worker, error) {

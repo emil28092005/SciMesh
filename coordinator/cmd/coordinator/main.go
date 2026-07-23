@@ -72,7 +72,7 @@ func run() error {
 		CreateJob:        usecase.NewCreateJob(jobRepo, taskRepo, tx, clk),
 		SubmitDataset:    usecase.NewSubmitDataset(blobStore, artifactRepo, jobRepo, taskRepo, tx, clk),
 		ClaimTask:        usecase.NewClaimTask(taskRepo, clk, cfg.LeaseDuration),
-		RenewLease:       usecase.NewRenewLease(taskRepo, tx, clk, cfg.LeaseDuration),
+		RenewLease:       usecase.NewRenewLease(taskRepo, workerRepo, tx, clk, cfg.LeaseDuration),
 		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, tx, clk),
 		FailTask:         usecase.NewFailTask(taskRepo, jobRepo, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobRepo, taskRepo),
@@ -81,19 +81,30 @@ func run() error {
 		GetTaskInput:     usecase.NewGetTaskInput(taskRepo, artifactRepo, blobStore),
 	}
 
-	// Background workers are tracked so shutdown can wait for them. Without
-	// this the process would exit while the reaper sat mid-UPDATE, and the
-	// deferred pool.Close() would pull connections out from under it.
+	// Background reapers are tracked so shutdown can wait for them. Without this
+	// the process would exit mid-UPDATE, and the deferred pool.Close() would pull
+	// connections out from under them.
+	expireLeases := usecase.NewExpireLeases(taskRepo, clk)
+	markOffline := usecase.NewMarkWorkersOffline(workerRepo, clk, cfg.WorkerOfflineAfter)
+
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		infra.RunReaper(ctx, log, usecase.NewExpireLeases(taskRepo, clk), cfg.ReaperInterval)
-	}()
+	for _, r := range []struct {
+		name string
+		fn   func(context.Context) (int64, error)
+	}{
+		{"reaper requeued expired leases", expireLeases.Execute},
+		{"reaper marked workers offline", markOffline.Execute},
+	} {
+		wg.Add(1)
+		go func(name string, fn func(context.Context) (int64, error)) {
+			defer wg.Done()
+			infra.RunPeriodic(ctx, log, name, cfg.ReaperInterval, fn)
+		}(r.name, r.fn)
+	}
 
 	// pool.Ping backs /health: readiness means the database answers, not just
 	// that the process is alive.
-	api := httptransport.NewServer(useCases, log, cfg.RequestTimeout, cfg.HeartbeatInterval, pool.Ping)
+	api := httptransport.NewServer(useCases, log, cfg.RequestTimeout, cfg.HeartbeatInterval, cfg.MaxUploadBytes, pool.Ping)
 	err = infra.RunServer(ctx, log, cfg.Addr, api.Handler(cfg.Token))
 
 	// Shutdown order matters, and defers alone cannot express it (they run

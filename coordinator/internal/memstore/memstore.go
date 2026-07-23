@@ -233,6 +233,29 @@ func (r *WorkerRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Worker, err
 	return &cp, nil
 }
 
+func (r *WorkerRepo) Touch(ctx context.Context, id uuid.UUID, at time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if w, ok := r.workers[id]; ok {
+		w.LastHeartbeatAt = at
+		w.Status = domain.WorkerOnline
+	}
+	return nil
+}
+
+func (r *WorkerRepo) MarkStaleOffline(ctx context.Context, cutoff time.Time) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var n int64
+	for _, w := range r.workers {
+		if w.Status != domain.WorkerOffline && w.LastHeartbeatAt.Before(cutoff) {
+			w.Status = domain.WorkerOffline
+			n++
+		}
+	}
+	return n, nil
+}
+
 // --- ArtifactRepo --------------------------------------------------------
 
 type ArtifactRepo struct {

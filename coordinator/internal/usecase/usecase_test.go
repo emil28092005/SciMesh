@@ -57,7 +57,7 @@ func newHarness() *harness {
 	h.createJob = usecase.NewCreateJob(h.jobs, h.tasks, tx, h.clk)
 	h.submit = usecase.NewSubmitDataset(h.blobs, h.arts, h.jobs, h.tasks, tx, h.clk)
 	h.claim = usecase.NewClaimTask(h.tasks, h.clk, lease)
-	h.renew = usecase.NewRenewLease(h.tasks, tx, h.clk, lease)
+	h.renew = usecase.NewRenewLease(h.tasks, h.work, tx, h.clk, lease)
 	h.complete = usecase.NewCompleteTask(h.tasks, h.jobs, h.arts, tx, h.clk)
 	h.fail = usecase.NewFailTask(h.tasks, h.jobs, tx, h.clk)
 	h.status = usecase.NewGetJobStatus(h.jobs, h.tasks)
@@ -172,6 +172,26 @@ func TestRenewExtendsForHolder(t *testing.T) {
 	}
 }
 
+func TestHeartbeatThenCompleteViaRunning(t *testing.T) {
+	h := newHarness()
+	jobID := h.seedJob(t, "w", 1)
+	taskID, attempt := h.leaseOne(t, "w1", "w")
+
+	// Heartbeat moves the task to running; completion must still work from there.
+	if _, err := h.renew.Execute(ctx, usecase.RenewLeaseInput{TaskID: taskID, WorkerID: "w1", Attempt: attempt}); err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+	artID := h.uploadResult(t, taskID, "w1", attempt)
+	if _, err := h.complete.Execute(ctx, usecase.CompleteTaskInput{
+		TaskID: taskID, WorkerID: "w1", Attempt: attempt, ResultArtifactID: artID,
+	}); err != nil {
+		t.Fatalf("complete after heartbeat: %v", err)
+	}
+	if prog, _ := h.status.Execute(ctx, jobID); prog.DeriveStatus() != domain.JobCompleted {
+		t.Errorf("job status = %q, want completed", prog.DeriveStatus())
+	}
+}
+
 func TestRenewRejectsForeignWorker(t *testing.T) {
 	h := newHarness()
 	h.seedJob(t, "w", 1)
@@ -282,6 +302,38 @@ func TestRegisterWorkerPersists(t *testing.T) {
 	got, err := h.work.Get(ctx, w.ID)
 	if err != nil || got.Status != domain.WorkerOnline {
 		t.Errorf("worker not stored online: %v %v", got, err)
+	}
+}
+
+func TestHeartbeatTracksWorkerLivenessAndReaperMarksOffline(t *testing.T) {
+	h := newHarness()
+	w, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{Name: "lab", Capabilities: []string{"w"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wid := w.ID.String() // a registered worker heartbeats with its UUID
+	h.seedJob(t, "w", 1)
+
+	c, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{WorkerID: wid, Workloads: []string{"w"}})
+	if err != nil || c == nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if _, err := h.renew.Execute(ctx, usecase.RenewLeaseInput{TaskID: c.TaskID, WorkerID: wid, Attempt: c.Attempt}); err != nil {
+		t.Fatalf("heartbeat: %v", err)
+	}
+	if got, _ := h.work.Get(ctx, w.ID); got.Status != domain.WorkerOnline {
+		t.Errorf("worker status = %q, want online after heartbeat", got.Status)
+	}
+
+	// Go silent past the threshold; the reaper marks it offline.
+	offline := usecase.NewMarkWorkersOffline(h.work, h.clk, 30*time.Second)
+	h.clk.Advance(time.Minute)
+	n, err := offline.Execute(ctx)
+	if err != nil || n != 1 {
+		t.Fatalf("reaper marked %d offline (err %v), want 1", n, err)
+	}
+	if got, _ := h.work.Get(ctx, w.ID); got.Status != domain.WorkerOffline {
+		t.Errorf("worker status = %q, want offline after reaper", got.Status)
 	}
 }
 

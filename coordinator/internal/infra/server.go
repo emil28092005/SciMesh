@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
-
-	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
 )
 
 const shutdownGrace = 15 * time.Second
@@ -48,7 +46,13 @@ func RunServer(ctx context.Context, log *slog.Logger, addr string, handler http.
 
 // RunReaper periodically reclaims tasks whose lease elapsed, so a worker that
 // died without a heartbeat cannot strand its task in 'leased' forever.
-func RunReaper(ctx context.Context, log *slog.Logger, uc *usecase.ExpireLeases, interval time.Duration) {
+// RunPeriodic invokes fn on an interval until ctx is done, logging how many rows
+// each tick affected. It backs the background reapers (expired leases, offline
+// workers) — each is a set-based UPDATE that is safe to run repeatedly and
+// concurrently across coordinators.
+func RunPeriodic(ctx context.Context, log *slog.Logger, name string, interval time.Duration,
+	fn func(context.Context) (int64, error)) {
+
 	t := time.NewTicker(interval)
 	defer t.Stop()
 
@@ -57,15 +61,13 @@ func RunReaper(ctx context.Context, log *slog.Logger, uc *usecase.ExpireLeases, 
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			n, err := uc.Execute(ctx)
+			n, err := fn(ctx)
 			if err != nil {
-				// Demoted to debug while the repository is still a stub;
-				// raise to Warn once phase 5 lands.
-				log.Debug("reaper skipped", "err", err)
+				log.Debug(name+" skipped", "err", err)
 				continue
 			}
 			if n > 0 {
-				log.Info("reaper requeued expired leases", "count", n)
+				log.Info(name, "count", n)
 			}
 		}
 	}

@@ -15,6 +15,7 @@ type TaskStatus string
 const (
 	TaskPending   TaskStatus = "pending"
 	TaskLeased    TaskStatus = "leased"
+	TaskRunning   TaskStatus = "running"
 	TaskCompleted TaskStatus = "completed"
 	TaskFailed    TaskStatus = "failed"
 	TaskCancelled TaskStatus = "cancelled"
@@ -146,7 +147,9 @@ func (t *Task) AsClaimed() ClaimedTask {
 // verifyLease is the guard every worker-driven transition shares: the caller
 // must own the lease and reference the attempt it was granted.
 func (t *Task) verifyLease(worker string, attempt int) error {
-	if t.Status != TaskLeased {
+	// A task is worker-owned while leased or running: the first heartbeat moves
+	// it from leased to running, but ownership rules are identical for both.
+	if t.Status != TaskLeased && t.Status != TaskRunning {
 		return ErrTaskNotLeased
 	}
 	if t.LeaseOwner == nil || *t.LeaseOwner != worker {
@@ -158,12 +161,16 @@ func (t *Task) verifyLease(worker string, attempt int) error {
 	return nil
 }
 
-// RenewLease extends the lease of the worker that holds it.
+// RenewLease extends the lease of the worker that holds it. The first heartbeat
+// also acknowledges start, moving the task from leased to running.
 func (t *Task) RenewLease(worker string, attempt int, until time.Time) error {
 	if err := t.verifyLease(worker, attempt); err != nil {
 		return err
 	}
 	t.LeaseExpiresAt = &until
+	if t.Status == TaskLeased {
+		t.Status = TaskRunning
+	}
 	t.Version++
 	return nil
 }
@@ -228,7 +235,8 @@ func (t *Task) Fail(worker string, attempt int, code, message string, retryable 
 // ExpireLease is applied by the reaper when a lease elapses without a
 // heartbeat: requeue while attempts remain, otherwise fail terminally.
 func (t *Task) ExpireLease(now time.Time) {
-	if t.Status != TaskLeased {
+	// Both a leased and a running task can go silent and must be reclaimed.
+	if t.Status != TaskLeased && t.Status != TaskRunning {
 		return
 	}
 	t.LeaseOwner = nil

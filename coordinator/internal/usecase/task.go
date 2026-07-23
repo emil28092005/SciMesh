@@ -69,13 +69,15 @@ func (uc *ClaimTask) Execute(ctx context.Context, in ClaimTaskInput) (*domain.Cl
 
 type RenewLease struct {
 	tasks         TaskRepository
+	workers       WorkerRepository
 	tx            TxManager
 	clock         Clock
 	leaseDuration time.Duration
 }
 
-func NewRenewLease(tasks TaskRepository, tx TxManager, clock Clock, leaseDuration time.Duration) *RenewLease {
-	return &RenewLease{tasks: tasks, tx: tx, clock: clock, leaseDuration: leaseDuration}
+func NewRenewLease(tasks TaskRepository, workers WorkerRepository, tx TxManager,
+	clock Clock, leaseDuration time.Duration) *RenewLease {
+	return &RenewLease{tasks: tasks, workers: workers, tx: tx, clock: clock, leaseDuration: leaseDuration}
 }
 
 // Execute is a read-modify-write, so it runs inside a transaction with the row
@@ -100,6 +102,12 @@ func (uc *RenewLease) Execute(ctx context.Context, in RenewLeaseInput) (*domain.
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Best-effort worker liveness, outside the task transaction so it can never
+	// fail the heartbeat. Only registered workers (a UUID worker_id) are tracked.
+	if id, perr := uuid.Parse(in.WorkerID); perr == nil {
+		_ = uc.workers.Touch(ctx, id, uc.clock.Now())
 	}
 	return &claimed, nil
 }

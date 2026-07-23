@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"time"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 )
@@ -25,4 +26,20 @@ func (uc *RegisterWorker) Execute(ctx context.Context, in RegisterWorkerInput) (
 		return nil, err
 	}
 	return w, nil
+}
+
+// MarkWorkersOffline is the liveness reaper: workers that stopped heartbeating
+// longer ago than `after` are flipped to offline.
+type MarkWorkersOffline struct {
+	workers WorkerRepository
+	clk     Clock
+	after   time.Duration
+}
+
+func NewMarkWorkersOffline(workers WorkerRepository, clk Clock, after time.Duration) *MarkWorkersOffline {
+	return &MarkWorkersOffline{workers: workers, clk: clk, after: after}
+}
+
+func (uc *MarkWorkersOffline) Execute(ctx context.Context) (int64, error) {
+	return uc.workers.MarkStaleOffline(ctx, uc.clk.Now().Add(-uc.after))
 }

@@ -314,7 +314,7 @@ SET status           = CASE WHEN attempt < max_attempts THEN 'pending'::task_sta
                             ELSE error_message END,
     completed_at     = CASE WHEN attempt >= max_attempts THEN $1 ELSE completed_at END,
     version          = version + 1
-WHERE status = 'leased' AND lease_expires_at < $1`
+WHERE status IN ('leased','running') AND lease_expires_at < $1`
 
 func (r *TaskRepo) ExpireLeases(ctx context.Context, now time.Time) (int64, error) {
 	var affected int64
