@@ -170,6 +170,36 @@ func TestUIRejectsCrossOriginUpload(t *testing.T) {
 	}
 }
 
+func TestUIUploadDatasetCreatesJob(t *testing.T) {
+	e := newEnv(t, healthy)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("workload", "similarity-search")
+	_ = mw.WriteField("parameters", `{"query_smiles":"CCO","top_k":20,"progress_every":0}`)
+	_ = mw.WriteField("chunk_rows", "1000")
+	file, err := mw.CreateFormFile("file", "chembl.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(file, "chembl_id\tcanonical_smiles\nCHEMBL1\tCCO\n")
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", e.ts.URL+"/ui/api/jobs/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		result, _ := io.ReadAll(resp.Body)
+		t.Fatalf("UI upload = %d: %s", resp.StatusCode, result)
+	}
+}
+
 func TestUIJobAndArtifactAreScopedToTheirJob(t *testing.T) {
 	e := newEnv(t, healthy)
 	code, job := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
