@@ -92,6 +92,18 @@ func (s *FSStore) Open(ctx context.Context, key string) (io.ReadCloser, error) {
 	return f, nil
 }
 
+// Delete removes a stored blob. Absence is not an error: cleaning up after a
+// failed metadata insert must be idempotent.
+func (s *FSStore) Delete(ctx context.Context, key string) error {
+	if err := checkKey(key); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(s.dir, key)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 // checkKey rejects anything that could escape the storage directory. Keys are
 // coordinator-generated UUIDs, so this is defence in depth, not the only guard.
 func checkKey(key string) error {

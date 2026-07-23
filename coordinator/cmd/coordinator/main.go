@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/infra"
+	"github.com/emil28092005/SciMesh/coordinator/internal/storage/blob"
 	"github.com/emil28092005/SciMesh/coordinator/internal/storage/postgres"
 	httptransport "github.com/emil28092005/SciMesh/coordinator/internal/transport/http"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
@@ -51,22 +52,31 @@ func run() error {
 	}
 	defer pool.Close()
 
+	blobStore, err := blob.NewFSStore(cfg.StorageDir)
+	if err != nil {
+		log.Error("init blob storage", "err", err)
+		return err
+	}
+
 	var (
-		clk        = infra.NewClock()
-		tx         = postgres.NewTxManager(pool)
-		taskRepo   = postgres.NewTaskRepo(pool)
-		jobRepo    = postgres.NewJobRepo(pool)
-		workerRepo = postgres.NewWorkerRepo(pool)
+		clk          = infra.NewClock()
+		tx           = postgres.NewTxManager(pool)
+		taskRepo     = postgres.NewTaskRepo(pool)
+		jobRepo      = postgres.NewJobRepo(pool)
+		workerRepo   = postgres.NewWorkerRepo(pool)
+		artifactRepo = postgres.NewArtifactRepo(pool)
 	)
 
 	useCases := httptransport.UseCases{
-		RegisterWorker: usecase.NewRegisterWorker(workerRepo, clk),
-		CreateJob:      usecase.NewCreateJob(jobRepo, taskRepo, tx, clk),
-		ClaimTask:      usecase.NewClaimTask(taskRepo, clk, cfg.LeaseDuration),
-		RenewLease:     usecase.NewRenewLease(taskRepo, tx, clk, cfg.LeaseDuration),
-		CompleteTask:   usecase.NewCompleteTask(taskRepo, jobRepo, tx, clk),
-		FailTask:       usecase.NewFailTask(taskRepo, jobRepo, tx, clk),
-		GetJobStatus:   usecase.NewGetJobStatus(jobRepo, taskRepo),
+		RegisterWorker:   usecase.NewRegisterWorker(workerRepo, clk),
+		CreateJob:        usecase.NewCreateJob(jobRepo, taskRepo, tx, clk),
+		ClaimTask:        usecase.NewClaimTask(taskRepo, clk, cfg.LeaseDuration),
+		RenewLease:       usecase.NewRenewLease(taskRepo, tx, clk, cfg.LeaseDuration),
+		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, tx, clk),
+		FailTask:         usecase.NewFailTask(taskRepo, jobRepo, tx, clk),
+		GetJobStatus:     usecase.NewGetJobStatus(jobRepo, taskRepo),
+		UploadArtifact:   usecase.NewUploadArtifact(taskRepo, artifactRepo, blobStore, clk),
+		DownloadArtifact: usecase.NewDownloadArtifact(artifactRepo, blobStore),
 	}
 
 	// Background workers are tracked so shutdown can wait for them. Without

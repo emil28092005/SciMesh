@@ -34,7 +34,7 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, domain.ErrInvalidInput):
 		status = http.StatusBadRequest
 	case errors.Is(err, domain.ErrJobNotFound), errors.Is(err, domain.ErrTaskNotFound),
-		errors.Is(err, domain.ErrWorkerNotFound):
+		errors.Is(err, domain.ErrWorkerNotFound), errors.Is(err, domain.ErrArtifactNotFound):
 		status = http.StatusNotFound
 	case errors.Is(err, domain.ErrLeaseConflict),
 		errors.Is(err, domain.ErrStaleAttempt),

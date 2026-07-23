@@ -120,6 +120,25 @@ func (r *TaskRepo) ClaimNext(ctx context.Context, f usecase.ClaimFilter) (*domai
 	return task, nil
 }
 
+// Get reads a task without locking its row.
+func (r *TaskRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Task, error) {
+	sql, args, err := psql.Select(taskColumns...).
+		From("tasks").
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+	t, err := scanTask(conn(ctx, r.pool).QueryRow(ctx, sql, args...))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrTaskNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
 // GetForUpdate reads a task and holds its row lock until the caller's
 // transaction ends, so read-modify-write use cases cannot interleave.
 func (r *TaskRepo) GetForUpdate(ctx context.Context, id uuid.UUID) (*domain.Task, error) {

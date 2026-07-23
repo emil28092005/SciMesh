@@ -2,7 +2,10 @@ package http
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 
@@ -171,6 +174,60 @@ func (s *Server) handleFailure(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, taskResponse{ID: task.ID, JobID: task.JobID, Status: string(task.Status)})
+}
+
+// handleUploadArtifact streams a worker's partial result into blob storage. It
+// deliberately does not use the short request timeout — a large shard upload
+// would trip it — and reads identity from headers per the contract (§5.5).
+func (s *Server) handleUploadArtifact(w http.ResponseWriter, r *http.Request) {
+	taskID, ok := s.pathUUID(w, r, "task_id")
+	if !ok {
+		return
+	}
+	attempt, err := strconv.Atoi(r.Header.Get("X-Task-Attempt"))
+	if err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+
+	art, err := s.uc.UploadArtifact.Execute(r.Context(), usecase.UploadArtifactInput{
+		TaskID:      taskID,
+		WorkerID:    r.Header.Get("X-Worker-ID"),
+		Attempt:     attempt,
+		Filename:    r.PathValue("filename"),
+		ContentType: r.Header.Get("Content-Type"),
+		Body:        r.Body,
+	})
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, uploadArtifactResponse{
+		ArtifactID: art.ID,
+		URI:        "/artifacts/" + art.ID.String() + "/download",
+		SHA256:     art.SHA256,
+		SizeBytes:  art.SizeBytes,
+	})
+}
+
+// handleDownloadArtifact streams an artifact's bytes back to the caller.
+func (s *Server) handleDownloadArtifact(w http.ResponseWriter, r *http.Request) {
+	artifactID, ok := s.pathUUID(w, r, "artifact_id")
+	if !ok {
+		return
+	}
+	art, body, err := s.uc.DownloadArtifact.Execute(r.Context(), artifactID)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	defer body.Close()
+
+	w.Header().Set("Content-Type", art.ContentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(art.SizeBytes, 10))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", art.Filename))
+	w.Header().Set("X-Checksum-SHA256", art.SHA256)
+	_, _ = io.Copy(w, body)
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {

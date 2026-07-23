@@ -16,13 +16,15 @@ import (
 // use-case types (not one fat interface) keeps each handler's dependency
 // explicit and the wiring visible in the composition root.
 type UseCases struct {
-	RegisterWorker *usecase.RegisterWorker
-	CreateJob      *usecase.CreateJob
-	ClaimTask      *usecase.ClaimTask
-	RenewLease     *usecase.RenewLease
-	CompleteTask   *usecase.CompleteTask
-	FailTask       *usecase.FailTask
-	GetJobStatus   *usecase.GetJobStatus
+	RegisterWorker   *usecase.RegisterWorker
+	CreateJob        *usecase.CreateJob
+	ClaimTask        *usecase.ClaimTask
+	RenewLease       *usecase.RenewLease
+	CompleteTask     *usecase.CompleteTask
+	FailTask         *usecase.FailTask
+	GetJobStatus     *usecase.GetJobStatus
+	UploadArtifact   *usecase.UploadArtifact
+	DownloadArtifact *usecase.DownloadArtifact
 }
 
 type Server struct {
@@ -57,6 +59,8 @@ func (s *Server) Handler(token string) http.Handler {
 	protected.HandleFunc("POST /tasks/{task_id}/heartbeat", s.handleHeartbeat)
 	protected.HandleFunc("POST /tasks/{task_id}/result", s.handleResult)
 	protected.HandleFunc("POST /tasks/{task_id}/failure", s.handleFailure)
+	protected.HandleFunc("PUT /tasks/{task_id}/artifacts/{filename}", s.handleUploadArtifact)
+	protected.HandleFunc("GET /artifacts/{artifact_id}/download", s.handleDownloadArtifact)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)

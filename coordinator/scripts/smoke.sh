@@ -101,6 +101,22 @@ fi
 
 check "heartbeat"                          200 -X POST "${HOST}/tasks/${task_id}/heartbeat" "${auth[@]}" \
 	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt}}"
+
+# --- artifacts (while the task is still leased) ---------------------------
+bearer=(-H "Authorization: Bearer ${TOKEN}")
+check "upload artifact"                    200 -X PUT "${HOST}/tasks/${task_id}/artifacts/result.csv" "${bearer[@]}" \
+	-H 'Content-Type: text/csv' -H 'X-Worker-ID: w1' -H "X-Task-Attempt: ${attempt}" \
+	--data-binary $'query,match,score\nA,B,0.9\n'
+check "foreign worker upload → 409"        409 -X PUT "${HOST}/tasks/${task_id}/artifacts/x.csv" "${bearer[@]}" \
+	-H 'Content-Type: text/csv' -H 'X-Worker-ID: impostor' -H "X-Task-Attempt: ${attempt}" \
+	--data-binary 'x'
+
+# Round-trip: upload one more, then download it by id and confirm the bytes.
+art=$(curl -sS -X PUT "${HOST}/tasks/${task_id}/artifacts/dl.csv" "${bearer[@]}" \
+	-H 'Content-Type: text/csv' -H 'X-Worker-ID: w1' -H "X-Task-Attempt: ${attempt}" --data-binary 'a,b,c')
+art_id=$(printf '%s' "$art" | python3 -c 'import json,sys;print(json.load(sys.stdin)["artifact_id"])' 2>/dev/null)
+check "download artifact"                  200 "${HOST}/artifacts/${art_id}/download" "${bearer[@]}"
+
 check "foreign worker submits → 409"       409 -X POST "${HOST}/tasks/${task_id}/result" "${auth[@]}" \
 	-d "{\"worker_id\":\"impostor\",\"attempt\":${attempt},\"result_uri\":\"s3://x\",\"result_sha256\":\"x\"}"
 check "submit result"                      200 -X POST "${HOST}/tasks/${task_id}/result" "${auth[@]}" \

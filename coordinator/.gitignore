@@ -3,3 +3,4 @@
 .env
 *.out
 /logs/
+/data/

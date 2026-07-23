@@ -80,6 +80,24 @@ Content-Type: application/json
   "attempt": {{attempt}}
 }
 
+### 3a. Upload a partial-result artifact (200) — while the task is leased
+# Identity travels in headers per the contract; the body is streamed as-is.
+# @name uploadArtifact
+PUT {{host}}/tasks/{{taskId}}/artifacts/result.csv
+Authorization: Bearer {{token}}
+Content-Type: text/csv
+X-Worker-ID: {{worker}}
+X-Task-Attempt: {{attempt}}
+
+query,match,score
+CHEMBL25,CHEMBL139,0.87
+
+@artifactId = {{uploadArtifact.response.body.artifact_id}}
+
+### 3b. Download the artifact by id (200)
+GET {{host}}/artifacts/{{artifactId}}/download
+Authorization: Bearer {{token}}
+
 ### 4. Submit the result (200)
 POST {{host}}/tasks/{{taskId}}/result
 Authorization: Bearer {{token}}

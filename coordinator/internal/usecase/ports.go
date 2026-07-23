@@ -35,6 +35,11 @@ type TaskRepository interface {
 	// Returns (nil, nil) when nothing is available.
 	ClaimNext(ctx context.Context, f ClaimFilter) (*domain.Task, error)
 
+	// Get reads a task without locking. Use it for read-only checks (e.g.
+	// verifying lease ownership before a long upload) where holding a row lock
+	// across the operation would be wrong.
+	Get(ctx context.Context, id uuid.UUID) (*domain.Task, error)
+
 	// GetForUpdate reads a task and locks its row for the enclosing
 	// transaction, so read-modify-write use cases stay serialized.
 	GetForUpdate(ctx context.Context, id uuid.UUID) (*domain.Task, error)
@@ -83,6 +88,9 @@ type ArtifactRepository interface {
 type BlobStore interface {
 	Put(ctx context.Context, key string, r io.Reader) (sha256 string, size int64, err error)
 	Open(ctx context.Context, key string) (io.ReadCloser, error)
+	// Delete removes a stored blob. Used to clean up after a metadata insert
+	// fails, so a committed blob never outlives its (absent) record.
+	Delete(ctx context.Context, key string) error
 }
 
 // TxManager runs a function inside one database transaction. The transaction

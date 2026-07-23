@@ -19,11 +19,12 @@ must be updated in the same change as any behaviour it describes.
 | `POST /workers/register` | register + capabilities | ✅ done |
 | `POST /tasks/claim` | atomic lease | ✅ done |
 | `POST /tasks/{id}/heartbeat` | renew lease | ✅ done |
-| `POST /tasks/{id}/result` | complete | 🟡 done, but result is a URI today; moves to `artifact_id` in CTX-05 |
+| `POST /tasks/{id}/result` | complete | 🟡 done, but result is a URI today; moves to `artifact_id` next |
 | `POST /tasks/{id}/failure` | fail | ✅ done |
 | `GET /jobs/{id}` | progress | ✅ done |
-| `GET /tasks/{id}/input` | download shard | ❌ CTX-05 |
-| `PUT /tasks/{id}/artifacts/{name}` | upload partial | ❌ CTX-05 |
+| `PUT /tasks/{id}/artifacts/{name}` | upload partial | ✅ done |
+| `GET /artifacts/{id}/download` | download by id | ✅ done |
+| `GET /tasks/{id}/input` | download shard | ❌ needs input artifacts (upload+chunking) |
 
 ---
 

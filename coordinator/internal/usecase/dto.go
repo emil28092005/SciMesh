@@ -1,6 +1,10 @@
 package usecase
 
-import "github.com/google/uuid"
+import (
+	"io"
+
+	"github.com/google/uuid"
+)
 
 // Use-case boundary types. Adapters map their wire formats onto these, so the
 // HTTP shape can change without touching business code.
@@ -44,6 +48,15 @@ type CompleteTaskInput struct {
 	ResultURI    string
 	ResultSHA256 string
 	Metrics      map[string]any
+}
+
+type UploadArtifactInput struct {
+	TaskID      uuid.UUID
+	WorkerID    string
+	Attempt     int
+	Filename    string
+	ContentType string
+	Body        io.Reader
 }
 
 type FailTaskInput struct {

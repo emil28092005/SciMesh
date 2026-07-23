@@ -102,6 +102,13 @@ type jobProgressResponse struct {
 	Failed  int       `json:"failed"`
 }
 
+type uploadArtifactResponse struct {
+	ArtifactID uuid.UUID `json:"artifact_id"`
+	URI        string    `json:"uri"`
+	SHA256     string    `json:"sha256"`
+	SizeBytes  int64     `json:"size_bytes"`
+}
+
 type errorResponse struct {
 	Error     string `json:"error"`
 	RequestID string `json:"request_id,omitempty"`
