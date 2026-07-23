@@ -26,8 +26,18 @@ var ErrNoRows = fmt.Errorf("input has no data rows")
 // Only one shard is buffered at a time, so memory is bounded by shard size (a
 // worker-sized slice of the data), not by the size of the whole dataset.
 func SplitTSV(r io.Reader, rowsPerShard int, emit func(index int, shard io.Reader) error) error {
+	return SplitTSVLimit(r, rowsPerShard, 0, emit)
+}
+
+// SplitTSVLimit behaves like SplitTSV but emits no more than maxRows data rows.
+// A maxRows value of zero means unlimited. This lets an operator make a small,
+// representative pipeline check without materialising a second dataset file.
+func SplitTSVLimit(r io.Reader, rowsPerShard, maxRows int, emit func(index int, shard io.Reader) error) error {
 	if rowsPerShard <= 0 {
 		return fmt.Errorf("rowsPerShard must be positive, got %d", rowsPerShard)
+	}
+	if maxRows < 0 {
+		return fmt.Errorf("maxRows must be non-negative, got %d", maxRows)
 	}
 
 	sc := bufio.NewScanner(r)
@@ -72,6 +82,9 @@ func SplitTSV(r io.Reader, rowsPerShard int, emit func(index int, shard io.Reade
 			if err := flush(); err != nil {
 				return err
 			}
+		}
+		if maxRows > 0 && index*rowsPerShard+rows == maxRows {
+			break
 		}
 	}
 	if err := sc.Err(); err != nil {

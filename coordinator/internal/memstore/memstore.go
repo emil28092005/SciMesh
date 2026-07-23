@@ -148,6 +148,18 @@ func (r *TaskRepo) CountByStatus(ctx context.Context, jobID uuid.UUID) (map[doma
 	return counts, nil
 }
 
+func (r *TaskRepo) CancelByJob(_ context.Context, jobID uuid.UUID, now time.Time) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var cancelled int64
+	for _, task := range r.tasks {
+		if task.JobID == jobID && task.Cancel(now) {
+			cancelled++
+		}
+	}
+	return cancelled, nil
+}
+
 func (r *TaskRepo) ExpireLeases(ctx context.Context, now time.Time) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

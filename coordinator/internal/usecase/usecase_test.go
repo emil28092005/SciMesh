@@ -54,6 +54,7 @@ type harness struct {
 	downloadArt *usecase.DownloadArtifact
 	getInput    *usecase.GetTaskInput
 	expire      *usecase.ExpireLeases
+	cancel      *usecase.CancelJob
 }
 
 func newHarness() *harness {
@@ -79,6 +80,7 @@ func newHarness() *harness {
 	h.downloadArt = usecase.NewDownloadArtifact(h.arts, h.blobs)
 	h.getInput = usecase.NewGetTaskInput(h.tasks, h.arts, h.blobs)
 	h.expire = usecase.NewExpireLeases(h.tasks, h.clk)
+	h.cancel = usecase.NewCancelJob(h.jobs, h.tasks, tx, h.clk)
 	return h
 }
 
@@ -465,6 +467,44 @@ func TestSubmitDatasetChunksAndServesInput(t *testing.T) {
 	defer rc.Close()
 	if art.Kind != domain.ArtifactShard {
 		t.Errorf("input kind = %q, want shard", art.Kind)
+	}
+}
+
+func TestSubmitDatasetLimitsRowsBeforeCreatingShards(t *testing.T) {
+	h := newHarness()
+	tsv := "id\tsmiles\nA\tCC\nB\tCCC\nC\tCCCC\nD\tCCCCC\nE\tCCCCCC\n"
+	res, err := h.submit.Execute(ctx, usecase.SubmitDatasetInput{
+		Workload: "w", RowsPerShard: 2, MaxRows: 3, Filename: "chembl.tsv",
+		ContentType: "text/tab-separated-values", Body: strings.NewReader(tsv),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.TaskCount != 2 {
+		t.Fatalf("task_count = %d, want 2", res.TaskCount)
+	}
+}
+
+func TestCancelJobInvalidatesClaimedAndPendingTasks(t *testing.T) {
+	h := newHarness()
+	jobID := h.seedJob(t, "w", 3)
+	claimed, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{WorkerID: "w1", Workloads: []string{"w"}})
+	if err != nil || claimed == nil {
+		t.Fatalf("claim: %v", err)
+	}
+	cancelled, err := h.cancel.Execute(ctx, jobID)
+	if err != nil || cancelled != 3 {
+		t.Fatalf("cancel = (%d, %v), want (3, nil)", cancelled, err)
+	}
+	if _, err := h.renew.Execute(ctx, usecase.RenewLeaseInput{TaskID: claimed.TaskID, WorkerID: "w1", Attempt: claimed.Attempt}); !errors.Is(err, domain.ErrTaskNotLeased) {
+		t.Errorf("cancelled lease heartbeat = %v, want ErrTaskNotLeased", err)
+	}
+	progress, err := h.status.Execute(ctx, jobID)
+	if err != nil || progress.DeriveStatus() != domain.JobCancelled || progress.Cancelled != 3 {
+		t.Errorf("cancelled progress = %+v, err = %v", progress, err)
+	}
+	if cancelled, err := h.cancel.Execute(ctx, jobID); err != nil || cancelled != 0 {
+		t.Errorf("second cancel = (%d, %v), want (0, nil)", cancelled, err)
 	}
 }
 

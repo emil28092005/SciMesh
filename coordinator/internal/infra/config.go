@@ -24,6 +24,8 @@ type Config struct {
 	DatabaseURL string
 	// Shared bearer token workers must present. Empty disables auth (dev only).
 	Token string
+	// Local operator UI credential. Empty disables the embedded UI entirely.
+	UIToken string
 
 	// Minimum log level: debug, info, warn, error.
 	LogLevel string
@@ -77,6 +79,7 @@ func LoadConfig() (Config, error) {
 		// COORDINATOR_TOKEN is the contract name; WORKER_AUTH_TOKEN is the
 		// former name, still honoured so existing .env files keep working.
 		Token:              getEnv("COORDINATOR_TOKEN", os.Getenv("WORKER_AUTH_TOKEN")),
+		UIToken:            os.Getenv("UI_AUTH_TOKEN"),
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 		LogFile:            os.Getenv("LOG_FILE"),
 		StorageDir:         getEnv("COORDINATOR_STORAGE_DIR", "./data"),
@@ -93,6 +96,9 @@ func LoadConfig() (Config, error) {
 
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
+	}
+	if cfg.UIToken != "" && cfg.Token != "" && cfg.UIToken == cfg.Token {
+		return Config{}, fmt.Errorf("UI_AUTH_TOKEN must differ from the worker auth token")
 	}
 
 	var err error

@@ -99,18 +99,21 @@ func NewJobWithTasks(workload, inputURI string, params map[string]any,
 
 // JobProgress is the aggregate view of a job and the state of its tasks.
 type JobProgress struct {
-	Job     Job
-	Total   int
-	Pending int
-	Leased  int
-	Done    int
-	Failed  int
+	Job       Job
+	Total     int
+	Pending   int
+	Leased    int
+	Done      int
+	Failed    int
+	Cancelled int
 }
 
 // DeriveStatus computes what the job's status should be from its task counts,
 // so the rule lives here rather than in a SQL trigger or a handler.
 func (p JobProgress) DeriveStatus() JobStatus {
 	switch {
+	case p.Job.Status == JobCancelled:
+		return JobCancelled
 	case p.Total == 0:
 		return JobPending
 	case p.Done == p.Total:

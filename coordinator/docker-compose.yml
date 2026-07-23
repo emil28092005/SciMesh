@@ -49,6 +49,8 @@ services:
       # Host is the service name: compose resolves it on the project network.
       DATABASE_URL: postgres://${POSTGRES_USER:-scimesh}:${POSTGRES_PASSWORD:-scimesh}@postgres:5432/${POSTGRES_DB:-scimesh}?sslmode=disable
       WORKER_AUTH_TOKEN: ${WORKER_AUTH_TOKEN:-dev-token}
+      # Empty disables /ui. Set this separately from the worker token.
+      UI_AUTH_TOKEN: ${UI_AUTH_TOKEN:-}
       DB_MAX_CONNS: "10"
       REQUEST_TIMEOUT: "15s"
       LEASE_DURATION: "2m"

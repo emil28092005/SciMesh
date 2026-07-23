@@ -103,6 +103,22 @@ func TestSplitSingleShardWhenSizeExceedsRows(t *testing.T) {
 	}
 }
 
+func TestSplitLimitUsesOnlyLeadingDataRows(t *testing.T) {
+	input := "h\nr1\nr2\nr3\nr4\nr5\n"
+	var shards []string
+	err := SplitTSVLimit(strings.NewReader(input), 2, 3, func(_ int, shard io.Reader) error {
+		b, _ := io.ReadAll(shard)
+		shards = append(shards, string(b))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(shards, ""), "h\nr1\nr2\nh\nr3\n"; got != want {
+		t.Errorf("limited shards = %q, want %q", got, want)
+	}
+}
+
 // The scanned bytes are reused by bufio; the shard buffer must copy them, or a
 // later row would corrupt an earlier one. This guards that copy.
 func TestSplitDoesNotAliasScannerBuffer(t *testing.T) {

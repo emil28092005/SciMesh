@@ -56,6 +56,10 @@ type TaskRepository interface {
 	// CountByStatus aggregates a job's tasks for progress reporting.
 	CountByStatus(ctx context.Context, jobID uuid.UUID) (map[domain.TaskStatus]int, error)
 
+	// CancelByJob marks every non-terminal task as cancelled and invalidates its
+	// lease. It returns how many tasks changed.
+	CancelByJob(ctx context.Context, jobID uuid.UUID, now time.Time) (int64, error)
+
 	// ExpireLeases applies the lease-expiry rule to every elapsed task and
 	// reports how many were affected.
 	ExpireLeases(ctx context.Context, now time.Time) (int64, error)

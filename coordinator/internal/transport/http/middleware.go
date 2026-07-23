@@ -64,6 +64,48 @@ func withAuth(token string) func(http.Handler) http.Handler {
 	}
 }
 
+// withBasicAuth protects the local operator UI with a credential distinct from
+// the worker bearer token. The username is intentionally ignored; the password
+// is the configured UI token. Basic Auth is suitable only for localhost or a
+// TLS-terminating trusted reverse proxy.
+func withBasicAuth(token string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, password, ok := r.BasicAuth()
+			if !ok || subtle.ConstantTimeCompare([]byte(password), []byte(token)) != 1 {
+				w.Header().Set("WWW-Authenticate", `Basic realm="SciMesh UI", charset="UTF-8"`)
+				writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "unauthorized", RequestID: requestIDFrom(r.Context())})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// withSameOrigin rejects browser form/fetch writes initiated by another origin.
+// A missing Origin is allowed for direct local tools; authenticated UI pages use
+// the browser-supplied Origin header on state-changing requests.
+func withSameOrigin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			if origin != scheme+"://"+r.Host {
+				writeJSON(w, http.StatusForbidden, errorResponse{Error: "cross-origin request rejected", RequestID: requestIDFrom(r.Context())})
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // statusRecorder captures the status code for the access log.
 type statusRecorder struct {
 	http.ResponseWriter

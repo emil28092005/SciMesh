@@ -18,6 +18,9 @@ class SciMeshRunner:
     """Allowlisted adapter from coordinator workloads to the local SciMesh CLI."""
 
     def run(self, task: ClaimedTask, task_dir: Path) -> RunResult:
+        # The subprocess changes cwd to task_dir. Absolute paths keep a caller
+        # supplied relative work directory from being resolved twice.
+        task_dir = task_dir.resolve()
         input_path = task_dir / "input"
         output_path = task_dir / "result.csv"
         # The coordinator contract historically used underscores while the

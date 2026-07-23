@@ -68,6 +68,18 @@ make logs                     # follow the coordinator
 make down                     # stop (add down-clean to drop the DB volume)
 ```
 
+To enable the local operator UI, set a separate credential before starting:
+
+```sh
+UI_AUTH_TOKEN='local-ui-secret' make up
+# Open http://localhost:8080/ui and use any username with this value as password.
+```
+
+The UI is disabled by default and never accepts the worker bearer token.
+It shows recent jobs, task/worker state, and the per-job partial artifacts.
+Those files are explicitly diagnostic until the CTX-09 reducer creates a final
+result; the UI does not present them as final scientific output.
+
 `up` starts three services in order: Postgres waits until `pg_isready` passes, a
 one-shot `migrate` container applies the schema and exits, and only then does the
 coordinator start — so it never queries a database that has no tables.

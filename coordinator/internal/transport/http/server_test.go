@@ -20,6 +20,7 @@ import (
 )
 
 const token = "secret"
+const uiToken = "ui-secret"
 
 type env struct {
 	ts    *httptest.Server
@@ -27,6 +28,10 @@ type env struct {
 }
 
 func newEnv(t *testing.T, ready func(context.Context) error) *env {
+	return newEnvWithUIToken(t, ready, uiToken)
+}
+
+func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configuredUIToken string) *env {
 	t.Helper()
 	tasks := memstore.NewTaskRepo()
 	jobs := memstore.NewJobRepo()
@@ -46,12 +51,14 @@ func newEnv(t *testing.T, ready func(context.Context) error) *env {
 		CompleteTask:     usecase.NewCompleteTask(tasks, jobs, arts, tx, clk),
 		FailTask:         usecase.NewFailTask(tasks, jobs, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobs, tasks),
+		CancelJob:        usecase.NewCancelJob(jobs, tasks, tx, clk),
 		UploadArtifact:   usecase.NewUploadArtifact(tasks, arts, blobs, clk),
 		DownloadArtifact: usecase.NewDownloadArtifact(arts, blobs),
 		GetTaskInput:     usecase.NewGetTaskInput(tasks, arts, blobs),
+		Dashboard:        usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, work, arts)),
 	}
 	srv := coordhttp.NewServer(uc, slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second, 15*time.Second, 1<<30, ready)
-	ts := httptest.NewServer(srv.Handler(token))
+	ts := httptest.NewServer(srv.Handler(token, configuredUIToken))
 	t.Cleanup(ts.Close)
 	return &env{ts: ts, blobs: blobs}
 }
@@ -94,6 +101,181 @@ func TestHealthOK(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Errorf("status = %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestUIRequiresDistinctCredentialAndRendersDashboard(t *testing.T) {
+	e := newEnv(t, healthy)
+	request := func() *http.Request {
+		req, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui", nil)
+		return req
+	}
+	resp, err := http.DefaultClient.Do(request())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no UI auth: %d", resp.StatusCode)
+	}
+
+	req := request()
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("worker token authorized UI: %d", resp.StatusCode)
+	}
+
+	req = request()
+	req.SetBasicAuth("operator", uiToken)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("UI status: %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "SciMesh operator dashboard") {
+		t.Errorf("dashboard body missing title")
+	}
+}
+
+func TestUIDisabledReturnsNotFound(t *testing.T) {
+	e := newEnvWithUIToken(t, healthy, "")
+	resp := e.get(t, "/ui")
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("disabled UI = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIRejectsCrossOriginUpload(t *testing.T) {
+	e := newEnv(t, healthy)
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", e.ts.URL+"/ui/api/jobs/upload", strings.NewReader("dataset=x"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "https://attacker.example")
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("cross-origin upload = %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestUIUploadDatasetCreatesJob(t *testing.T) {
+	e := newEnv(t, healthy)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("workload", "similarity-search")
+	_ = mw.WriteField("parameters", `{"query_smiles":"CCO","top_k":20,"progress_every":0}`)
+	_ = mw.WriteField("chunk_rows", "1000")
+	file, err := mw.CreateFormFile("file", "chembl.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(file, "chembl_id\tcanonical_smiles\nCHEMBL1\tCCO\n")
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", e.ts.URL+"/ui/api/jobs/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		result, _ := io.ReadAll(resp.Body)
+		t.Fatalf("UI upload = %d: %s", resp.StatusCode, result)
+	}
+}
+
+func TestCancelJobStopsUnfinishedTasks(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, job := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c0","input_sha256":"sha"},{"chunk_index":1,"input_uri":"s3://c1","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	jobID := job["id"].(string)
+	if code, body := e.do(t, "POST", "/jobs/"+jobID+"/cancel", ""); code != http.StatusOK || body["cancelled_tasks"].(float64) != 2 {
+		t.Fatalf("cancel = (%d, %v)", code, body)
+	}
+	if code, progress := e.do(t, "GET", "/jobs/"+jobID, ""); code != http.StatusOK || progress["status"] != "cancelled" || progress["cancelled"].(float64) != 2 {
+		t.Fatalf("cancelled job progress = (%d, %v)", code, progress)
+	}
+}
+
+func TestUICancelJobUsesOperatorCredential(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, job := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c0","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", e.ts.URL+"/ui/api/jobs/"+job["id"].(string)+"/cancel", nil)
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("UI cancel = %d", resp.StatusCode)
+	}
+}
+
+func TestUIJobAndArtifactAreScopedToTheirJob(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, job := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui/jobs/"+job["id"].(string), nil)
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("detail: %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Content-Security-Policy"); got == "" {
+		t.Error("missing UI CSP")
+	}
+}
+
+func TestUIArtifactDownloadRejectsAnotherJobsArtifact(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, _ := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("first job: %d", code)
+	}
+	_, claim := e.do(t, "POST", "/tasks/claim", `{"worker_id":"w1","capabilities":["w"]}`)
+	artifactID := e.putArtifact(t, claim["task_id"].(string), "w1", int(claim["attempt"].(float64)), "result")
+	code, second := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("second job: %d", code)
+	}
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui/jobs/"+second["id"].(string)+"/artifacts/"+artifactID, nil)
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("cross-job artifact = %d, want 404", resp.StatusCode)
 	}
 }
 
@@ -241,6 +423,31 @@ func TestUploadDatasetChunksAndServesInput(t *testing.T) {
 	shard, _ := io.ReadAll(resp.Body)
 	if !strings.HasPrefix(string(shard), "id\tsmiles\n") {
 		t.Errorf("shard missing header: %q", shard)
+	}
+}
+
+func TestUploadDatasetLimitsRows(t *testing.T) {
+	e := newEnv(t, healthy)
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("workload", "w")
+	_ = mw.WriteField("chunk_rows", "2")
+	_ = mw.WriteField("max_rows", "3")
+	fw, _ := mw.CreateFormFile("file", "chembl.tsv")
+	_, _ = io.Copy(fw, strings.NewReader("id\tsmiles\nA\tCC\nB\tCCC\nC\tCCCC\nD\tCCCCC\n"))
+	_ = mw.Close()
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", e.ts.URL+"/jobs/upload", &buf)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var result map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&result)
+	if resp.StatusCode != http.StatusCreated || result["task_count"].(float64) != 2 {
+		t.Fatalf("limited upload = (%d, %v)", resp.StatusCode, result)
 	}
 }
 

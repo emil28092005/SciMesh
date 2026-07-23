@@ -53,9 +53,12 @@ type SubmitDatasetInput struct {
 	Workload     string
 	Parameters   map[string]any
 	RowsPerShard int
-	Filename     string
-	ContentType  string
-	Body         io.Reader
+	// MaxRows limits how many data rows are turned into shards. Zero means the
+	// whole uploaded dataset; the input artifact itself remains stored intact.
+	MaxRows     int
+	Filename    string
+	ContentType string
+	Body        io.Reader
 }
 
 type SubmitDatasetResult struct {

@@ -95,7 +95,7 @@ paths:
       summary: Upload a dataset; the coordinator chunks it into shard tasks
       description: >
         multipart/form-data. The text fields (`workload`, `parameters`,
-        `chunk_rows`) MUST precede the `file` part: the file is streamed, not
+        `chunk_rows`, `max_rows`) MUST precede the `file` part: the file is streamed, not
         buffered, so the fields have to be parsed before it arrives.
       requestBody:
         required: true
@@ -129,6 +129,23 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{job_id}/cancel:
+    post:
+      tags: [jobs]
+      summary: Cancel a job and invalidate all unfinished task leases
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The job is cancelled. Completed and terminally failed tasks remain unchanged.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CancelJobResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /tasks/claim:
     post:
@@ -429,6 +446,11 @@ components:
           type: integer
           description: Data rows per shard. Default 1000.
           example: 1000
+        max_rows:
+          type: integer
+          minimum: 1
+          description: Optional leading data-row limit for a small pipeline check.
+          example: 500
         file:
           type: string
           format: binary
@@ -441,6 +463,13 @@ components:
         task_count: { type: integer, example: 3 }
         input_artifact_id: { type: string, format: uuid }
 
+    CancelJobResponse:
+      type: object
+      properties:
+        job_id: { type: string, format: uuid }
+        status: { type: string, enum: [cancelled] }
+        cancelled_tasks: { type: integer }
+
     JobProgress:
       type: object
       properties:
@@ -451,6 +480,7 @@ components:
         leased: { type: integer }
         completed: { type: integer }
         failed: { type: integer }
+        cancelled: { type: integer }
 
     ClaimRequest:
       type: object
@@ -549,4 +579,4 @@ components:
 
     TaskStatus:
       type: string
-      enum: [pending, leased, completed, failed, cancelled]
+      enum: [pending, leased, running, completed, failed, cancelled]

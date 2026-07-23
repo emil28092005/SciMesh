@@ -168,6 +168,23 @@ func TestExpireLeaseIgnoresUnleasedTasks(t *testing.T) {
 	}
 }
 
+func TestCancelInvalidatesLeaseButPreservesTerminalTask(t *testing.T) {
+	task := leasedTask(1, 3)
+	if !task.Cancel(testNow) {
+		t.Fatal("leased task should be cancelled")
+	}
+	if task.Status != TaskCancelled || task.LeaseOwner != nil || task.LeaseExpiresAt != nil {
+		t.Errorf("cancelled task = %+v", task)
+	}
+	if task.Cancel(testLater) {
+		t.Error("cancelled task must not be changed twice")
+	}
+	completed := &Task{Status: TaskCompleted}
+	if completed.Cancel(testNow) {
+		t.Error("completed task must remain terminal")
+	}
+}
+
 func TestFirstHeartbeatMovesLeasedToRunning(t *testing.T) {
 	task := leasedTask(1, 3)
 	until := testLater.Add(time.Hour)

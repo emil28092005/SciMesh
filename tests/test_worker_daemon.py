@@ -314,6 +314,32 @@ def test_environment_overrides_allow_cli_only_configuration(monkeypatch: pytest.
     assert "similarity_search" in config.capabilities
 
 
+def test_relative_work_dir_is_normalized_for_runner_subprocesses(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    config = WorkerConfig("https://coordinator.example", None, Path("./worker-data"))
+    assert config.work_dir == tmp_path / "worker-data"
+
+    task_dir = config.work_dir / "task" / "1"
+    task_dir.mkdir(parents=True)
+    (task_dir / "input").write_text("fixture", encoding="utf-8")
+    command: list[str] = []
+
+    def fake_run(args: list[str], **_: object) -> None:
+        command.extend(args)
+        output = Path(args[args.index("--output") + 1])
+        output.write_text("id,score\n", encoding="utf-8")
+
+    monkeypatch.setattr("scimesh.worker.runners.subprocess.run", fake_run)
+    task = ClaimedTask(
+        "task", 1, "2026-07-30T00:00:00Z", "similarity-search",
+        InputArtifact("https://example.test/input", "a" * 64), {"query_smiles": "CCO"},
+    )
+    SciMeshRunner().run(task, task_dir)
+    assert command[4] == str(task_dir / "input")
+
+
 def test_worker_registration_sets_returned_identity(tmp_path: Path) -> None:
     worker, _, _, _, _ = daemon(tmp_path, None, b"")
     worker._register_worker()
