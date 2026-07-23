@@ -68,6 +68,10 @@ class WorkerConfig:
             _positive_number(self.cleanup_after_seconds, "cleanup_after_seconds", allow_zero=True)
         if not self.capabilities:
             raise ValueError("capabilities cannot be empty")
+        # Runner subprocesses use a task directory as their cwd. Keep the
+        # configured root absolute so input/output paths remain valid there
+        # even when the CLI received a convenient relative --work-dir value.
+        object.__setattr__(self, "work_dir", self.work_dir.expanduser().resolve())
 
     @classmethod
     def from_environment(
