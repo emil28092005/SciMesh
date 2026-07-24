@@ -79,6 +79,10 @@ func (s *Server) handleClaim(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, domain.ErrInvalidInput)
 		return
 	}
+	if _, err := uuid.Parse(req.WorkerID); err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
 
 	claimed, err := s.uc.ClaimTask.Execute(ctx, usecase.ClaimTaskInput{
 		WorkerID:  req.WorkerID,

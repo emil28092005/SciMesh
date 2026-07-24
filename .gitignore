@@ -11,3 +11,7 @@ results/
 *_similarities.csv
 test_results.csv
 test_structures/
+
+# Local coordinator-worker execution state
+worker-data*/
+scimesh-worker-data/

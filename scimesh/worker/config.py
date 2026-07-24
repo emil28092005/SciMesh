@@ -38,13 +38,14 @@ class WorkerConfig:
     cleanup_after_seconds: float | None = None
     max_tasks: int | None = None
     exit_when_idle: bool = False
+    # Distributed similarity-graph requires triangular block-pair planning and
+    # is deliberately not advertised until CTX-10. A normal worker must never
+    # make a multi-shard graph job appear scientifically complete.
     # The local CLI uses hyphens; the first coordinator contract used
-    # underscores. Advertise both stable spellings while jobs are migrated.
+    # underscores, so retain the search alias during migration.
     capabilities: tuple[str, ...] = (
         "similarity-search",
-        "similarity-graph",
         "similarity_search",
-        "similarity_graph",
     )
 
     def __post_init__(self) -> None:

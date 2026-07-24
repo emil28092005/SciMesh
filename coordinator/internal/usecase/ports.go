@@ -60,9 +60,9 @@ type TaskRepository interface {
 	// lease. It returns how many tasks changed.
 	CancelByJob(ctx context.Context, jobID uuid.UUID, now time.Time) (int64, error)
 
-	// ExpireLeases applies the lease-expiry rule to every elapsed task and
-	// reports how many were affected.
-	ExpireLeases(ctx context.Context, now time.Time) (int64, error)
+	// ExpireLeases applies the lease-expiry rule to every elapsed task and returns
+	// the distinct jobs whose aggregate status may have changed.
+	ExpireLeases(ctx context.Context, now time.Time) ([]uuid.UUID, error)
 }
 
 // JobRepository persists jobs.
@@ -89,6 +89,9 @@ type WorkerRepository interface {
 type ArtifactRepository interface {
 	Insert(ctx context.Context, a *domain.Artifact) error
 	Get(ctx context.Context, id uuid.UUID) (*domain.Artifact, error)
+	// FindPartialResult returns the durable result already uploaded for one task
+	// attempt. A nil artifact means the attempt has not uploaded one yet.
+	FindPartialResult(ctx context.Context, taskID uuid.UUID, attempt int) (*domain.Artifact, error)
 }
 
 // BlobStore holds artifact bytes, addressed by an opaque storage key. It streams

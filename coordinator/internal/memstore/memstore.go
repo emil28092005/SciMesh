@@ -160,17 +160,18 @@ func (r *TaskRepo) CancelByJob(_ context.Context, jobID uuid.UUID, now time.Time
 	return cancelled, nil
 }
 
-func (r *TaskRepo) ExpireLeases(ctx context.Context, now time.Time) (int64, error) {
+func (r *TaskRepo) ExpireLeases(ctx context.Context, now time.Time) ([]uuid.UUID, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var n int64
+	affected := make([]uuid.UUID, 0)
 	for _, t := range r.tasks {
-		if t.Status == domain.TaskLeased && t.LeaseExpiresAt != nil && t.LeaseExpiresAt.Before(now) {
+		if (t.Status == domain.TaskLeased || t.Status == domain.TaskRunning) &&
+			t.LeaseExpiresAt != nil && t.LeaseExpiresAt.Before(now) {
 			t.ExpireLease(now)
-			n++
+			affected = append(affected, t.JobID)
 		}
 	}
-	return n, nil
+	return affected, nil
 }
 
 // --- JobRepo -------------------------------------------------------------
@@ -296,6 +297,23 @@ func (r *ArtifactRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Artifact,
 	}
 	cp := *a
 	return &cp, nil
+}
+
+func (r *ArtifactRepo) FindPartialResult(_ context.Context, taskID uuid.UUID, attempt int) (*domain.Artifact, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, a := range r.arts {
+		if a.TaskID != nil && *a.TaskID == taskID && a.Kind == domain.ArtifactPartialResult &&
+			a.Attempt != nil && *a.Attempt == attempt {
+			return cloneArtifact(a), nil
+		}
+	}
+	return nil, nil
+}
+
+func cloneArtifact(a *domain.Artifact) *domain.Artifact {
+	cp := *a
+	return &cp
 }
 
 // --- BlobStore -----------------------------------------------------------

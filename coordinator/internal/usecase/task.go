@@ -21,12 +21,15 @@ import (
 
 type ClaimTask struct {
 	tasks         TaskRepository
+	jobs          JobRepository
+	workers       WorkerRepository
+	tx            TxManager
 	clock         Clock
 	leaseDuration time.Duration
 }
 
-func NewClaimTask(tasks TaskRepository, clock Clock, leaseDuration time.Duration) *ClaimTask {
-	return &ClaimTask{tasks: tasks, clock: clock, leaseDuration: leaseDuration}
+func NewClaimTask(tasks TaskRepository, jobs JobRepository, workers WorkerRepository, tx TxManager, clock Clock, leaseDuration time.Duration) *ClaimTask {
+	return &ClaimTask{tasks: tasks, jobs: jobs, workers: workers, tx: tx, clock: clock, leaseDuration: leaseDuration}
 }
 
 // Execute reclaims elapsed leases first, then hands out one task.
@@ -42,27 +45,46 @@ func (uc *ClaimTask) Execute(ctx context.Context, in ClaimTaskInput) (*domain.Cl
 	if in.WorkerID == "" {
 		return nil, domain.ErrInvalidInput
 	}
-	now := uc.clock.Now()
-
-	if _, err := uc.tasks.ExpireLeases(ctx, now); err != nil {
-		return nil, err
+	workloads := in.Workloads
+	if workerID, err := uuid.Parse(in.WorkerID); err == nil {
+		worker, err := uc.workers.Get(ctx, workerID)
+		if err != nil {
+			return nil, err
+		}
+		// Never trust caller-supplied capabilities: registration is the durable
+		// worker identity and its allowlist.
+		workloads = worker.Capabilities
 	}
+	var claimed *domain.ClaimedTask
+	err := uc.tx.WithinTx(ctx, func(ctx context.Context) error {
+		now := uc.clock.Now()
+		affectedJobs, err := uc.tasks.ExpireLeases(ctx, now)
+		if err != nil {
+			return err
+		}
+		if err := syncExpiredJobStatuses(ctx, uc.jobs, uc.tasks, affectedJobs, now); err != nil {
+			return err
+		}
 
-	task, err := uc.tasks.ClaimNext(ctx, ClaimFilter{
-		Workloads:  in.Workloads,
-		Owner:      in.WorkerID,
-		Now:        now,
-		LeaseUntil: now.Add(uc.leaseDuration),
+		task, err := uc.tasks.ClaimNext(ctx, ClaimFilter{
+			Workloads:  workloads,
+			Owner:      in.WorkerID,
+			Now:        now,
+			LeaseUntil: now.Add(uc.leaseDuration),
+		})
+		if err != nil {
+			return err
+		}
+		if task != nil {
+			value := task.AsClaimed()
+			claimed = &value
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	if task == nil {
-		return nil, nil // empty queue is a normal state, not an error
-	}
-
-	claimed := task.AsClaimed()
-	return &claimed, nil
+	return claimed, nil // nil means an empty queue
 }
 
 // --- RenewLease ----------------------------------------------------------
@@ -230,18 +252,30 @@ func (uc *FailTask) Execute(ctx context.Context, in FailTaskInput) (*domain.Task
 
 type ExpireLeases struct {
 	tasks TaskRepository
+	jobs  JobRepository
+	tx    TxManager
 	clock Clock
 }
 
-func NewExpireLeases(tasks TaskRepository, clock Clock) *ExpireLeases {
-	return &ExpireLeases{tasks: tasks, clock: clock}
+func NewExpireLeases(tasks TaskRepository, jobs JobRepository, tx TxManager, clock Clock) *ExpireLeases {
+	return &ExpireLeases{tasks: tasks, jobs: jobs, tx: tx, clock: clock}
 }
 
-// Execute reports how many tasks were reclaimed.
+// Execute reclaims elapsed tasks and persists the state of every affected job.
 //
 // The sweep is one set-based statement rather than a load-decide-save loop:
 // several coordinators run it concurrently, and a single atomic UPDATE makes
 // the duplicate work harmless — the loser simply updates 0 rows.
 func (uc *ExpireLeases) Execute(ctx context.Context) (int64, error) {
-	return uc.tasks.ExpireLeases(ctx, uc.clock.Now())
+	var affected []uuid.UUID
+	err := uc.tx.WithinTx(ctx, func(ctx context.Context) error {
+		now := uc.clock.Now()
+		var err error
+		affected, err = uc.tasks.ExpireLeases(ctx, now)
+		if err != nil {
+			return err
+		}
+		return syncExpiredJobStatuses(ctx, uc.jobs, uc.tasks, affected, now)
+	})
+	return int64(len(affected)), err
 }

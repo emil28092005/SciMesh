@@ -96,7 +96,9 @@ paths:
       description: >
         multipart/form-data. The text fields (`workload`, `parameters`,
         `chunk_rows`, `max_rows`) MUST precede the `file` part: the file is streamed, not
-        buffered, so the fields have to be parsed before it arrives.
+        buffered, so the fields have to be parsed before it arrives. Currently
+        only diagnostic `similarity-search` with `parameters.query_smiles` is
+        accepted; distributed graph planning is not implemented.
       requestBody:
         required: true
         content:
@@ -388,7 +390,7 @@ components:
           type: array
           minItems: 1
           items: { type: string }
-          example: [similarity_search, similarity_graph]
+          example: [similarity-search]
         cpu_count:
           type: integer
           description: Accepted for forward compatibility; not yet persisted.
@@ -419,7 +421,7 @@ components:
       type: object
       required: [workload, input_uri, chunks]
       properties:
-        workload: { type: string, example: similarity_search }
+        workload: { type: string, example: similarity-search }
         input_uri: { type: string }
         parameters: { type: object, additionalProperties: true }
         chunks:
@@ -437,11 +439,11 @@ components:
       type: object
       required: [workload, file]
       properties:
-        workload: { type: string, example: similarity_search }
+        workload: { type: string, enum: [similarity-search], example: similarity-search }
         parameters:
           type: string
           description: JSON object, sent as a string form field.
-          example: '{"top_k":10}'
+          example: '{"query_smiles":"CCO","top_k":10}'
         chunk_rows:
           type: integer
           description: Data rows per shard. Default 1000.
@@ -486,11 +488,11 @@ components:
       type: object
       required: [worker_id]
       properties:
-        worker_id: { type: string }
+        worker_id: { type: string, format: uuid, description: Registered worker identity. }
         capabilities:
           type: array
           items: { type: string }
-          description: Workloads this worker can run. Empty means "any".
+          description: Accepted for compatibility only; registration capabilities decide eligibility.
         max_concurrency:
           type: integer
           description: Accepted; the coordinator leases one task per call.

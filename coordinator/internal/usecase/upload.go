@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/google/uuid"
 
@@ -15,20 +16,27 @@ import (
 // creates the job with one task per shard — the coordinator-side counterpart of
 // a client submitting pre-chunked URIs.
 type SubmitDataset struct {
-	blobs     BlobStore
-	artifacts ArtifactRepository
-	jobs      JobRepository
-	tasks     TaskRepository
-	tx        TxManager
-	clk       Clock
+	blobs       BlobStore
+	artifacts   ArtifactRepository
+	jobs        JobRepository
+	tasks       TaskRepository
+	tx          TxManager
+	clk         Clock
+	maxAttempts int
 }
 
 func NewSubmitDataset(blobs BlobStore, artifacts ArtifactRepository, jobs JobRepository,
-	tasks TaskRepository, tx TxManager, clk Clock) *SubmitDataset {
-	return &SubmitDataset{blobs: blobs, artifacts: artifacts, jobs: jobs, tasks: tasks, tx: tx, clk: clk}
+	tasks TaskRepository, tx TxManager, clk Clock, maxAttempts int) *SubmitDataset {
+	return &SubmitDataset{blobs: blobs, artifacts: artifacts, jobs: jobs, tasks: tasks, tx: tx, clk: clk, maxAttempts: maxAttempts}
 }
 
 func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (SubmitDatasetResult, error) {
+	if err := validateUploadedWorkload(in.Workload, in.Parameters); err != nil {
+		return SubmitDatasetResult{}, err
+	}
+	if uc.maxAttempts < 1 {
+		return SubmitDatasetResult{}, domain.ErrInvalidInput
+	}
 	now := uc.clk.Now()
 
 	job, err := domain.NewUploadedJob(in.Workload, in.Parameters, now)
@@ -64,7 +72,7 @@ func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (Su
 		cleanup()
 		return SubmitDatasetResult{}, err
 	}
-	splitErr := chunk.SplitTSVLimit(rc, in.RowsPerShard, in.MaxRows, func(index int, shard io.Reader) error {
+	splitErr := chunk.SplitChEMBLTSVLimit(rc, in.RowsPerShard, in.MaxRows, func(index int, shard io.Reader) error {
 		art, err := domain.NewArtifact(job.ID, nil, domain.ArtifactShard,
 			fmt.Sprintf("shard-%d.tsv", index), in.ContentType, now)
 		if err != nil {
@@ -77,7 +85,7 @@ func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (Su
 		putKeys = append(putKeys, art.StorageKey)
 		art.SetContent(ssum, ssize)
 
-		task, err := domain.NewShardTask(job.ID, index, in.Workload, art.ID, ssum, in.Parameters, 0, now)
+		task, err := domain.NewShardTask(job.ID, index, in.Workload, art.ID, ssum, in.Parameters, uc.maxAttempts, now)
 		if err != nil {
 			return err
 		}
@@ -88,7 +96,8 @@ func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (Su
 	_ = rc.Close()
 	if splitErr != nil {
 		cleanup()
-		return SubmitDatasetResult{}, splitErr
+		// Dataset shape is caller input, not an internal coordinator failure.
+		return SubmitDatasetResult{}, domain.ErrInvalidInput
 	}
 
 	// 3. Persist job + all artifacts + all tasks atomically.
@@ -116,6 +125,76 @@ func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (Su
 		TaskCount:       len(tasks),
 		InputArtifactID: input.ID,
 	}, nil
+}
+
+// validateUploadedWorkload is deliberately narrow until CTX-07/08/10 adds a
+// typed distributed-workload registry. In particular, running similarity-graph
+// independently per TSV shard is scientifically wrong: cross-shard pairs would
+// be absent from the apparent graph.
+func validateUploadedWorkload(workload string, parameters map[string]any) error {
+	if workload != "similarity-search" {
+		return domain.ErrInvalidInput
+	}
+	allowed := map[string]struct{}{
+		"query_smiles": {}, "top_k": {}, "threshold": {},
+		"threshold_direction": {}, "progress_every": {},
+	}
+	for key := range parameters {
+		if _, ok := allowed[key]; !ok {
+			return domain.ErrInvalidInput
+		}
+	}
+	query, ok := parameters["query_smiles"].(string)
+	if !ok || query == "" || len(query) > 200 {
+		return domain.ErrInvalidInput
+	}
+	if value, ok := parameters["top_k"]; ok && !isPositiveJSONInteger(value) {
+		return domain.ErrInvalidInput
+	}
+	if value, ok := parameters["progress_every"]; ok && !isNonNegativeJSONInteger(value) {
+		return domain.ErrInvalidInput
+	}
+	if value, ok := parameters["threshold"]; ok && !isUnitIntervalNumber(value) {
+		return domain.ErrInvalidInput
+	}
+	if value, ok := parameters["threshold_direction"]; ok && value != "greater" && value != "less" {
+		return domain.ErrInvalidInput
+	}
+	return nil
+}
+
+func isPositiveJSONInteger(value any) bool    { return isJSONInteger(value, false) }
+func isNonNegativeJSONInteger(value any) bool { return isJSONInteger(value, true) }
+
+func isJSONInteger(value any, allowZero bool) bool {
+	var n int64
+	switch v := value.(type) {
+	case int:
+		n = int64(v)
+	case int64:
+		n = v
+	case float64:
+		if math.Trunc(v) != v || v > math.MaxInt64 || v < math.MinInt64 {
+			return false
+		}
+		n = int64(v)
+	default:
+		return false
+	}
+	return n >= 0 && (allowZero || n > 0)
+}
+
+func isUnitIntervalNumber(value any) bool {
+	switch v := value.(type) {
+	case float64:
+		return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 && v <= 1
+	case int:
+		return v >= 0 && v <= 1
+	case int64:
+		return v >= 0 && v <= 1
+	default:
+		return false
+	}
 }
 
 // GetTaskInput resolves a task's input shard and opens it for streaming. The

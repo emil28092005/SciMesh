@@ -7,6 +7,7 @@ from dataclasses import replace
 from dataclasses import dataclass
 from pathlib import Path
 import random
+import re
 import shutil
 import threading
 import time
@@ -199,13 +200,23 @@ class WorkerDaemon:
         return RunOnceOutcome(claimed=True, completed=completed)
 
     def _report_failure(self, task: ClaimedTask, error: Exception) -> None:
-        message = str(error).replace(str(self.config.work_dir), "<worker-dir>")[:300]
+        message = self._sanitize_error_message(error)
         try:
             self.coordinator.fail(task, {"worker_id": self._worker_id(), "attempt": task.attempt, "error_code": type(error).__name__, "error_message": message})
         except CoordinatorTransientError:
             raise
         except Exception:
             self._log("failed", task, error_type="FailureReportError")
+
+    def _sanitize_error_message(self, error: Exception) -> str:
+        """Keep coordinator-visible failures useful without exposing local paths."""
+        message = str(error).replace(str(self.config.work_dir), "<worker-dir>")
+        # CalledProcessError includes the complete argv, including sys.executable
+        # outside work_dir. Replace POSIX and Windows absolute paths before the
+        # message reaches the coordinator database or operator UI.
+        message = re.sub(r"(?<![\w:])[A-Za-z]:\\[^\s'\"\],)]+", "<path>", message)
+        message = re.sub(r"(?<![\w:])/(?:[^\s'\"\],)]+)", "<path>", message)
+        return message[:300]
 
     def _register_worker(self) -> None:
         registered = self.coordinator.register(

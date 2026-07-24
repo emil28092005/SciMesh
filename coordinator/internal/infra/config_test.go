@@ -32,3 +32,14 @@ func TestLoadConfigAllowsDistinctUIAndWorkerTokens(t *testing.T) {
 		t.Fatalf("unexpected tokens: %+v", cfg)
 	}
 }
+
+func TestLoadConfigRejectsNonPositiveDefaultMaxAttempts(t *testing.T) {
+	t.Setenv("ENV_FILE", filepath.Join(t.TempDir(), "missing.env"))
+	t.Setenv("DATABASE_URL", "postgres://test")
+	t.Setenv("DEFAULT_MAX_ATTEMPTS", "0")
+
+	_, err := LoadConfig()
+	if err == nil || !strings.Contains(err.Error(), "DEFAULT_MAX_ATTEMPTS") {
+		t.Fatalf("LoadConfig error = %v, want default-attempt validation", err)
+	}
+}

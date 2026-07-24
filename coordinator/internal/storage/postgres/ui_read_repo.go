@@ -75,6 +75,31 @@ func (r *UIReadRepo) ListTasksByJob(ctx context.Context, jobID uuid.UUID) ([]dom
 	return tasks, rows.Err()
 }
 
+func (r *UIReadRepo) ListTasksByJobs(ctx context.Context, jobIDs []uuid.UUID) (map[uuid.UUID][]domain.Task, error) {
+	out := make(map[uuid.UUID][]domain.Task, len(jobIDs))
+	if len(jobIDs) == 0 {
+		return out, nil
+	}
+	sql, args, err := psql.Select(taskColumns...).From("tasks").
+		Where(sq.Eq{"job_id": jobIDs}).OrderBy("job_id ASC", "chunk_index ASC").ToSql()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := conn(ctx, r.pool).Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks by jobs: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		task, err := scanTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[task.JobID] = append(out[task.JobID], *task)
+	}
+	return out, rows.Err()
+}
+
 func (r *UIReadRepo) ListWorkers(ctx context.Context, limit int) ([]domain.Worker, error) {
 	if limit < 1 || limit > 100 {
 		return nil, domain.ErrInvalidInput

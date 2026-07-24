@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from pathlib import Path
+import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.request import Request
@@ -236,6 +237,19 @@ def test_bad_checksum_reports_failure_without_running(tmp_path: Path) -> None:
     assert not coordinator.submissions
 
 
+def test_failure_reporting_removes_paths_outside_the_worker_directory(tmp_path: Path) -> None:
+    worker, coordinator, _, _, _ = daemon(tmp_path, make_task(b"input"), b"input")
+    error = subprocess.CalledProcessError(
+        1,
+        ["/home/alice/.venv/bin/python", "-m", "scimesh.cli", "/private/input.tsv"],
+    )
+    worker._report_failure(make_task(b"input"), error)
+    message = coordinator.failures[0]["error_message"]
+    assert "/home/alice" not in message
+    assert "/private/input.tsv" not in message
+    assert "<path>" in message
+
+
 def test_directory_creation_failure_is_reported(tmp_path: Path) -> None:
     content = b"input fixture"
     worker, coordinator, _, _, config = daemon(tmp_path, make_task(content), content)
@@ -431,6 +445,7 @@ def test_environment_overrides_allow_cli_only_configuration(monkeypatch: pytest.
     assert config.worker_id is None
     assert "similarity-search" in config.capabilities
     assert "similarity_search" in config.capabilities
+    assert "similarity-graph" not in config.capabilities
 
 
 def test_relative_work_dir_is_normalized_for_runner_subprocesses(

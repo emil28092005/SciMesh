@@ -23,8 +23,9 @@ const token = "secret"
 const uiToken = "ui-secret"
 
 type env struct {
-	ts    *httptest.Server
-	blobs *memstore.BlobStore
+	ts       *httptest.Server
+	blobs    *memstore.BlobStore
+	workerID string
 }
 
 func newEnv(t *testing.T, ready func(context.Context) error) *env {
@@ -45,22 +46,28 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 	uc := coordhttp.UseCases{
 		RegisterWorker:   usecase.NewRegisterWorker(work, clk),
 		CreateJob:        usecase.NewCreateJob(jobs, tasks, tx, clk),
-		SubmitDataset:    usecase.NewSubmitDataset(blobs, arts, jobs, tasks, tx, clk),
-		ClaimTask:        usecase.NewClaimTask(tasks, clk, lease),
+		SubmitDataset:    usecase.NewSubmitDataset(blobs, arts, jobs, tasks, tx, clk, 3),
+		ClaimTask:        usecase.NewClaimTask(tasks, jobs, work, tx, clk, lease),
 		RenewLease:       usecase.NewRenewLease(tasks, work, tx, clk, lease),
 		CompleteTask:     usecase.NewCompleteTask(tasks, jobs, arts, tx, clk),
 		FailTask:         usecase.NewFailTask(tasks, jobs, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobs, tasks),
 		CancelJob:        usecase.NewCancelJob(jobs, tasks, tx, clk),
-		UploadArtifact:   usecase.NewUploadArtifact(tasks, arts, blobs, clk),
+		UploadArtifact:   usecase.NewUploadArtifact(tasks, arts, blobs, tx, clk),
 		DownloadArtifact: usecase.NewDownloadArtifact(arts, blobs),
 		GetTaskInput:     usecase.NewGetTaskInput(tasks, arts, blobs),
 		Dashboard:        usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, work, arts)),
 	}
+	worker, err := uc.RegisterWorker.Execute(context.Background(), usecase.RegisterWorkerInput{
+		Name: "test-worker", Capabilities: []string{"w", "similarity-search"},
+	})
+	if err != nil {
+		t.Fatalf("register test worker: %v", err)
+	}
 	srv := coordhttp.NewServer(uc, slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second, 15*time.Second, 1<<30, ready)
 	ts := httptest.NewServer(srv.Handler(token, configuredUIToken))
 	t.Cleanup(ts.Close)
-	return &env{ts: ts, blobs: blobs}
+	return &env{ts: ts, blobs: blobs, workerID: worker.ID.String()}
 }
 
 func healthy(context.Context) error { return nil }
@@ -68,6 +75,7 @@ func healthy(context.Context) error { return nil }
 // do sends an authenticated JSON request and returns status + decoded body.
 func (e *env) do(t *testing.T, method, path, body string) (int, map[string]any) {
 	t.Helper()
+	body = strings.ReplaceAll(body, `"worker_id":"w1"`, `"worker_id":"`+e.workerID+`"`)
 	req, _ := http.NewRequestWithContext(context.Background(), method, e.ts.URL+path, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	if body != "" {
@@ -330,6 +338,26 @@ func TestRegisterRejectsNoCapabilities(t *testing.T) {
 	}
 }
 
+func TestClaimRequiresRegisteredWorkerAndUsesStoredCapabilities(t *testing.T) {
+	e := newEnv(t, healthy)
+	if code, _ := e.do(t, "POST", "/tasks/claim", `{"worker_id":"not-a-uuid"}`); code != http.StatusBadRequest {
+		t.Fatalf("invalid worker id claim = %d, want 400", code)
+	}
+	if code, _ := e.do(t, "POST", "/tasks/claim", `{"worker_id":"11111111-1111-4111-8111-111111111111"}`); code != http.StatusNotFound {
+		t.Fatalf("unregistered worker claim = %d, want 404", code)
+	}
+	if code, _ := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`); code != http.StatusCreated {
+		t.Fatalf("create job = %d", code)
+	}
+	code, worker := e.do(t, "POST", "/workers/register", `{"name":"search-only","capabilities":["similarity-search"]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("register = %d", code)
+	}
+	if code, _ := e.do(t, "POST", "/tasks/claim", `{"worker_id":"`+worker["worker_id"].(string)+`","capabilities":["w"]}`); code != http.StatusNoContent {
+		t.Fatalf("forged capability claim = %d, want 204", code)
+	}
+}
+
 func TestFullLifecycle(t *testing.T) {
 	e := newEnv(t, healthy)
 
@@ -393,9 +421,9 @@ func TestForeignArtifactResultConflict(t *testing.T) {
 
 func TestUploadDatasetChunksAndServesInput(t *testing.T) {
 	e := newEnv(t, healthy)
-	tsv := "id\tsmiles\nA\tCC\nB\tCCC\nC\tCCCC\nD\tCCCCC\nE\tCCCCCC\n"
+	tsv := "chembl_id\tcanonical_smiles\nA\tCC\nB\tCCC\nC\tCCCC\nD\tCCCCC\nE\tCCCCCC\n"
 
-	code, body := e.uploadDataset(t, "w", 2, tsv)
+	code, body := e.uploadDataset(t, "similarity-search", 2, tsv)
 	if code != 201 {
 		t.Fatalf("upload: status = %d", code)
 	}
@@ -421,7 +449,7 @@ func TestUploadDatasetChunksAndServesInput(t *testing.T) {
 		t.Fatalf("get input: status = %d", resp.StatusCode)
 	}
 	shard, _ := io.ReadAll(resp.Body)
-	if !strings.HasPrefix(string(shard), "id\tsmiles\n") {
+	if !strings.HasPrefix(string(shard), "chembl_id\tcanonical_smiles\n") {
 		t.Errorf("shard missing header: %q", shard)
 	}
 }
@@ -430,11 +458,12 @@ func TestUploadDatasetLimitsRows(t *testing.T) {
 	e := newEnv(t, healthy)
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	_ = mw.WriteField("workload", "w")
+	_ = mw.WriteField("workload", "similarity-search")
+	_ = mw.WriteField("parameters", `{"query_smiles":"CCO"}`)
 	_ = mw.WriteField("chunk_rows", "2")
 	_ = mw.WriteField("max_rows", "3")
 	fw, _ := mw.CreateFormFile("file", "chembl.tsv")
-	_, _ = io.Copy(fw, strings.NewReader("id\tsmiles\nA\tCC\nB\tCCC\nC\tCCCC\nD\tCCCCC\n"))
+	_, _ = io.Copy(fw, strings.NewReader("chembl_id\tcanonical_smiles\nA\tCC\nB\tCCC\nC\tCCCC\nD\tCCCCC\n"))
 	_ = mw.Close()
 	req, _ := http.NewRequestWithContext(context.Background(), "POST", e.ts.URL+"/jobs/upload", &buf)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -448,6 +477,29 @@ func TestUploadDatasetLimitsRows(t *testing.T) {
 	_ = json.NewDecoder(resp.Body).Decode(&result)
 	if resp.StatusCode != http.StatusCreated || result["task_count"].(float64) != 2 {
 		t.Fatalf("limited upload = (%d, %v)", resp.StatusCode, result)
+	}
+}
+
+func TestUploadDatasetRejectsMissingChEMBLColumns(t *testing.T) {
+	e := newEnv(t, healthy)
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("workload", "similarity-search")
+	_ = mw.WriteField("parameters", `{"query_smiles":"CCO"}`)
+	_ = mw.WriteField("chunk_rows", "2")
+	fw, _ := mw.CreateFormFile("file", "not-chembl.tsv")
+	_, _ = io.Copy(fw, strings.NewReader("id\tsmiles\nA\tCC\n"))
+	_ = mw.Close()
+	req, _ := http.NewRequestWithContext(context.Background(), "POST", e.ts.URL+"/jobs/upload", &buf)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("missing ChEMBL columns = %d, want 400", resp.StatusCode)
 	}
 }
 
@@ -478,10 +530,11 @@ func TestUploadDatasetRejectsAmbiguousMultipartInput(t *testing.T) {
 	e := newEnv(t, healthy)
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	_ = mw.WriteField("workload", "w")
+	_ = mw.WriteField("workload", "similarity-search")
+	_ = mw.WriteField("parameters", `{"query_smiles":"CCO"}`)
 	_ = mw.WriteField("chunk_rows", "not-a-number")
 	fw, _ := mw.CreateFormFile("file", "chembl.tsv")
-	_, _ = io.Copy(fw, strings.NewReader("id\tsmiles\nA\tCC\n"))
+	_, _ = io.Copy(fw, strings.NewReader("chembl_id\tcanonical_smiles\nA\tCC\n"))
 	_ = mw.Close()
 
 	req, _ := http.NewRequestWithContext(context.Background(), "POST", e.ts.URL+"/jobs/upload", &buf)
@@ -505,6 +558,9 @@ func (e *env) putArtifact(t *testing.T, taskID, worker string, attempt int, data
 		e.ts.URL+"/tasks/"+taskID+"/artifacts/r.csv", strings.NewReader(data))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "text/csv")
+	if worker == "w1" {
+		worker = e.workerID
+	}
 	req.Header.Set("X-Worker-ID", worker)
 	req.Header.Set("X-Task-Attempt", itoa(attempt))
 	resp, err := http.DefaultClient.Do(req)
@@ -526,6 +582,7 @@ func (e *env) uploadDataset(t *testing.T, workload string, rows int, tsv string)
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 	_ = mw.WriteField("workload", workload)
+	_ = mw.WriteField("parameters", `{"query_smiles":"CCO"}`)
 	_ = mw.WriteField("chunk_rows", itoa(rows))
 	fw, _ := mw.CreateFormFile("file", "chembl.tsv")
 	_, _ = io.Copy(fw, strings.NewReader(tsv))

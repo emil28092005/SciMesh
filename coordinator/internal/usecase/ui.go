@@ -15,6 +15,7 @@ type UIReadRepository interface {
 	GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error)
 	ListJobs(ctx context.Context, limit int) ([]domain.Job, error)
 	ListTasksByJob(ctx context.Context, jobID uuid.UUID) ([]domain.Task, error)
+	ListTasksByJobs(ctx context.Context, jobIDs []uuid.UUID) (map[uuid.UUID][]domain.Task, error)
 	ListWorkers(ctx context.Context, limit int) ([]domain.Worker, error)
 	ListArtifactsByJob(ctx context.Context, jobID uuid.UUID) ([]domain.Artifact, error)
 }
@@ -88,12 +89,16 @@ func (d *Dashboard) Overview(ctx context.Context, limit int) (DashboardView, err
 		return DashboardView{}, err
 	}
 	out := DashboardView{Jobs: make([]JobCard, 0, len(jobs)), Workers: make([]WorkerCard, 0, len(workers))}
+	jobIDs := make([]uuid.UUID, 0, len(jobs))
 	for _, job := range jobs {
-		tasks, err := d.read.ListTasksByJob(ctx, job.ID)
-		if err != nil {
-			return DashboardView{}, err
-		}
-		out.Jobs = append(out.Jobs, jobCard(job, tasks))
+		jobIDs = append(jobIDs, job.ID)
+	}
+	tasksByJob, err := d.read.ListTasksByJobs(ctx, jobIDs)
+	if err != nil {
+		return DashboardView{}, err
+	}
+	for _, job := range jobs {
+		out.Jobs = append(out.Jobs, jobCard(job, tasksByJob[job.ID]))
 	}
 	for _, worker := range workers {
 		out.Workers = append(out.Workers, WorkerCard{ID: worker.ID.String(), Name: worker.Name, Status: string(worker.Status), Capabilities: worker.Capabilities, LastHeartbeatAt: worker.LastHeartbeatAt})

@@ -119,6 +119,14 @@ func TestSplitLimitUsesOnlyLeadingDataRows(t *testing.T) {
 	}
 }
 
+func TestChEMBLSplitRejectsMissingRequiredColumns(t *testing.T) {
+	err := SplitChEMBLTSVLimit(strings.NewReader("id\tsmiles\nA\tCC\n"), 1, 0,
+		func(int, io.Reader) error { return nil })
+	if err == nil || !strings.Contains(err.Error(), "chembl_id") {
+		t.Errorf("err = %v, want missing-column error", err)
+	}
+}
+
 // The scanned bytes are reused by bufio; the shard buffer must copy them, or a
 // later row would corrupt an earlier one. This guards that copy.
 func TestSplitDoesNotAliasScannerBuffer(t *testing.T) {

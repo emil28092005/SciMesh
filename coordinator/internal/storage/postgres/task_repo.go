@@ -337,17 +337,26 @@ SET status           = CASE WHEN attempt < max_attempts THEN 'pending'::task_sta
                             ELSE error_message END,
     completed_at     = CASE WHEN attempt >= max_attempts THEN $1 ELSE completed_at END,
     version          = version + 1
-WHERE status IN ('leased','running') AND lease_expires_at < $1`
+WHERE status IN ('leased','running') AND lease_expires_at < $1
+RETURNING job_id`
 
-func (r *TaskRepo) ExpireLeases(ctx context.Context, now time.Time) (int64, error) {
-	var affected int64
+func (r *TaskRepo) ExpireLeases(ctx context.Context, now time.Time) ([]uuid.UUID, error) {
+	var affected []uuid.UUID
 	err := withRetry(ctx, func(ctx context.Context) error {
-		tag, err := conn(ctx, r.pool).Exec(ctx, expireLeasesSQL, now, domain.ErrCodeLeaseExpired)
+		rows, err := conn(ctx, r.pool).Query(ctx, expireLeasesSQL, now, domain.ErrCodeLeaseExpired)
 		if err != nil {
 			return err
 		}
-		affected = tag.RowsAffected()
-		return nil
+		defer rows.Close()
+		affected = affected[:0]
+		for rows.Next() {
+			var jobID uuid.UUID
+			if err := rows.Scan(&jobID); err != nil {
+				return err
+			}
+			affected = append(affected, jobID)
+		}
+		return rows.Err()
 	})
 	return affected, err
 }

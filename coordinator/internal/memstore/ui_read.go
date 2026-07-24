@@ -60,6 +60,18 @@ func (r *UIReadRepo) ListTasksByJob(_ context.Context, jobID uuid.UUID) ([]domai
 	sort.Slice(out, func(i, j int) bool { return out[i].ChunkIndex < out[j].ChunkIndex })
 	return out, nil
 }
+
+func (r *UIReadRepo) ListTasksByJobs(ctx context.Context, jobIDs []uuid.UUID) (map[uuid.UUID][]domain.Task, error) {
+	out := make(map[uuid.UUID][]domain.Task, len(jobIDs))
+	for _, id := range jobIDs {
+		tasks, err := r.ListTasksByJob(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out[id] = tasks
+	}
+	return out, nil
+}
 func (r *UIReadRepo) ListWorkers(_ context.Context, limit int) ([]domain.Worker, error) {
 	if limit < 1 || limit > 100 {
 		return nil, domain.ErrInvalidInput
