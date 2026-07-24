@@ -29,6 +29,7 @@ type UseCases struct {
 	DownloadArtifact *usecase.DownloadArtifact
 	GetTaskInput     *usecase.GetTaskInput
 	Dashboard        *usecase.Dashboard
+	PreviewArtifact  *usecase.PreviewArtifact
 }
 
 type Server struct {
@@ -82,6 +83,7 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 		ui.HandleFunc("POST /ui/api/jobs/{job_id}/cancel", s.handleCancelJob)
 		ui.HandleFunc("POST /ui/api/jobs/upload", s.handleUploadDataset)
 		ui.HandleFunc("GET /ui/jobs/{job_id}/artifacts/{artifact_id}", s.handleUIArtifactDownload)
+		ui.HandleFunc("GET /ui/jobs/{job_id}/artifacts/{artifact_id}/preview", s.handleUIArtifactPreview)
 		mux.Handle("/ui", chain(ui, withRequestID, withAccessLog(s.log), withBasicAuth(uiToken[0]), withSameOrigin))
 		mux.Handle("/ui/", chain(ui, withRequestID, withAccessLog(s.log), withBasicAuth(uiToken[0]), withSameOrigin))
 	} else {

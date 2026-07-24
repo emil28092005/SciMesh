@@ -279,3 +279,26 @@ func (s *Server) handleUIArtifactDownload(w http.ResponseWriter, r *http.Request
 	w.Header().Set("X-Checksum-SHA256", art.SHA256)
 	_, _ = io.Copy(w, body)
 }
+
+// handleUIArtifactPreview renders a bounded, job-scoped CSV preview. The use
+// case enforces the same ownership and downloadable rule as the download
+// proxy above; nothing here trusts the artifact ID beyond that check.
+func (s *Server) handleUIArtifactPreview(w http.ResponseWriter, r *http.Request) {
+	jobID, ok := s.uiJobID(w, r)
+	if !ok {
+		return
+	}
+	artifactID, err := uuid.Parse(r.PathValue("artifact_id"))
+	if err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	view, err := s.uc.PreviewArtifact.Execute(ctx, jobID, artifactID)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	s.renderUI(w, "artifact-preview.html", view)
+}

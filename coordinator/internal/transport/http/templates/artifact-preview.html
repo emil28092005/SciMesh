@@ -1,0 +1,31 @@
+{{define "artifact-preview.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SciMesh artifact preview</title>
+  <style>
+    :root{color:#172033;background:#f6f8fc;font:16px/1.5 system-ui,sans-serif}body{margin:0}.page{max-width:1180px;margin:auto;padding:32px 20px 56px}a{color:#174ecf}.back{text-decoration:none}h1{margin:18px 0 4px;font-size:1.6rem;word-break:break-word}.muted{color:#68758b}.notice{margin:16px 0;padding:15px 17px;border:1px solid #f2cb72;border-radius:10px;background:#fff8e6}.table-wrap{overflow-x:auto;border:1px solid #dfe5f0;border-radius:10px;background:#fff;margin-top:16px}table{width:100%;border-collapse:collapse}td,th{padding:10px 12px;border-bottom:1px solid #e8ecf4;text-align:left;vertical-align:top;white-space:pre-wrap;word-break:break-word}th{color:#50617d;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;background:#f6f8fc}tr:last-child td{border:0}.empty{padding:24px;text-align:center;color:#68758b}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <a class="back" href="/ui/jobs/{{.JobID}}">← Back to job</a>
+    <h1>Preview: {{.Filename}}</h1>
+    <p class="muted">Diagnostic preview only — a partial shard result, not a final molecular-search answer. At most {{.RowLimit}} rows and {{.ByteLimit}} bytes are read from storage.</p>
+    {{if not .Previewable}}
+      <div class="notice">{{.Reason}}</div>
+    {{else}}
+      {{if .Truncated}}<div class="notice">Truncated: showing at most the first {{.RowLimit}} rows or {{.ByteLimit}} bytes of this artifact. Download it for the full contents.</div>{{end}}
+      <div class="table-wrap">
+        <table>
+          <tr>{{range .Headers}}<th>{{.}}</th>{{end}}</tr>
+          {{range .Rows}}<tr>{{range .}}<td>{{.}}</td>{{end}}</tr>{{else}}<tr><td class="empty" colspan="99">No data rows.</td></tr>{{end}}
+        </table>
+      </div>
+    {{end}}
+  </main>
+</body>
+</html>
+{{end}}

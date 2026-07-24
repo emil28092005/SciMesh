@@ -42,6 +42,7 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 	clk := memstore.NewClock(time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC))
 	tx := memstore.Tx{}
 	lease := 2 * time.Minute
+	uiRead := memstore.NewUIReadRepo(jobs, tasks, work, arts)
 
 	uc := coordhttp.UseCases{
 		RegisterWorker:   usecase.NewRegisterWorker(work, clk),
@@ -56,7 +57,8 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 		UploadArtifact:   usecase.NewUploadArtifact(tasks, arts, blobs, tx, clk),
 		DownloadArtifact: usecase.NewDownloadArtifact(arts, blobs),
 		GetTaskInput:     usecase.NewGetTaskInput(tasks, arts, blobs),
-		Dashboard:        usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, work, arts)),
+		Dashboard:        usecase.NewDashboard(uiRead),
+		PreviewArtifact:  usecase.NewPreviewArtifact(uiRead, blobs),
 	}
 	worker, err := uc.RegisterWorker.Execute(context.Background(), usecase.RegisterWorkerInput{
 		Name: "test-worker", Capabilities: []string{"w", "similarity-search"},
@@ -284,6 +286,134 @@ func TestUIArtifactDownloadRejectsAnotherJobsArtifact(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("cross-job artifact = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIArtifactPreviewRequiresAuth(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, job := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	_, claim := e.do(t, "POST", "/tasks/claim", `{"worker_id":"w1","capabilities":["w"]}`)
+	artifactID := e.putArtifact(t, claim["task_id"].(string), "w1", int(claim["attempt"].(float64)), "a,b\n1,2\n")
+
+	req, _ := http.NewRequestWithContext(context.Background(), "GET",
+		e.ts.URL+"/ui/jobs/"+job["id"].(string)+"/artifacts/"+artifactID+"/preview", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("unauthenticated preview = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestUIArtifactPreviewRendersEscapedCSVRows(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, job := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	_, claim := e.do(t, "POST", "/tasks/claim", `{"worker_id":"w1","capabilities":["w"]}`)
+	csv := "chembl_id,note\nCHEMBL1,<script>alert(1)</script>\n"
+	artifactID := e.putArtifact(t, claim["task_id"].(string), "w1", int(claim["attempt"].(float64)), csv)
+
+	req, _ := http.NewRequestWithContext(context.Background(), "GET",
+		e.ts.URL+"/ui/jobs/"+job["id"].(string)+"/artifacts/"+artifactID+"/preview", nil)
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("preview: %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if strings.Contains(string(body), "<script>alert(1)</script>") {
+		t.Error("preview must escape HTML-like CSV values, found raw <script> tag")
+	}
+	if !strings.Contains(string(body), "&lt;script&gt;") {
+		t.Errorf("expected escaped script tag in preview body: %s", body)
+	}
+	if !strings.Contains(string(body), "CHEMBL1") {
+		t.Error("preview missing expected cell value")
+	}
+}
+
+func TestUIArtifactPreviewRejectsAnotherJobsArtifact(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, _ := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("first job: %d", code)
+	}
+	_, claim := e.do(t, "POST", "/tasks/claim", `{"worker_id":"w1","capabilities":["w"]}`)
+	artifactID := e.putArtifact(t, claim["task_id"].(string), "w1", int(claim["attempt"].(float64)), "a,b\n1,2\n")
+	code, second := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("second job: %d", code)
+	}
+	req, _ := http.NewRequestWithContext(context.Background(), "GET",
+		e.ts.URL+"/ui/jobs/"+second["id"].(string)+"/artifacts/"+artifactID+"/preview", nil)
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("cross-job preview = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestUIArtifactPreviewIsFriendlyForNonCSV(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, job := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create: %d", code)
+	}
+	_, claim := e.do(t, "POST", "/tasks/claim", `{"worker_id":"w1","capabilities":["w"]}`)
+	taskID := claim["task_id"].(string)
+	attempt := int(claim["attempt"].(float64))
+
+	req, _ := http.NewRequestWithContext(context.Background(), "PUT",
+		e.ts.URL+"/tasks/"+taskID+"/artifacts/notes.bin", strings.NewReader("\x00\x01binary garbage"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("X-Worker-ID", e.workerID)
+	req.Header.Set("X-Task-Attempt", strconv.Itoa(attempt))
+	putResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer putResp.Body.Close()
+	if putResp.StatusCode != http.StatusOK {
+		t.Fatalf("put non-csv artifact: %d", putResp.StatusCode)
+	}
+	var m map[string]any
+	b, _ := io.ReadAll(putResp.Body)
+	_ = json.Unmarshal(b, &m)
+	artifactID := m["artifact_id"].(string)
+
+	previewReq, _ := http.NewRequestWithContext(context.Background(), "GET",
+		e.ts.URL+"/ui/jobs/"+job["id"].(string)+"/artifacts/"+artifactID+"/preview", nil)
+	previewReq.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(previewReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("preview status: %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if strings.Contains(string(body), "binary garbage") {
+		t.Error("non-CSV bytes must not be rendered as text")
+	}
+	if !strings.Contains(string(body), "not a CSV file") {
+		t.Errorf("expected a friendly non-CSV explanation, got: %s", body)
 	}
 }
 
