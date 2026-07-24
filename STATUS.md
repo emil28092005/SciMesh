@@ -1,7 +1,7 @@
 # SciMesh Status
 
-**Updated:** 2026-07-23  
-**Branch baseline:** `main` at `b4a89dd` (coordinator merge)
+**Updated:** 2026-07-24
+**Branch baseline:** `main` at `f953112` (distributed pipeline hardening)
 
 ## Current state
 
@@ -32,7 +32,7 @@ Docker PostgreSQL stack on 2026-07-23.
 | CTX-04 Worker registry and HTTP API | Implemented | Registration, claim, heartbeat, result, failure, and status endpoints. |
 | CTX-05 Artifact storage | Implemented | Coordinator-owned inputs/results, checksum verification, and upload flow. |
 | CTX-06 Python Worker live-contract alignment | Implemented | Worker completed a real uploaded shard via HTTP on 2026-07-23. |
-| CTX-07 Distributed workload protocol | Not started | Depends on artifact and Worker contracts. |
+| CTX-07 Distributed workload protocol | Implemented | Versioned Python contract models, registry, strict plan validation, and deterministic reduction ordering are in `scimesh/distributed/`. The concrete molecular planner/reducer remains CTX-08/09. |
 | CTX-08 Distributed similarity-search | Not started | Local reference exists. |
 | CTX-09 Reducer and final-result API | Not started | Depends on CTX-07 and CTX-08. |
 | CTX-10 Distributed similarity-graph | Not started | Local reference exists. |
@@ -41,13 +41,15 @@ Docker PostgreSQL stack on 2026-07-23.
 
 ## Next recommended assignment
 
-Assign **CTX-07** to the workload role: define distributed job planning and
-reduction boundaries before implementing distributed search or graph execution.
+Assign **CTX-08** to the workload role: implement the molecular
+`similarity-search` planner and worker adapter on top of the accepted CTX-07
+contract.
 
 ## Known constraints
 
-- Planner/reducer semantics are not implemented; the operator UI labels
-  `partial_result` files as diagnostic and cannot present them as final output.
+- The CTX-07 protocol is implemented, but no concrete molecular planner or
+  reducer is registered yet; the operator UI labels `partial_result` files as
+  diagnostic and cannot present them as final output.
   Use the local `scimesh` CLI for complete workload results.
 - The worker/coordinator flow currently accepts both underscore API workload
   names and hyphenated CLI names while the contract is consolidated.

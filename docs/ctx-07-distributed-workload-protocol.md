@@ -2,8 +2,10 @@
 
 ## Status and scope
 
-This document is the implementation contract for CTX-07. It does not implement
-a planner, reducer, API endpoint, database migration, or final artifact. Until
+This document is the implementation contract for CTX-07. Its generic protocol,
+registry, strict JSON models, and deterministic reduction ordering are
+implemented in `scimesh/distributed/`. It does not implement a molecular
+planner, reducer, API endpoint, database migration, or final artifact. Until
 CTX-08 and CTX-09 are complete, shard CSVs remain diagnostic partial results.
 
 The protocol gives local scientific workloads a coordinator-independent way to
