@@ -9,3 +9,4 @@ def test_help_command_prints_runnable_examples(capsys: object) -> None:
     assert "scimesh similarity-search" in output
     assert "scimesh similarity-graph" in output
     assert "mkdir -p results" in output
+    assert "make demo-ui" in output

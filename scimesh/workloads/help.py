@@ -52,6 +52,22 @@ HELP_TEXT = dedent(
          --block-size 250 \\
          --output results/similarity_graph.csv
 
+    6. Start a local distributed pipeline demo with a coordinator, PostgreSQL,
+       and two reference workers. Run this from the repository root after
+       installing the project with its development dependencies:
+
+       make demo-ui
+
+       # Use more workers when you want to compare throughput:
+       make demo-ui WORKERS=3
+
+       # Open http://localhost:18080/ui
+       # Username: operator    Password: demo-ui-secret
+
+       The job page includes a live completed-shards-per-minute chart. It is
+       measured from coordinator snapshots observed by the open browser tab.
+       Stop the local demo with: make demo-down
+
     Use --max-rows for quick local tests; omit it to process the full dataset.
     For all options, run:
 

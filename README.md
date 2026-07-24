@@ -44,6 +44,27 @@ scimesh similarity-search --help
 scimesh similarity-graph --help
 ```
 
+## Manual pipeline demo
+
+To inspect the coordinator, Web UI, and distributed `similarity-search`
+pipeline by hand, install development dependencies once and start the isolated
+demo from the repository root:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+make demo-ui
+```
+
+Open `http://localhost:18080/ui` and sign in with username `operator` and
+password `demo-ui-secret`. The command starts PostgreSQL, the coordinator, and
+two local reference workers. Upload a small ChEMBL TSV, then use the job page
+to follow shard progress, inspect bounded **Preview CSV** results, and see a
+live processing-speed chart in shards per minute. To change the worker count,
+run `make demo-ui WORKERS=3`; stop everything with `make demo-down`.
+
+Run `make help` to display these commands in the terminal.
+
 ## Similarity search
 
 `similarity-search` finds the top-k molecules most similar to a query. The query is supplied either by ChEMBL ID or by SMILES. It uses Morgan fingerprints with `radius=2` and `fpSize=2048`, Tanimoto similarity, streaming TSV reads, and a bounded heap. Invalid SMILES and the query molecule are skipped.

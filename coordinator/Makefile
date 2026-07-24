@@ -1,4 +1,6 @@
-.PHONY: build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke demo-ui demo-down demo-logs
+.DEFAULT_GOAL := help
+
+.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke demo-ui demo-down demo-logs
 
 # `check` deliberately uses its own Compose project and host ports. This keeps
 # it from connecting to or replacing a developer's local PostgreSQL instance.
@@ -23,6 +25,17 @@ DEMO_WORKERS ?= 2
 # for scripts and backwards-compatible documentation.
 WORKERS ?= $(DEMO_WORKERS)
 DEMO_DIR ?= .demo
+
+help:
+	@printf '%s\n' \
+	  'SciMesh coordinator commands:' \
+	  '  make up / make down          Start or stop the normal coordinator stack.' \
+	  '  make demo-ui [WORKERS=3]     Start isolated UI demo services and local workers.' \
+	  '  make demo-logs               Follow coordinator logs for the UI demo.' \
+	  '  make demo-down               Stop the demo services and workers.' \
+	  '  make test / make vet         Run Go verification.' \
+	  '' \
+	  'Demo UI: http://localhost:18080/ui (operator / demo-ui-secret).'
 
 demo-ui:
 	@DEMO_PROJECT="$(DEMO_PROJECT)" \

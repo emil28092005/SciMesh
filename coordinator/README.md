@@ -109,6 +109,13 @@ This uses a separate Docker project and ports `18080` (coordinator) and
 it. Change the worker count with `make demo-ui WORKERS=3`; stop all demo
 services and workers with `make demo-down`.
 
+The job page shows a live **Processing speed** graph in completed shards per
+minute. It uses the coordinator snapshots observed by the open browser tab, so
+it is a transparent local-session measurement rather than a persisted metric.
+Use **Preview CSV** before downloading a partial diagnostic or completed final
+result. Run `make help` from either the repository root or this directory for
+the full list of demo commands.
+
 `up` starts three services in order: Postgres waits until `pg_isready` passes, a
 one-shot `migrate` container applies the schema and exits, and only then does the
 coordinator start — so it never queries a database that has no tables.
