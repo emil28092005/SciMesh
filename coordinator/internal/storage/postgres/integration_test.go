@@ -90,6 +90,49 @@ func TestCreateJobPersistsEveryTask(t *testing.T) {
 	}
 }
 
+func TestClaimReductionIsAtomic(t *testing.T) {
+	pool := testPool(t)
+	job, _ := seedJob(t, pool, 1)
+	repo := NewJobRepo(pool)
+	ctx := context.Background()
+	if err := repo.UpdateStatus(ctx, job.ID, domain.JobReducing, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		wg      sync.WaitGroup
+		mu      sync.Mutex
+		claimed int
+	)
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ok, err := repo.ClaimReduction(context.Background(), job.ID, time.Now().UTC())
+			if err != nil {
+				t.Errorf("claim reduction: %v", err)
+				return
+			}
+			if ok {
+				mu.Lock()
+				claimed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if claimed != 1 {
+		t.Fatalf("reducer claims = %d, want 1", claimed)
+	}
+	stored, err := repo.Get(ctx, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != domain.JobReducing || stored.ReducerStartedAt == nil {
+		t.Fatalf("stored reduction state = %+v", stored)
+	}
+}
+
 // A job must land whole or not at all: a half-created job leaves chunks no
 // worker could ever complete.
 func TestCreateJobRollsBackOnFailure(t *testing.T) {

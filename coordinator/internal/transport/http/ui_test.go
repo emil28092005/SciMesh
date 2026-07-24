@@ -10,7 +10,8 @@ func TestUIStatusPresentation(t *testing.T) {
 	}{
 		{"pending", "Waiting for a worker", "waiting"},
 		{"running", "Running", "active"},
-		{"completed", "Tasks complete", "success"},
+		{"reducing", "Merging results", "active"},
+		{"completed", "Completed", "success"},
 		{"failed", "Needs attention", "danger"},
 	}
 	for _, test := range tests {

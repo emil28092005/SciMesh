@@ -56,9 +56,10 @@ Response: `{ "worker_id": "<uuid>", "heartbeat_interval_seconds": 15 }`.
 - **Keep `worker_id`**. Use it as your identity in every later call. Using the
   registered UUID is what lets the coordinator track your liveness (it marks
   workers offline after they go silent).
-- Current diagnostic uploads use `similarity-search` with `query_smiles`. The
-  reference worker accepts the legacy `similarity_search` spelling too. Do not
-  advertise `similarity-graph` until CTX-10 implements cross-shard pair planning.
+- Current distributed uploads use `similarity-search` with `query_smiles`; the
+  coordinator merges completed shard candidates into a final CSV. The reference
+  worker accepts the legacy `similarity_search` spelling too. Do not advertise
+  `similarity-graph` until CTX-10 implements cross-shard pair planning.
 
 ## 2. Claim a task
 

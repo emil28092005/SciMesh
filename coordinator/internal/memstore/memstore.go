@@ -216,6 +216,51 @@ func (r *JobRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.
 	return nil
 }
 
+func (r *JobRepo) ClaimReduction(_ context.Context, id uuid.UUID, startedAt time.Time) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	j, ok := r.jobs[id]
+	if !ok {
+		return false, domain.ErrJobNotFound
+	}
+	if j.Status != domain.JobReducing || j.ReducerStartedAt != nil {
+		return false, nil
+	}
+	j.ReducerStartedAt = &startedAt
+	return true, nil
+}
+
+func (r *JobRepo) CompleteWithResult(_ context.Context, id, resultArtifactID uuid.UUID, completedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	j, ok := r.jobs[id]
+	if !ok {
+		return domain.ErrJobNotFound
+	}
+	j.ResultArtifactID = &resultArtifactID
+	j.Status = domain.JobCompleted
+	j.CompletedAt = &completedAt
+	j.ReducerStartedAt = nil
+	j.ErrorCode = nil
+	j.ErrorMessage = nil
+	return nil
+}
+
+func (r *JobRepo) FailReduction(_ context.Context, id uuid.UUID, code, message string, completedAt time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	j, ok := r.jobs[id]
+	if !ok {
+		return domain.ErrJobNotFound
+	}
+	j.Status = domain.JobFailed
+	j.CompletedAt = &completedAt
+	j.ReducerStartedAt = nil
+	j.ErrorCode = &code
+	j.ErrorMessage = &message
+	return nil
+}
+
 // --- WorkerRepo ----------------------------------------------------------
 
 type WorkerRepo struct {

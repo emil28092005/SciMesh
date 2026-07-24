@@ -1,0 +1,7 @@
+BEGIN;
+
+ALTER TABLE jobs DROP COLUMN IF EXISTS error_message;
+ALTER TABLE jobs DROP COLUMN IF EXISTS error_code;
+ALTER TABLE jobs DROP COLUMN IF EXISTS reducer_started_at;
+
+COMMIT;

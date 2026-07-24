@@ -97,8 +97,9 @@ paths:
         multipart/form-data. The text fields (`workload`, `parameters`,
         `chunk_rows`, `max_rows`) MUST precede the `file` part: the file is streamed, not
         buffered, so the fields have to be parsed before it arrives. Currently
-        only diagnostic `similarity-search` with `parameters.query_smiles` is
-        accepted; distributed graph planning is not implemented.
+        only `similarity-search` with `parameters.query_smiles` is accepted.
+        When every shard succeeds, the coordinator merges their candidates into
+        one final CSV; distributed graph planning is not implemented.
       requestBody:
         required: true
         content:
@@ -124,11 +125,28 @@ paths:
         - $ref: "#/components/parameters/JobID"
       responses:
         "200":
-          description: Progress counts and derived status.
+          description: >
+            Progress counts and derived status. A completed similarity-search
+            response includes `result_uri` for its final CSV.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/JobProgress" }
         "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /jobs/{job_id}/result:
+    get:
+      tags: [jobs]
+      summary: Download a completed job's final result
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: Final coordinator-owned CSV.
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
@@ -483,6 +501,13 @@ components:
         completed: { type: integer }
         failed: { type: integer }
         cancelled: { type: integer }
+        result_uri:
+          type: string
+          description: Present only when the final result is available.
+          example: /jobs/5a4c3a7f-ccfc-47d6-b78d-2d1fa565bafd/result
+        error_code:
+          type: string
+          description: Sanitized terminal reducer failure code, when applicable.
 
     ClaimRequest:
       type: object
@@ -577,7 +602,7 @@ components:
 
     JobStatus:
       type: string
-      enum: [pending, running, completed, failed, cancelled]
+      enum: [pending, running, reducing, completed, failed, cancelled]
 
     TaskStatus:
       type: string

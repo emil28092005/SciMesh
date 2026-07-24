@@ -70,6 +70,9 @@ type JobRepository interface {
 	Insert(ctx context.Context, j *domain.Job) error
 	Get(ctx context.Context, id uuid.UUID) (*domain.Job, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.JobStatus, completedAt *time.Time) error
+	ClaimReduction(ctx context.Context, id uuid.UUID, startedAt time.Time) (bool, error)
+	CompleteWithResult(ctx context.Context, id, resultArtifactID uuid.UUID, completedAt time.Time) error
+	FailReduction(ctx context.Context, id uuid.UUID, code, message string, completedAt time.Time) error
 }
 
 // WorkerRepository persists the worker registry.

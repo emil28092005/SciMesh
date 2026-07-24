@@ -119,6 +119,8 @@ type jobProgressResponse struct {
 	Done      int       `json:"completed"`
 	Failed    int       `json:"failed"`
 	Cancelled int       `json:"cancelled"`
+	ResultURI string    `json:"result_uri,omitempty"`
+	ErrorCode string    `json:"error_code,omitempty"`
 }
 
 type uploadArtifactResponse struct {
@@ -153,7 +155,7 @@ func toClaimedTaskResponse(c domain.ClaimedTask) claimedTaskResponse {
 }
 
 func toJobProgressResponse(p domain.JobProgress) jobProgressResponse {
-	return jobProgressResponse{
+	out := jobProgressResponse{
 		ID:        p.Job.ID,
 		Status:    string(p.DeriveStatus()),
 		Total:     p.Total,
@@ -163,4 +165,11 @@ func toJobProgressResponse(p domain.JobProgress) jobProgressResponse {
 		Failed:    p.Failed,
 		Cancelled: p.Cancelled,
 	}
+	if p.Job.ResultArtifactID != nil && out.Status == string(domain.JobCompleted) {
+		out.ResultURI = "/jobs/" + p.Job.ID.String() + "/result"
+	}
+	if p.Job.ErrorCode != nil {
+		out.ErrorCode = *p.Job.ErrorCode
+	}
+	return out
 }

@@ -42,6 +42,7 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 	clk := memstore.NewClock(time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC))
 	tx := memstore.Tx{}
 	lease := 2 * time.Minute
+	downloadArtifact := usecase.NewDownloadArtifact(arts, blobs)
 
 	uc := coordhttp.UseCases{
 		RegisterWorker:   usecase.NewRegisterWorker(work, clk),
@@ -50,11 +51,13 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 		ClaimTask:        usecase.NewClaimTask(tasks, jobs, work, tx, clk, lease),
 		RenewLease:       usecase.NewRenewLease(tasks, work, tx, clk, lease),
 		CompleteTask:     usecase.NewCompleteTask(tasks, jobs, arts, tx, clk),
+		ReduceJob:        usecase.NewReduceJob(jobs, tasks, arts, blobs, tx, clk),
 		FailTask:         usecase.NewFailTask(tasks, jobs, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobs, tasks),
+		GetJobResult:     usecase.NewGetJobResult(jobs, downloadArtifact),
 		CancelJob:        usecase.NewCancelJob(jobs, tasks, tx, clk),
 		UploadArtifact:   usecase.NewUploadArtifact(tasks, arts, blobs, tx, clk),
-		DownloadArtifact: usecase.NewDownloadArtifact(arts, blobs),
+		DownloadArtifact: downloadArtifact,
 		GetTaskInput:     usecase.NewGetTaskInput(tasks, arts, blobs),
 		Dashboard:        usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, work, arts)),
 	}
@@ -397,6 +400,42 @@ func TestFullLifecycle(t *testing.T) {
 	code, prog := e.do(t, "GET", "/jobs/"+jobID, "")
 	if code != 200 || prog["status"] != "completed" {
 		t.Errorf("job status = %v (code %d), want completed", prog["status"], code)
+	}
+}
+
+func TestSimilaritySearchLifecyclePublishesFinalResult(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, job := e.uploadDataset(t, "similarity-search", 10, "chembl_id\tcanonical_smiles\nA\tCC\n")
+	if code != http.StatusCreated {
+		t.Fatalf("upload job: %d", code)
+	}
+	jobID := job["job_id"].(string)
+	code, claim := e.do(t, "POST", "/tasks/claim", `{"worker_id":"w1","capabilities":["similarity-search"]}`)
+	if code != http.StatusOK {
+		t.Fatalf("claim: %d", code)
+	}
+	taskID := claim["task_id"].(string)
+	attempt := int(claim["attempt"].(float64))
+	artifactID := e.putArtifact(t, taskID, "w1", attempt, "rank,chembl_id,canonical_smiles,similarity\n1,A,CC,0.900000\n")
+	if code, _ := e.do(t, "POST", "/tasks/"+taskID+"/result",
+		`{"worker_id":"w1","attempt":`+itoa(attempt)+`,"result":{"artifact_id":"`+artifactID+`"}}`); code != http.StatusOK {
+		t.Fatalf("complete: %d", code)
+	}
+
+	code, progress := e.do(t, "GET", "/jobs/"+jobID, "")
+	if code != http.StatusOK || progress["status"] != "completed" || progress["result_uri"] != "/jobs/"+jobID+"/result" {
+		t.Fatalf("progress = (%d, %v)", code, progress)
+	}
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+progress["result_uri"].(string), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || string(body) != "rank,chembl_id,canonical_smiles,similarity\n1,A,CC,0.900000\n" {
+		t.Fatalf("final result = (%d, %q)", resp.StatusCode, body)
 	}
 }
 

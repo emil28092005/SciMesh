@@ -150,6 +150,12 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, r, err)
 		return
 	}
+	if s.uc.ReduceJob != nil {
+		if err := s.uc.ReduceJob.Execute(ctx, task.JobID); err != nil {
+			s.writeError(w, r, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, taskResponse{ID: task.ID, JobID: task.JobID, Status: string(task.Status)})
 }
 
@@ -397,6 +403,25 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, toJobProgressResponse(progress))
+}
+
+func (s *Server) handleGetJobResult(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	jobID, ok := s.pathUUID(w, r, "job_id")
+	if !ok {
+		return
+	}
+	art, body, err := s.uc.GetJobResult.Execute(ctx, jobID)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	defer func() { _ = body.Close() }()
+	w.Header().Set("Content-Type", art.ContentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(art.SizeBytes, 10))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", art.Filename))
+	_, _ = io.Copy(w, body)
 }
 
 // handleCancelJob stops all non-terminal shards for an operator-requested job.

@@ -26,7 +26,8 @@ must be updated in the same change as any behaviour it describes.
 | `POST /tasks/{id}/heartbeat` | renew lease | ✅ done |
 | `POST /tasks/{id}/result` | complete | ✅ done, references `artifact_id` |
 | `POST /tasks/{id}/failure` | fail | ✅ done |
-| `GET /jobs/{id}` | progress | ✅ done |
+| `GET /jobs/{id}` | progress and final-result URI | ✅ done |
+| `GET /jobs/{id}/result` | download final CSV | ✅ done |
 | `PUT /tasks/{id}/artifacts/{name}` | upload partial | ✅ done |
 | `GET /artifacts/{id}/download` | download by id | ✅ done |
 | `POST /jobs/upload` | upload dataset, coordinator chunks it | ✅ done |
@@ -66,6 +67,35 @@ artifact. The coordinator splits the selected TSV rows into shard artifacts
 
 Each resulting task's claim response carries `input.uri = /tasks/{id}/input`,
 served by §5.4.
+
+## Job progress and final result
+
+```http
+GET /jobs/{job_id}
+Authorization: Bearer <token>
+```
+
+The response contains task counters and a derived status. A successful
+`similarity-search` enters `reducing` after the last shard completes, then
+becomes `completed` only after the coordinator stores its deterministic final
+CSV. At that point `result_uri` is present:
+
+```json
+{
+  "id": "uuid",
+  "status": "completed",
+  "total": 3,
+  "pending": 0,
+  "leased": 0,
+  "completed": 3,
+  "failed": 0,
+  "cancelled": 0,
+  "result_uri": "/jobs/uuid/result"
+}
+```
+
+`GET /jobs/{job_id}/result` downloads that final coordinator-owned CSV. Before
+the job is completed (or for a failed/cancelled job), it returns `404`.
 
 ## Stop a job
 

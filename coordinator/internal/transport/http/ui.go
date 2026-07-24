@@ -48,8 +48,10 @@ func uiStatusLabel(status string) string {
 		return "Assigned to a worker"
 	case "running":
 		return "Running"
+	case "reducing":
+		return "Merging results"
 	case "completed":
-		return "Tasks complete"
+		return "Completed"
 	case "failed":
 		return "Needs attention"
 	case "cancelled":
@@ -67,8 +69,10 @@ func uiStatusHint(status string) string {
 		return "A worker has claimed the task and should begin processing shortly."
 	case "running":
 		return "A worker is reading a shard, calculating fingerprints, and uploading its result through the coordinator."
+	case "reducing":
+		return "All shards are complete. The coordinator is merging their candidates into one final CSV."
 	case "completed":
-		return "Every shard task is complete. Files below are still partial results."
+		return "The final result is ready to download."
 	case "failed":
 		return "One or more shard tasks failed. Open the task list below for details."
 	case "cancelled":
@@ -86,7 +90,7 @@ func uiStatusClass(status string) string {
 		return "danger"
 	case "cancelled":
 		return "waiting"
-	case "running", "leased":
+	case "running", "leased", "reducing":
 		return "active"
 	default:
 		return "waiting"

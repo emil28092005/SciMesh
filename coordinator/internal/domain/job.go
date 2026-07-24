@@ -11,6 +11,7 @@ type JobStatus string
 const (
 	JobPending   JobStatus = "pending"
 	JobRunning   JobStatus = "running"
+	JobReducing  JobStatus = "reducing"
 	JobCompleted JobStatus = "completed"
 	JobFailed    JobStatus = "failed"
 	JobCancelled JobStatus = "cancelled"
@@ -18,14 +19,18 @@ const (
 
 // Job is one user submission that fans out into one or more tasks.
 type Job struct {
-	ID              uuid.UUID
-	Workload        string
-	InputURI        string     // external input URI; empty for uploaded datasets
-	InputArtifactID *uuid.UUID // uploaded input artifact; nil for URI submissions
-	Parameters      map[string]any
-	Status          JobStatus
-	CreatedAt       time.Time
-	CompletedAt     *time.Time
+	ID               uuid.UUID
+	Workload         string
+	InputURI         string     // external input URI; empty for uploaded datasets
+	InputArtifactID  *uuid.UUID // uploaded input artifact; nil for URI submissions
+	ResultArtifactID *uuid.UUID
+	Parameters       map[string]any
+	Status           JobStatus
+	CreatedAt        time.Time
+	CompletedAt      *time.Time
+	ReducerStartedAt *time.Time
+	ErrorCode        *string
+	ErrorMessage     *string
 }
 
 // NewUploadedJob builds a job whose input was uploaded to the coordinator. The
@@ -114,6 +119,8 @@ func (p JobProgress) DeriveStatus() JobStatus {
 	switch {
 	case p.Job.Status == JobCancelled:
 		return JobCancelled
+	case p.Job.Status == JobReducing:
+		return JobReducing
 	case p.Total == 0:
 		return JobPending
 	case p.Done == p.Total:

@@ -55,6 +55,8 @@ type harness struct {
 	getInput    *usecase.GetTaskInput
 	expire      *usecase.ExpireLeases
 	cancel      *usecase.CancelJob
+	reduce      *usecase.ReduceJob
+	jobResult   *usecase.GetJobResult
 }
 
 func newHarness() *harness {
@@ -81,7 +83,86 @@ func newHarness() *harness {
 	h.getInput = usecase.NewGetTaskInput(h.tasks, h.arts, h.blobs)
 	h.expire = usecase.NewExpireLeases(h.tasks, h.jobs, tx, h.clk)
 	h.cancel = usecase.NewCancelJob(h.jobs, h.tasks, tx, h.clk)
+	h.reduce = usecase.NewReduceJob(h.jobs, h.tasks, h.arts, h.blobs, tx, h.clk)
+	h.jobResult = usecase.NewGetJobResult(h.jobs, h.downloadArt)
 	return h
+}
+
+func TestSimilaritySearchReductionCreatesFinalArtifact(t *testing.T) {
+	h := newHarness()
+	jobID := h.seedJob(t, "similarity-search", 2)
+	_, err := h.jobs.Get(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.jobs.UpdateStatus(ctx, jobID, domain.JobRunning, nil); err != nil {
+		t.Fatal(err)
+	}
+	partials := []string{
+		"rank,chembl_id,canonical_smiles,similarity\n1,B,CCC,0.50000048\n",
+		"rank,chembl_id,canonical_smiles,similarity\n1,A,CC,0.50000049\n",
+	}
+	for _, partial := range partials {
+		taskID, attempt := h.leaseOne(t, "w1", "similarity-search")
+		art, err := h.uploadArt.Execute(ctx, usecase.UploadArtifactInput{TaskID: taskID, WorkerID: "w1", Attempt: attempt, Filename: "partial.csv", ContentType: "text/csv", Body: strings.NewReader(partial)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.complete.Execute(ctx, usecase.CompleteTaskInput{TaskID: taskID, WorkerID: "w1", Attempt: attempt, ResultArtifactID: art.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.reduce.Execute(ctx, jobID); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := h.status.Execute(ctx, jobID)
+	if err != nil || progress.Job.Status != domain.JobCompleted {
+		t.Fatalf("status=%s err=%v", progress.Job.Status, err)
+	}
+	art, body, err := h.jobResult.Execute(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer body.Close()
+	bytes, _ := io.ReadAll(body)
+	if art.Kind != domain.ArtifactFinalResult || string(bytes) != "rank,chembl_id,canonical_smiles,similarity\n1,A,CC,0.500000\n2,B,CCC,0.500000\n" {
+		t.Fatalf("unexpected final %q", bytes)
+	}
+}
+
+func TestSimilaritySearchReductionFailureIsSanitized(t *testing.T) {
+	h := newHarness()
+	jobID := h.seedJob(t, "similarity-search", 1)
+	if err := h.jobs.UpdateStatus(ctx, jobID, domain.JobRunning, nil); err != nil {
+		t.Fatal(err)
+	}
+	taskID, attempt := h.leaseOne(t, "w1", "similarity-search")
+	art, err := h.uploadArt.Execute(ctx, usecase.UploadArtifactInput{
+		TaskID: taskID, WorkerID: "w1", Attempt: attempt, Filename: "partial.csv",
+		ContentType: "text/csv", Body: strings.NewReader("rank,chembl_id,canonical_smiles,similarity\n2,A,CC,0.9\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.complete.Execute(ctx, usecase.CompleteTaskInput{
+		TaskID: taskID, WorkerID: "w1", Attempt: attempt, ResultArtifactID: art.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.reduce.Execute(ctx, jobID); err != nil {
+		t.Fatal(err)
+	}
+	job, err := h.jobs.Get(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Status != domain.JobFailed || job.ErrorCode == nil || *job.ErrorCode != "reducer_failed" ||
+		job.ErrorMessage == nil || *job.ErrorMessage != "final result reduction failed" {
+		t.Fatalf("unexpected failed job: %+v", job)
+	}
+	if job.ResultArtifactID != nil {
+		t.Fatal("failed reduction must not expose a final result")
+	}
 }
 
 // seedJob creates a URI-chunked job with n chunks and returns its id.

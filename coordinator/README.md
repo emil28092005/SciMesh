@@ -76,9 +76,10 @@ UI_AUTH_TOKEN='local-ui-secret' make up
 ```
 
 The UI is disabled by default and never accepts the worker bearer token.
-It shows recent jobs, task/worker state, and the per-job partial artifacts.
-Those files are explicitly diagnostic until the CTX-09 reducer creates a final
-result; the UI does not present them as final scientific output.
+It shows recent jobs, task/worker state, diagnostic shard artifacts, and the
+final CSV for completed similarity-search jobs. The coordinator enters
+`reducing` after the last shard completes, then exposes the final deterministic
+global top-k result when merging succeeds.
 
 `up` starts three services in order: Postgres waits until `pg_isready` passes, a
 one-shot `migrate` container applies the schema and exits, and only then does the

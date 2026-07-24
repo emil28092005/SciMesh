@@ -22,8 +22,10 @@ type UseCases struct {
 	ClaimTask        *usecase.ClaimTask
 	RenewLease       *usecase.RenewLease
 	CompleteTask     *usecase.CompleteTask
+	ReduceJob        *usecase.ReduceJob
 	FailTask         *usecase.FailTask
 	GetJobStatus     *usecase.GetJobStatus
+	GetJobResult     *usecase.GetJobResult
 	CancelJob        *usecase.CancelJob
 	UploadArtifact   *usecase.UploadArtifact
 	DownloadArtifact *usecase.DownloadArtifact
@@ -62,6 +64,7 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 	protected.HandleFunc("POST /jobs", s.handleCreateJob)
 	protected.HandleFunc("POST /jobs/upload", s.handleUploadDataset)
 	protected.HandleFunc("GET /jobs/{job_id}", s.handleGetJob)
+	protected.HandleFunc("GET /jobs/{job_id}/result", s.handleGetJobResult)
 	protected.HandleFunc("POST /jobs/{job_id}/cancel", s.handleCancelJob)
 	protected.HandleFunc("POST /tasks/claim", s.handleClaim)
 	protected.HandleFunc("GET /tasks/{task_id}/input", s.handleGetTaskInput)

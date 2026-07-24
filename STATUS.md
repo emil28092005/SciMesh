@@ -1,7 +1,7 @@
 # SciMesh Status
 
 **Updated:** 2026-07-24
-**Branch baseline:** `main` at `f953112` (distributed pipeline hardening)
+**Branch baseline:** `main` at `6e67daa` (distributed similarity-search)
 
 ## Current state
 
@@ -18,8 +18,10 @@ the reference behaviour for future distributed execution:
 The Go coordinator and its PostgreSQL-backed task lifecycle are implemented:
 registration, atomic claiming, lease renewal, artifact storage, dataset
 chunking, result/failure reporting, and job progress. The Python worker now
-uses the live coordinator contract; its HTTP path was exercised against a real
-Docker PostgreSQL stack on 2026-07-23.
+uses the live coordinator contract. Completed similarity-search shard results
+are reduced once into a checksum-protected final CSV, which is downloadable
+through the coordinator. The full Go checks (including a fresh migration and
+real PostgreSQL smoke test) passed on 2026-07-24.
 
 ## Milestone tracker
 
@@ -33,30 +35,24 @@ Docker PostgreSQL stack on 2026-07-23.
 | CTX-05 Artifact storage | Implemented | Coordinator-owned inputs/results, checksum verification, and upload flow. |
 | CTX-06 Python Worker live-contract alignment | Implemented | Worker completed a real uploaded shard via HTTP on 2026-07-23. |
 | CTX-07 Distributed workload protocol | Implemented | Versioned Python contract models, registry, strict plan validation, and deterministic reduction ordering are in `scimesh/distributed/`. |
-| CTX-08 Distributed similarity-search | Implemented (scientific layer) | Python planner resolves `query_id` once, creates deterministic shard plans, worker adapter emits exact partial top-k CSVs/metrics, and reducer matches the local reference. Coordinator persistence/orchestration remains CTX-09. |
-| CTX-09 Reducer and final-result API | Not started | Depends on CTX-07 and CTX-08. |
+| CTX-08 Distributed similarity-search | Implemented | Python planner resolves `query_id` once, creates deterministic shard plans, worker adapter emits exact partial top-k CSVs/metrics, and reducer matches the local reference. |
+| CTX-09 Reducer and final-result API | Implemented | Atomic `reducing` claim, deterministic coordinator-side top-k reducer, sanitized reducer failure, final artifact persistence, `result_uri`, and final CSV download. |
 | CTX-10 Distributed similarity-graph | Not started | Local reference exists. |
-| CTX-11 Dashboard/operator view | Implemented (diagnostic scope) | Protected local view: job/task/worker status, validated similarity-search upload, diagnostic partial-artifact download, and bounded polling. Final-result reduction remains CTX-09. |
+| CTX-11 Dashboard/operator view | Implemented | Protected local view: job/task/worker status, validated similarity-search upload, partial-artifact diagnostics, final-result download, and bounded polling. |
 | CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
 
 ## Next recommended assignment
 
-Assign **CTX-09** to the coordinator role: materialize planned shards,
-persist them transactionally, invoke the registered reducer once, and expose a
-durable final artifact.
+Assign **CTX-10** to the distributed-science role: implement deterministic
+block-pair planning and reduction for `similarity-graph`.
 
 ## Known constraints
 
-- The Python `similarity-search` planner/reducer is implemented, but the Go
-  coordinator does not yet invoke it or persist its final artifact. The
-  operator UI labels `partial_result` files as diagnostic and cannot present
-  them as final output.
-  Use the local `scimesh` CLI for complete workload results.
 - The worker/coordinator flow currently accepts both underscore API workload
   names and hyphenated CLI names while the contract is consolidated.
 - A real-stack worker test uses a small `query_smiles` shard. The Python
-  planner resolves `query_id` once and shares `query_smiles`; connecting that
-  planner to uploaded coordinator jobs belongs to CTX-09.
+  planner resolves `query_id` once and shares `query_smiles`; the upload UI
+  currently accepts `query_smiles` only.
 - The coordinator accepts uploaded distributed jobs only for
   `similarity-search` with `query_smiles`. It rejects `similarity-graph` until
   CTX-10 supplies cross-shard pair planning.

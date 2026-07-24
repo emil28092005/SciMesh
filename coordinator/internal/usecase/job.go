@@ -100,7 +100,7 @@ func (uc *CancelJob) Execute(ctx context.Context, jobID uuid.UUID) (int64, error
 		if job.Status == domain.JobCancelled {
 			return nil
 		}
-		if job.Status == domain.JobCompleted || job.Status == domain.JobFailed {
+		if job.Status == domain.JobReducing || job.Status == domain.JobCompleted || job.Status == domain.JobFailed {
 			return domain.ErrJobNotCancellable
 		}
 		// The lease reaper can be the transition that exhausted the final task.
@@ -111,7 +111,7 @@ func (uc *CancelJob) Execute(ctx context.Context, jobID uuid.UUID) (int64, error
 			return err
 		}
 		derived := progressFrom(*job, counts).DeriveStatus()
-		if derived == domain.JobCompleted || derived == domain.JobFailed {
+		if derived == domain.JobReducing || derived == domain.JobCompleted || derived == domain.JobFailed {
 			return domain.ErrJobNotCancellable
 		}
 		cancelled, err = uc.tasks.CancelByJob(ctx, jobID, now)
@@ -226,10 +226,20 @@ func syncJobStatus(ctx context.Context, jobs JobRepository, tasks TaskRepository
 	if err != nil {
 		return err
 	}
-	status := progressFrom(domain.Job{}, counts).DeriveStatus()
+	job, err := jobs.Get(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	status := progressFrom(*job, counts).DeriveStatus()
+	// All worker shards being complete means scientific reduction is ready, not
+	// that the job's final artifact already exists. CTX-09 owns the transition
+	// from reducing to completed after it persists that artifact.
+	if status == domain.JobCompleted && job.Workload == "similarity-search" {
+		status = domain.JobReducing
+	}
 
 	var completedAt *time.Time
-	if status == domain.JobCompleted || status == domain.JobFailed {
+	if status == domain.JobFailed {
 		completedAt = &now
 	}
 	return jobs.UpdateStatus(ctx, jobID, status, completedAt)
