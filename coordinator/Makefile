@@ -19,6 +19,9 @@ DEMO_COORDINATOR_PORT ?= 18080
 DEMO_UI_TOKEN ?= demo-ui-secret
 DEMO_WORKER_TOKEN ?= demo-worker-token
 DEMO_WORKERS ?= 2
+# Short public knob for `make demo-ui WORKERS=3`; DEMO_WORKERS remains useful
+# for scripts and backwards-compatible documentation.
+WORKERS ?= $(DEMO_WORKERS)
 DEMO_DIR ?= .demo
 
 demo-ui:
@@ -27,7 +30,7 @@ demo-ui:
 	DEMO_COORDINATOR_PORT="$(DEMO_COORDINATOR_PORT)" \
 	DEMO_UI_TOKEN="$(DEMO_UI_TOKEN)" \
 	DEMO_WORKER_TOKEN="$(DEMO_WORKER_TOKEN)" \
-	DEMO_WORKERS="$(DEMO_WORKERS)" \
+	DEMO_WORKERS="$(WORKERS)" \
 	DEMO_DIR="$(DEMO_DIR)" \
 	./scripts/demo-ui.sh start
 

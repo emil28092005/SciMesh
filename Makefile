@@ -1,7 +1,7 @@
 .PHONY: demo-ui demo-down demo-logs
 
 # Convenient entry points from the repository root. Extra settings are passed
-# through, for example: make demo-ui DEMO_WORKERS=3
+# through, for example: make demo-ui WORKERS=3
 demo-ui:
 	$(MAKE) -C coordinator demo-ui
 

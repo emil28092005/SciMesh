@@ -106,7 +106,7 @@ This uses a separate Docker project and ports `18080` (coordinator) and
 `55432` (PostgreSQL), so it does not conflict with the normal stack. Open
 `http://localhost:18080/ui`, use username `operator` and password
 `demo-ui-secret`, upload a small ChEMBL TSV, and observe the workers process
-it. Change the worker count with `make demo-ui DEMO_WORKERS=3`; stop all demo
+it. Change the worker count with `make demo-ui WORKERS=3`; stop all demo
 services and workers with `make demo-down`.
 
 `up` starts three services in order: Postgres waits until `pg_isready` passes, a
