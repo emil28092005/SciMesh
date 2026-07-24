@@ -9,6 +9,7 @@ from pathlib import Path
 import random
 import re
 import shutil
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -202,11 +203,22 @@ class WorkerDaemon:
     def _report_failure(self, task: ClaimedTask, error: Exception) -> None:
         message = self._sanitize_error_message(error)
         try:
-            self.coordinator.fail(task, {"worker_id": self._worker_id(), "attempt": task.attempt, "error_code": type(error).__name__, "error_message": message})
+            self.coordinator.fail(task, {
+                "worker_id": self._worker_id(),
+                "attempt": task.attempt,
+                "error_code": type(error).__name__,
+                "error_message": message,
+                "retryable": self._is_retryable(error),
+            })
         except CoordinatorTransientError:
             raise
         except Exception:
             self._log("failed", task, error_type="FailureReportError")
+
+    @staticmethod
+    def _is_retryable(error: Exception) -> bool:
+        """Retry transient worker/transport failures, never invalid scientific input."""
+        return not isinstance(error, (ValueError, FileNotFoundError, subprocess.CalledProcessError))
 
     def _sanitize_error_message(self, error: Exception) -> str:
         """Keep coordinator-visible failures useful without exposing local paths."""

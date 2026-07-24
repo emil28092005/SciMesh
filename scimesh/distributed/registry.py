@@ -50,7 +50,8 @@ class PlanningService:
 
     It writes neither jobs nor artifacts.  A Go coordinator bridge can therefore
     validate and produce a plan before opening its own all-or-nothing persistence
-    transaction; CTX-08/09 will implement that concrete bridge and reducers.
+    transaction; CTX-09 will implement that concrete bridge and durable result
+    orchestration.
     """
 
     def __init__(self, registry: DistributedWorkloadRegistry) -> None:
@@ -94,3 +95,14 @@ class PlanningService:
         if not isinstance(result, FinalResult):
             raise ValueError("distributed reducer must return a FinalResult")
         return result
+
+
+def default_distributed_registry() -> DistributedWorkloadRegistry:
+    """Return the currently supported distributed scientific workloads."""
+    # Delayed import keeps the generic registry independent of concrete RDKit
+    # workloads and avoids making the contract layer import application setup.
+    from .similarity_search import SimilaritySearchDistributedWorkload
+
+    registry = DistributedWorkloadRegistry()
+    registry.register(SimilaritySearchDistributedWorkload())
+    return registry
