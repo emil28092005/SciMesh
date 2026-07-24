@@ -60,6 +60,7 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 		DownloadArtifact: downloadArtifact,
 		GetTaskInput:     usecase.NewGetTaskInput(tasks, arts, blobs),
 		Dashboard:        usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, work, arts)),
+		PreviewArtifact:  usecase.NewPreviewArtifact(memstore.NewUIReadRepo(jobs, tasks, work, arts), blobs),
 	}
 	worker, err := uc.RegisterWorker.Execute(context.Background(), usecase.RegisterWorkerInput{
 		Name: "test-worker", Capabilities: []string{"w", "similarity-search"},
@@ -488,6 +489,50 @@ func TestSimilaritySearchLifecyclePublishesFinalResult(t *testing.T) {
 	}
 	if jsonResponse.StatusCode != http.StatusOK || detail["final_result_available"] != true {
 		t.Fatalf("final UI JSON = (%d, %v)", jsonResponse.StatusCode, detail)
+	}
+	artifacts := detail["artifacts"].([]any)
+	var finalID string
+	for _, raw := range artifacts {
+		artifact := raw.(map[string]any)
+		if artifact["kind"] == "final_result" && artifact["downloadable"] == true {
+			finalID = artifact["id"].(string)
+			break
+		}
+	}
+	if finalID == "" {
+		t.Fatalf("artifacts = %v, want downloadable final result", artifacts)
+	}
+	var inputID string
+	for _, raw := range artifacts {
+		artifact := raw.(map[string]any)
+		if artifact["kind"] == "input" {
+			inputID = artifact["id"].(string)
+			break
+		}
+	}
+	if inputID == "" {
+		t.Fatalf("artifacts = %v, want input artifact", artifacts)
+	}
+	inputRequest, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui/jobs/"+jobID+"/artifacts/"+inputID, nil)
+	inputRequest.SetBasicAuth("operator", uiToken)
+	inputResponse, err := http.DefaultClient.Do(inputRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inputResponse.Body.Close()
+	if inputResponse.StatusCode != http.StatusNotFound {
+		t.Fatalf("UI input download = %d, want 404", inputResponse.StatusCode)
+	}
+	previewRequest, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui/jobs/"+jobID+"/artifacts/"+finalID+"/preview", nil)
+	previewRequest.SetBasicAuth("operator", uiToken)
+	previewResponse, err := http.DefaultClient.Do(previewRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer previewResponse.Body.Close()
+	previewBody, _ := io.ReadAll(previewResponse.Body)
+	if previewResponse.StatusCode != http.StatusOK || !strings.Contains(string(previewBody), "Final result preview") || !strings.Contains(string(previewBody), "0.900000") {
+		t.Fatalf("final preview = (%d, %q)", previewResponse.StatusCode, previewBody)
 	}
 }
 

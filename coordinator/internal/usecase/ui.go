@@ -180,7 +180,7 @@ func (d *Dashboard) JobDetail(ctx context.Context, jobID uuid.UUID) (JobDetailVi
 	}
 	for _, artifact := range artifacts {
 		diagnostic := artifact.Kind == domain.ArtifactPartialResult
-		downloadable := diagnostic || (artifact.Kind == domain.ArtifactFinalResult && out.Status == string(domain.JobCompleted))
+		downloadable := previewableArtifact(*job, artifact)
 		out.Artifacts = append(out.Artifacts, ArtifactCard{ID: artifact.ID.String(), Kind: string(artifact.Kind), Filename: artifact.Filename, SizeBytes: artifact.SizeBytes, SHA256: artifact.SHA256, Downloadable: downloadable, Diagnostic: diagnostic})
 		if artifact.Kind == domain.ArtifactFinalResult && downloadable {
 			out.FinalResultAvailable = true
@@ -189,13 +189,21 @@ func (d *Dashboard) JobDetail(ctx context.Context, jobID uuid.UUID) (JobDetailVi
 	return out, nil
 }
 
-func (d *Dashboard) ArtifactBelongsToJob(ctx context.Context, jobID, artifactID uuid.UUID) (bool, error) {
+// DownloadableArtifactBelongsToJob applies the same policy used by the UI
+// projection: partial diagnostics and the persisted final result are public to
+// the operator; source inputs and shards are not exposed through a guessed UI
+// URL.
+func (d *Dashboard) DownloadableArtifactBelongsToJob(ctx context.Context, jobID, artifactID uuid.UUID) (bool, error) {
+	job, err := d.read.GetJob(ctx, jobID)
+	if err != nil {
+		return false, err
+	}
 	artifacts, err := d.read.ListArtifactsByJob(ctx, jobID)
 	if err != nil {
 		return false, err
 	}
 	for _, a := range artifacts {
-		if a.ID == artifactID {
+		if a.ID == artifactID && previewableArtifact(*job, a) {
 			return true, nil
 		}
 	}

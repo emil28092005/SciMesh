@@ -119,6 +119,10 @@ func (p JobProgress) DeriveStatus() JobStatus {
 	switch {
 	case p.Job.Status == JobCancelled:
 		return JobCancelled
+	case p.Job.Status == JobFailed:
+		// A reducer may fail after every shard has completed. That terminal
+		// failure must not be overwritten by an otherwise-complete task count.
+		return JobFailed
 	case p.Job.Status == JobReducing:
 		return JobReducing
 	case p.Total == 0:

@@ -82,6 +82,7 @@ func TestDeriveStatus(t *testing.T) {
 		{"done and failed", JobProgress{Total: 3, Done: 2, Failed: 1}, JobFailed},
 		{"failed but work remains", JobProgress{Total: 3, Pending: 1, Failed: 2}, JobRunning},
 		{"cancelled job wins over task histogram", JobProgress{Job: Job{Status: JobCancelled}, Total: 3, Done: 1, Cancelled: 2}, JobCancelled},
+		{"persisted reducer failure wins over completed tasks", JobProgress{Job: Job{Status: JobFailed}, Total: 3, Done: 3}, JobFailed},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

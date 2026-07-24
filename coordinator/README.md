@@ -86,9 +86,10 @@ or exposes worker processes.
 For a hands-on run, open `/ui`, choose **New similarity search**, select a
 small ChEMBL-style TSV, then leave one or more `scimesh-worker` processes
 running in separate terminals. The detail page updates every two seconds and
-stops polling after a completed, failed, or cancelled job. Download the
-`final_result` artifact only after the job reaches **Completed**; shard partial
-CSVs remain available as diagnostics.
+stops polling after a completed, failed, or cancelled job. Use **Preview CSV**
+to inspect a bounded first page of a partial or completed final result before
+downloading it. The UI never exposes source datasets or shard inputs; partial
+CSVs remain available only as diagnostics.
 
 `up` starts three services in order: Postgres waits until `pg_isready` passes, a
 one-shot `migrate` container applies the schema and exits, and only then does the

@@ -285,7 +285,7 @@ func (s *Server) handleUIArtifactDownload(w http.ResponseWriter, r *http.Request
 	}
 	ctx, cancel := s.reqCtx(r)
 	defer cancel()
-	belongs, err := s.uc.Dashboard.ArtifactBelongsToJob(ctx, jobID, artifactID)
+	belongs, err := s.uc.Dashboard.DownloadableArtifactBelongsToJob(ctx, jobID, artifactID)
 	if err != nil {
 		s.writeError(w, r, err)
 		return
@@ -310,4 +310,31 @@ func (s *Server) handleUIArtifactDownload(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Length", strconv.FormatInt(art.SizeBytes, 10))
 	w.Header().Set("X-Checksum-SHA256", art.SHA256)
 	_, _ = io.Copy(w, body)
+}
+
+// handleUIArtifactPreview renders a bounded CSV preview. Its use case owns
+// the job-scoped access rule, including the requirement that a final artifact
+// is the persisted result of a completed job.
+func (s *Server) handleUIArtifactPreview(w http.ResponseWriter, r *http.Request) {
+	jobID, ok := s.uiJobID(w, r)
+	if !ok {
+		return
+	}
+	artifactID, err := uuid.Parse(r.PathValue("artifact_id"))
+	if err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	if s.uc.PreviewArtifact == nil {
+		http.NotFound(w, r)
+		return
+	}
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	view, err := s.uc.PreviewArtifact.Execute(ctx, jobID, artifactID)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	s.renderUI(w, "artifact-preview.html", view)
 }

@@ -84,6 +84,7 @@ func run() error {
 		GetJobResult:     usecase.NewGetJobResult(jobRepo, usecase.NewDownloadArtifact(artifactRepo, blobStore)),
 		GetTaskInput:     usecase.NewGetTaskInput(taskRepo, artifactRepo, blobStore),
 		Dashboard:        usecase.NewDashboard(uiReadRepo),
+		PreviewArtifact:  usecase.NewPreviewArtifact(uiReadRepo, blobStore),
 	}
 
 	// Background reapers are tracked so shutdown can wait for them. Without this
