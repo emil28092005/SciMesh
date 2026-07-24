@@ -1,4 +1,4 @@
-.PHONY: build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke
+.PHONY: build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke demo-ui demo-down demo-logs
 
 # `check` deliberately uses its own Compose project and host ports. This keeps
 # it from connecting to or replacing a developer's local PostgreSQL instance.
@@ -9,6 +9,45 @@ CHECK_HOST ?= http://localhost:$(CHECK_COORDINATOR_PORT)
 CHECK_TOKEN ?= dev-token
 CHECK_DATABASE_URL ?= postgres://scimesh:scimesh@localhost:$(CHECK_POSTGRES_PORT)/scimesh?sslmode=disable
 CHECK_COMPOSE = POSTGRES_PORT=$(CHECK_POSTGRES_PORT) COORDINATOR_PORT=$(CHECK_COORDINATOR_PORT) docker compose -p $(CHECK_PROJECT)
+
+# --- local manual demo ---------------------------------------------------
+# A separate project and ports mean this demo cannot collide with the normal
+# `make up` stack or a developer's local PostgreSQL on 5432.
+DEMO_PROJECT ?= scimesh-demo
+DEMO_POSTGRES_PORT ?= 55432
+DEMO_COORDINATOR_PORT ?= 18080
+DEMO_UI_TOKEN ?= demo-ui-secret
+DEMO_WORKER_TOKEN ?= demo-worker-token
+DEMO_WORKERS ?= 2
+DEMO_DIR ?= .demo
+
+demo-ui:
+	@DEMO_PROJECT="$(DEMO_PROJECT)" \
+	DEMO_POSTGRES_PORT="$(DEMO_POSTGRES_PORT)" \
+	DEMO_COORDINATOR_PORT="$(DEMO_COORDINATOR_PORT)" \
+	DEMO_UI_TOKEN="$(DEMO_UI_TOKEN)" \
+	DEMO_WORKER_TOKEN="$(DEMO_WORKER_TOKEN)" \
+	DEMO_WORKERS="$(DEMO_WORKERS)" \
+	DEMO_DIR="$(DEMO_DIR)" \
+	./scripts/demo-ui.sh start
+
+demo-down:
+	@DEMO_PROJECT="$(DEMO_PROJECT)" \
+	DEMO_POSTGRES_PORT="$(DEMO_POSTGRES_PORT)" \
+	DEMO_COORDINATOR_PORT="$(DEMO_COORDINATOR_PORT)" \
+	DEMO_UI_TOKEN="$(DEMO_UI_TOKEN)" \
+	DEMO_WORKER_TOKEN="$(DEMO_WORKER_TOKEN)" \
+	DEMO_DIR="$(DEMO_DIR)" \
+	./scripts/demo-ui.sh stop
+
+demo-logs:
+	@DEMO_PROJECT="$(DEMO_PROJECT)" \
+	DEMO_POSTGRES_PORT="$(DEMO_POSTGRES_PORT)" \
+	DEMO_COORDINATOR_PORT="$(DEMO_COORDINATOR_PORT)" \
+	DEMO_UI_TOKEN="$(DEMO_UI_TOKEN)" \
+	DEMO_WORKER_TOKEN="$(DEMO_WORKER_TOKEN)" \
+	DEMO_DIR="$(DEMO_DIR)" \
+	./scripts/demo-ui.sh logs
 
 # --- build / run ---------------------------------------------------------
 build:

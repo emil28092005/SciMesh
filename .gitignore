@@ -15,3 +15,4 @@ test_structures/
 # Local coordinator-worker execution state
 worker-data*/
 scimesh-worker-data/
+coordinator/.demo/
