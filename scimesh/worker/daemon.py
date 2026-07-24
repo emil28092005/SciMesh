@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from dataclasses import dataclass
 from pathlib import Path
 import random
 import shutil
@@ -72,6 +73,14 @@ class LeaseHeartbeat:
         return seconds
 
 
+@dataclass(frozen=True)
+class RunOnceOutcome:
+    """Whether a claim was made and whether that claimed task completed."""
+
+    claimed: bool
+    completed: bool
+
+
 class WorkerDaemon:
     def __init__(self, config: WorkerConfig, coordinator: CoordinatorClient, artifacts: ArtifactClient, runner: Runner) -> None:
         self.config, self.coordinator, self.artifacts, self.runner = config, coordinator, artifacts, runner
@@ -79,9 +88,10 @@ class WorkerDaemon:
         self._registered = False
         self.log = logging.getLogger("scimesh.worker")
 
-    def run_forever(self) -> None:
+    def run_forever(self) -> bool:
+        """Run until stopped; return false only when interrupted by the operator."""
         failures = 0
-        processed_tasks = 0
+        completed_tasks = 0
         self._log(
             "started",
             max_tasks=self.config.max_tasks,
@@ -93,16 +103,32 @@ class WorkerDaemon:
                     if not self._registered:
                         self._register_worker()
                     self._cleanup_expired_directories()
-                    claimed = self.run_once()
+                    outcome = self.run_once()
                     failures = 0
-                    if claimed:
-                        processed_tasks += 1
-                        if self.config.max_tasks is not None and processed_tasks >= self.config.max_tasks:
-                            self._log("stopped", reason="max_tasks_reached", processed_tasks=processed_tasks)
-                            return
+                    if outcome.claimed:
+                        if outcome.completed:
+                            completed_tasks += 1
+                        if self.config.exit_when_idle:
+                            self._log(
+                                "stopped",
+                                reason="one_claim_processed",
+                                completed_tasks=completed_tasks,
+                            )
+                            return True
+                        if (
+                            outcome.completed
+                            and self.config.max_tasks is not None
+                            and completed_tasks >= self.config.max_tasks
+                        ):
+                            self._log(
+                                "stopped",
+                                reason="max_tasks_reached",
+                                completed_tasks=completed_tasks,
+                            )
+                            return True
                     elif self.config.exit_when_idle:
-                        self._log("stopped", reason="queue_empty", processed_tasks=processed_tasks)
-                        return
+                        self._log("stopped", reason="queue_empty", completed_tasks=completed_tasks)
+                        return True
                     else:
                         self._sleep(self.config.poll_interval)
                 except CoordinatorTransientError as error:
@@ -110,18 +136,20 @@ class WorkerDaemon:
                     self._log("failed", error_type=type(error).__name__)
                     self._sleep(min(self.config.poll_interval * 2 ** min(failures, 6), 60.0))
         except KeyboardInterrupt:
-            self._log("stopped", reason="interrupted", processed_tasks=processed_tasks)
+            self._log("stopped", reason="interrupted", completed_tasks=completed_tasks)
+            return False
 
-    def run_once(self) -> bool:
+    def run_once(self) -> RunOnceOutcome:
         worker_id = self._worker_id()
         self._log("claiming", log_level=logging.DEBUG)
         task = self.coordinator.claim(worker_id, self.config.capabilities)
         if task is None:
             self._log("idle", log_level=logging.DEBUG)
-            return False
+            return RunOnceOutcome(claimed=False, completed=False)
         started = time.monotonic()
         task_dir = self.config.work_dir / task.task_id / str(task.attempt)
         heartbeat = LeaseHeartbeat(task, self.coordinator, self.config)
+        completed = False
         try:
             task_dir.mkdir(parents=True, exist_ok=False)
             heartbeat.start()
@@ -152,7 +180,15 @@ class WorkerDaemon:
                     },
                 },
             )
+            completed = True
             self._log("completed", task, elapsed_seconds=round(time.monotonic() - started, 3))
+        except KeyboardInterrupt:
+            self._log("interrupted", task)
+            try:
+                self._report_failure(task, InterruptedError("worker interrupted by operator"))
+            except CoordinatorTransientError:
+                self._log("failed", task, error_type="FailureReportError")
+            raise
         except CoordinatorConflictError as error:
             self._log("lease_lost", task, error_type=type(error).__name__)
         except Exception as error:
@@ -160,7 +196,7 @@ class WorkerDaemon:
             self._report_failure(task, error)
         finally:
             heartbeat.stop()
-        return True
+        return RunOnceOutcome(claimed=True, completed=completed)
 
     def _report_failure(self, task: ClaimedTask, error: Exception) -> None:
         message = str(error).replace(str(self.config.work_dir), "<worker-dir>")[:300]

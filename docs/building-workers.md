@@ -210,13 +210,14 @@ For a bounded manual check, use one of these lifecycle modes:
 # Make exactly one claim; exit immediately when no task is available.
 scimesh-worker --work-dir "$PWD/worker-data-check" --once
 
-# Keep polling until two tasks have been claimed and handled, then exit.
+# Keep polling until two tasks complete successfully, then exit.
 scimesh-worker --work-dir "$PWD/worker-data-check" --max-tasks 2
 ```
 
 `SCIMESH_MAX_TASKS` provides the same limit through the environment. Pressing
-`Ctrl+C` stops the reference worker cleanly; it reports a concise `stopped`
-event rather than a traceback.
+`Ctrl+C` stops the reference worker cleanly. If it interrupts an active task,
+the worker reports a sanitized retriable failure first, emits no traceback, and
+exits with status `130`.
 
 ## Generate a client from the spec
 

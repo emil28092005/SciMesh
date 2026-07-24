@@ -95,7 +95,7 @@ WORKER_TWO_PID=$STARTED_WORKER_PID
 
 for _ in $(seq 1 30); do
     registered=$(docker compose -p "$COMPOSE_PROJECT" -f "$COORDINATOR_DIR/docker-compose.yml" \
-        exec -T postgres psql -U scimesh -d scimesh -Atc "SELECT count(*) FROM workers")
+        exec -T postgres psql -U scimesh -d scimesh -Atc "SELECT count(*) FROM workers" 2>/dev/null || printf '0')
     [[ "$registered" == "2" ]] && break
     sleep 1
 done

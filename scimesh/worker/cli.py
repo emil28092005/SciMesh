@@ -69,13 +69,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(str(error))
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     client = HttpCoordinatorClient(config.coordinator_url, config.request_timeout, config.bearer_token)
-    WorkerDaemon(
+    completed_without_interruption = WorkerDaemon(
         config,
         client,
         HttpArtifactClient(config.coordinator_url, config.request_timeout, config.bearer_token),
         SciMeshRunner(),
     ).run_forever()
-    return 0
+    return 0 if completed_without_interruption else 130
 
 
 if __name__ == "__main__":
