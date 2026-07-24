@@ -7,6 +7,8 @@ import subprocess
 import sys
 from typing import Protocol
 
+from scimesh.distributed.similarity_search import run_similarity_search_shard
+
 from .models import ClaimedTask, ProducedArtifact, RunResult
 
 
@@ -34,6 +36,12 @@ class SciMeshRunner:
             query_id, query_smiles = params.get("query_id"), params.get("query_smiles")
             if (query_id is None) == (query_smiles is None):
                 raise ValueError("exactly one of query_id or query_smiles is required")
+            if query_smiles is not None and "max_rows" not in params:
+                metrics = run_similarity_search_shard(input_path, params, output_path)
+                return RunResult((ProducedArtifact(output_path, "text/csv"),), metrics)
+            # Legacy URI jobs may still use query_id or an explicitly task-local
+            # max_rows value. CTX-08 plans never create those payloads; retain
+            # CLI execution only for backwards compatibility at this boundary.
             top_k = self._positive_int(params, "top_k", default=20)
             command += ["--query-id", self._string(params, "query_id")] if query_id is not None else ["--query-smiles", self._string(params, "query_smiles")]
             command += ["--top-k", str(top_k)]

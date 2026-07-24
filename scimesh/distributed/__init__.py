@@ -12,17 +12,25 @@ from .models import (
     FinalResult,
     PlannedTask,
 )
-from .registry import DistributedWorkloadRegistry, PlanningService, WorkloadDescription
+from .registry import (
+    DistributedWorkloadRegistry,
+    PlanningService,
+    WorkloadDescription,
+    default_distributed_registry,
+)
+from .similarity_search import SimilaritySearchDistributedWorkload
 from .workload import DistributedWorkload
 
 __all__ = [
     "ArtifactReference",
     "CompletedPartial",
+    "default_distributed_registry",
     "DistributedPlan",
     "DistributedWorkload",
     "DistributedWorkloadRegistry",
     "FinalResult",
     "PlannedTask",
     "PlanningService",
+    "SimilaritySearchDistributedWorkload",
     "WorkloadDescription",
 ]

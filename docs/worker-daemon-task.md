@@ -122,7 +122,10 @@ Content-Type: application/json
   },
   "metrics": {
     "elapsed_seconds": 12.4,
-    "processed_rows": 10000
+    "scanned_rows": 10000,
+    "valid_molecules": 9876,
+    "invalid_smiles": 124,
+    "matches_emitted": 20
   }
 }
 ```
@@ -189,8 +192,11 @@ class Runner(Protocol):
         """Run one task and return output artifacts plus safe metrics."""
 ```
 
-`SciMeshRunner` should map `workload` and validated parameters to the existing
-SciMesh CLI. For example, a `similarity-search` task invokes:
+`SciMeshRunner` maps an allowlisted workload and validated parameters to the
+local SciMesh reference functions. A planned `similarity-search` task contains
+a resolved `query_smiles` (never `query_id`) and writes one exact local top-k
+partial CSV plus the metrics above. Legacy single-shard tasks may still use the
+CLI compatibility path:
 
 ```text
 scimesh similarity-search <local-input> --query-id ... --output <task-dir>/result.csv

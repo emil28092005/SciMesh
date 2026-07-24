@@ -4,9 +4,11 @@
 
 This document is the implementation contract for CTX-07. Its generic protocol,
 registry, strict JSON models, and deterministic reduction ordering are
-implemented in `scimesh/distributed/`. It does not implement a molecular
-planner, reducer, API endpoint, database migration, or final artifact. Until
-CTX-08 and CTX-09 are complete, shard CSVs remain diagnostic partial results.
+implemented in `scimesh/distributed/`. CTX-08 implements the molecular
+similarity-search planner, worker adapter, and pure reducer on top of it. This
+document does not implement a coordinator API endpoint, database migration, or
+durable final artifact. Until CTX-09 is complete, shard CSVs remain diagnostic
+partial results.
 
 The protocol gives local scientific workloads a coordinator-independent way to
 validate a job, plan artifact-backed tasks, and later reduce completed outputs.
@@ -154,7 +156,10 @@ rank,chembl_id,canonical_smiles,similarity
 ```
 
 - `rank` is one-based local rank.
-- `similarity` uses the local CLI's six-decimal formatting.
+- `similarity` uses a round-trip decimal representation of the computed float
+  (for Python, `repr(similarity)`). This preserves exact cross-shard ranking;
+  the reducer writes the user-facing final CSV with the local CLI's six-decimal
+  display formatting.
 - Rows are sorted by `(-similarity, chembl_id, canonical_smiles)` for
   `threshold_direction=greater`, or `(similarity, chembl_id,
   canonical_smiles)` for `less`.
@@ -203,7 +208,7 @@ multiplicity. Reduction is independent of worker completion order and uses
 
 ## Deferred work
 
-CTX-08 implements the similarity-search planner, runner adapter, reducer, and
-comparison against the local CLI. CTX-09 persists the final artifact and job
-state. CTX-10 defines graph-specific triangular block plans; it must not reuse
-the search shard scheme without its pair-coverage invariants.
+CTX-09 materializes the planned shard files as coordinator artifacts, invokes
+the registered reducer once, and persists its final artifact/job state. CTX-10
+defines graph-specific triangular block plans; it must not reuse the search
+shard scheme without its pair-coverage invariants.

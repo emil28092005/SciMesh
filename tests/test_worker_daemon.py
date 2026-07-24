@@ -106,6 +106,90 @@ def test_claims_runs_uploads_and_submits_csv(tmp_path: Path) -> None:
     }
 
 
+def test_worker_executes_a_resolved_similarity_search_shard(tmp_path: Path) -> None:
+    content = b"chembl_id\tcanonical_smiles\nQUERY\tCCO\nMATCH\tCCCO\nINVALID\tnot-a-smiles\n"
+    task = make_task(content)
+    task = ClaimedTask(
+        task.task_id, task.attempt, task.lease_expires_at, task.workload, task.input,
+        {"query_smiles": "CCO", "top_k": 5, "progress_every": 0},
+    )
+    worker, coordinator, artifacts, _, _ = daemon(tmp_path, task, content)
+    worker.runner = SciMeshRunner()
+
+    assert worker.run_once() == RunOnceOutcome(claimed=True, completed=True)
+    output = artifacts.uploaded[0][2].read_text(encoding="utf-8")
+    assert output.startswith("rank,chembl_id,canonical_smiles,similarity\n")
+    metrics = coordinator.submissions[0]["metrics"]
+    assert metrics["scanned_rows"] == 3
+    assert metrics["valid_molecules"] == 2
+    assert metrics["invalid_smiles"] == 1
+    assert metrics["matches_emitted"] == 1
+    assert isinstance(metrics["elapsed_seconds"], float)
+
+
+def test_two_workers_complete_resolved_shards_after_one_retry(tmp_path: Path) -> None:
+    content = b"chembl_id\tcanonical_smiles\nQUERY\tCCO\nMATCH\tCCCO\n"
+    first = make_task(content)
+    first = ClaimedTask(
+        "retry-task", 1, first.lease_expires_at, "similarity-search", first.input,
+        {"query_smiles": "CCO", "top_k": 5},
+    )
+    second = ClaimedTask(
+        "other-task", 1, first.lease_expires_at, "similarity-search", first.input,
+        {"query_smiles": "CCO", "top_k": 5},
+    )
+
+    class RetryCoordinator(FakeCoordinator):
+        def __init__(self) -> None:
+            super().__init__(None)
+            self.queue = [first, second]
+            self.claimants: list[str] = []
+
+        def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
+            self.claimants.append(worker_id)
+            return self.queue.pop(0) if self.queue else None
+
+        def fail(self, task: ClaimedTask, payload: dict) -> None:
+            self.failures.append(payload)
+            if task.task_id == "retry-task" and task.attempt == 1 and payload["retryable"]:
+                self.queue.append(
+                    ClaimedTask(
+                        task.task_id, 2, task.lease_expires_at, task.workload, task.input,
+                        task.parameters,
+                    )
+                )
+
+    class FailFirstAttempt:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.delegate = SciMeshRunner()
+
+        def run(self, task: ClaimedTask, task_dir: Path) -> RunResult:
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("simulated retryable shard failure")
+            return self.delegate.run(task, task_dir)
+
+    coordinator = RetryCoordinator()
+    artifacts = FakeArtifacts(content)
+    worker_a = WorkerDaemon(
+        WorkerConfig("https://example.test", "worker-a", tmp_path / "worker-a"),
+        coordinator, artifacts, FailFirstAttempt(),
+    )
+    worker_b = WorkerDaemon(
+        WorkerConfig("https://example.test", "worker-b", tmp_path / "worker-b"),
+        coordinator, artifacts, SciMeshRunner(),
+    )
+
+    assert worker_a.run_once() == RunOnceOutcome(claimed=True, completed=False)
+    assert worker_b.run_once() == RunOnceOutcome(claimed=True, completed=True)
+    assert worker_a.run_once() == RunOnceOutcome(claimed=True, completed=True)
+    assert coordinator.claimants == ["worker-a", "worker-b", "worker-a"]
+    assert len(coordinator.failures) == 1
+    assert coordinator.failures[0]["retryable"] is True
+    assert len(coordinator.submissions) == 2
+
+
 def test_no_task_does_not_create_directory(tmp_path: Path) -> None:
     worker, _, _, runner, config = daemon(tmp_path, None, b"")
     assert worker.run_once() == RunOnceOutcome(claimed=False, completed=False)
@@ -161,6 +245,7 @@ def test_interrupting_an_active_task_reports_a_sanitized_failure(tmp_path: Path)
             "attempt": 1,
             "error_code": "InterruptedError",
             "error_message": "worker interrupted by operator",
+            "retryable": True,
         }
     ]
 
@@ -234,6 +319,7 @@ def test_bad_checksum_reports_failure_without_running(tmp_path: Path) -> None:
     assert worker.run_once() == RunOnceOutcome(claimed=True, completed=False)
     assert runner.calls == 0
     assert coordinator.failures[0]["error_code"] == "ValueError"
+    assert coordinator.failures[0]["retryable"] is False
     assert not coordinator.submissions
 
 
@@ -356,30 +442,35 @@ def test_runner_maps_graph_and_smiles_search_parameters(tmp_path: Path, monkeypa
     runner = SciMeshRunner()
     graph = ClaimedTask("graph", 1, "2026-07-30T00:00:00Z", "similarity-graph", InputArtifact("https://example/input", "x"), {"threshold": 0.2, "threshold_direction": "less", "block_size": 42, "max_rows": 7, "progress_every": 0})
     search = ClaimedTask("search", 1, "2026-07-30T00:00:00Z", "similarity-search", InputArtifact("https://example/input", "x"), {"query_smiles": "CCO", "top_k": 3})
+    search_dir = tmp_path / "search"
+    search_dir.mkdir()
+    (search_dir / "input").write_text(
+        "chembl_id\tcanonical_smiles\nA\tCCO\nB\tCCCO\n", encoding="utf-8"
+    )
     runner.run(graph, tmp_path / "graph")
-    runner.run(search, tmp_path / "search")
+    result = runner.run(search, search_dir)
     assert "--threshold-direction" in commands[0] and "less" in commands[0]
     assert "--block-size" in commands[0] and "42" in commands[0]
     assert "--max-rows" in commands[0] and "7" in commands[0]
-    assert "--query-smiles" in commands[1] and "CCO" in commands[1]
+    assert len(commands) == 1
+    assert result.metrics == {
+        "scanned_rows": 2, "valid_molecules": 2, "invalid_smiles": 0, "matches_emitted": 1,
+    }
 
 
 def test_runner_accepts_coordinator_workload_names(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    commands: list[list[str]] = []
-
-    def fake_run(command: list[str], **_: object) -> None:
-        commands.append(command)
-        output = Path(command[command.index("--output") + 1])
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text("a,b\\n", encoding="utf-8")
-
-    monkeypatch.setattr("scimesh.worker.runners.subprocess.run", fake_run)
+    task_dir = tmp_path / "search"
+    task_dir.mkdir()
+    (task_dir / "input").write_text(
+        "chembl_id\tcanonical_smiles\nA\tCCO\nB\tCCCO\n", encoding="utf-8"
+    )
     task = ClaimedTask(
         "search", 1, "2026-07-30T00:00:00Z", "similarity_search",
         InputArtifact("https://example/input", "a" * 64), {"query_smiles": "CCO"},
     )
-    SciMeshRunner().run(task, tmp_path / "search")
-    assert commands[0][3] == "similarity-search"
+    result = SciMeshRunner().run(task, task_dir)
+    assert result.metrics["matches_emitted"] == 1
+    assert (task_dir / "result.csv").is_file()
 
 
 def test_claimed_task_rejects_path_traversal_and_invalid_metadata() -> None:
@@ -457,21 +548,15 @@ def test_relative_work_dir_is_normalized_for_runner_subprocesses(
 
     task_dir = config.work_dir / "task" / "1"
     task_dir.mkdir(parents=True)
-    (task_dir / "input").write_text("fixture", encoding="utf-8")
-    command: list[str] = []
-
-    def fake_run(args: list[str], **_: object) -> None:
-        command.extend(args)
-        output = Path(args[args.index("--output") + 1])
-        output.write_text("id,score\n", encoding="utf-8")
-
-    monkeypatch.setattr("scimesh.worker.runners.subprocess.run", fake_run)
+    (task_dir / "input").write_text(
+        "chembl_id\tcanonical_smiles\nA\tCCO\nB\tCCCO\n", encoding="utf-8"
+    )
     task = ClaimedTask(
         "task", 1, "2026-07-30T00:00:00Z", "similarity-search",
         InputArtifact("https://example.test/input", "a" * 64), {"query_smiles": "CCO"},
     )
     SciMeshRunner().run(task, task_dir)
-    assert command[4] == str(task_dir / "input")
+    assert (task_dir / "result.csv").is_file()
 
 
 def test_worker_registration_sets_returned_identity(tmp_path: Path) -> None:
