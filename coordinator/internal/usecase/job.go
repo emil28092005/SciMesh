@@ -33,6 +33,17 @@ func NewCreateJob(jobs JobRepository, tasks TaskRepository, tx TxManager, clock 
 // The all-or-none guarantee comes from TxManager: a half-created job would
 // leave chunks no worker could ever complete.
 func (uc *CreateJob) Execute(ctx context.Context, in CreateJobInput) (*domain.Job, error) {
+	if in.Workload == "similarity-graph" || in.Workload == "similarity_graph" {
+		// CTX-10 must plan triangular block pairs; ordinary independent input
+		// chunks would silently omit every cross-chunk molecular pair.
+		return nil, domain.ErrInvalidInput
+	}
+	if (in.Workload == "similarity-search" || in.Workload == "similarity_search") &&
+		len(in.Chunks) > 1 && in.Parameters["query_id"] != nil {
+		// Resolving once against the source dataset belongs to CTX-07. Letting
+		// each shard resolve it would make most tasks fail or use inconsistent data.
+		return nil, domain.ErrInvalidInput
+	}
 	chunks := make([]domain.ChunkSpec, 0, len(in.Chunks))
 	for _, c := range in.Chunks {
 		chunks = append(chunks, domain.ChunkSpec(c))
@@ -90,6 +101,17 @@ func (uc *CancelJob) Execute(ctx context.Context, jobID uuid.UUID) (int64, error
 			return nil
 		}
 		if job.Status == domain.JobCompleted || job.Status == domain.JobFailed {
+			return domain.ErrJobNotCancellable
+		}
+		// The lease reaper can be the transition that exhausted the final task.
+		// Check the authoritative task histogram as well as the cached job status,
+		// so a stale status can never turn a failed/completed job into cancelled.
+		counts, err := uc.tasks.CountByStatus(ctx, jobID)
+		if err != nil {
+			return err
+		}
+		derived := progressFrom(*job, counts).DeriveStatus()
+		if derived == domain.JobCompleted || derived == domain.JobFailed {
 			return domain.ErrJobNotCancellable
 		}
 		cancelled, err = uc.tasks.CancelByJob(ctx, jobID, now)
@@ -211,4 +233,19 @@ func syncJobStatus(ctx context.Context, jobs JobRepository, tasks TaskRepository
 		completedAt = &now
 	}
 	return jobs.UpdateStatus(ctx, jobID, status, completedAt)
+}
+
+func syncExpiredJobStatuses(ctx context.Context, jobs JobRepository, tasks TaskRepository,
+	jobIDs []uuid.UUID, now time.Time) error {
+	seen := make(map[uuid.UUID]struct{}, len(jobIDs))
+	for _, jobID := range jobIDs {
+		if _, duplicate := seen[jobID]; duplicate {
+			continue
+		}
+		seen[jobID] = struct{}{}
+		if err := syncJobStatus(ctx, jobs, tasks, jobID, now); err != nil {
+			return err
+		}
+	}
+	return nil
 }

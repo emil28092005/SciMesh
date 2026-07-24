@@ -70,3 +70,33 @@ func (r *ArtifactRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Artifact,
 	a.Kind = domain.ArtifactKind(kind)
 	return &a, nil
 }
+
+func (r *ArtifactRepo) FindPartialResult(ctx context.Context, taskID uuid.UUID, attempt int) (*domain.Artifact, error) {
+	sql, args, err := psql.Select(artifactColumns...).
+		From("artifacts").
+		Where(sq.Eq{
+			"task_id": taskID,
+			"attempt": attempt,
+			"kind":    string(domain.ArtifactPartialResult),
+		}).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		a    domain.Artifact
+		kind string
+	)
+	err = conn(ctx, r.pool).QueryRow(ctx, sql, args...).Scan(
+		&a.ID, &a.JobID, &a.TaskID, &a.Attempt, &kind, &a.Filename, &a.StorageKey,
+		&a.ContentType, &a.SizeBytes, &a.SHA256, &a.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find partial result: %w", err)
+	}
+	a.Kind = domain.ArtifactKind(kind)
+	return &a, nil
+}

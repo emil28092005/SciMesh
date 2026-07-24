@@ -129,6 +129,9 @@ func LoadConfig() (Config, error) {
 	if cfg.DefaultMaxAttempts, err = getEnvInt("DEFAULT_MAX_ATTEMPTS", cfg.DefaultMaxAttempts); err != nil {
 		return Config{}, err
 	}
+	if cfg.DefaultMaxAttempts < 1 {
+		return Config{}, fmt.Errorf("DEFAULT_MAX_ATTEMPTS must be positive")
+	}
 
 	return cfg, nil
 }

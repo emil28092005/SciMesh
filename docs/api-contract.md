@@ -107,7 +107,8 @@ Content-Type: application/json
 ```
 
 `cpu_count`/`memory_mb` are accepted for forward compatibility and not yet
-persisted. `capabilities` must be non-empty (an allowlisted workload set).
+persisted. `capabilities` must be non-empty. A claim uses the capabilities
+stored at registration; the request cannot broaden them.
 
 ## Claim task
 
@@ -120,7 +121,8 @@ Content-Type: application/json
 ```
 
 - `204 No Content`: no compatible task.
-- `200 OK`: a task is leased atomically.
+- `200 OK`: a task is leased atomically. `worker_id` must be a registered UUID;
+  its persisted capabilities, rather than this request field, decide eligibility.
 
 ```json
 {

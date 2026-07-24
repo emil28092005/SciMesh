@@ -51,6 +51,13 @@ check "register worker"                 201 -X POST "${HOST}/workers/register" "
 	-d '{"name":"smoke-worker","capabilities":["similarity_search"],"cpu_count":4,"memory_mb":8192}'
 check "register without capabilities → 400" 400 -X POST "${HOST}/workers/register" "${auth[@]}" \
 	-d '{"name":"bad"}'
+registration=$(curl -sS "${auth[@]}" -X POST "${HOST}/workers/register" \
+	-d '{"name":"smoke-worker-active","capabilities":["similarity_search","similarity-search"],"cpu_count":4}')
+worker_id=$(printf '%s' "$registration" | python3 -c 'import json,sys;print(json.load(sys.stdin)["worker_id"])' 2>/dev/null)
+if [[ -z "${worker_id:-}" ]]; then
+	echo "  ✗ could not register active worker: $registration"
+	exit 1
+fi
 
 echo
 echo "job lifecycle"
@@ -75,7 +82,7 @@ declare -A our_chunks
 task_id=""
 attempt=""
 for _ in $(seq 1 40); do
-	claim=$(curl -sS "${auth[@]}" -X POST "${HOST}/tasks/claim" -d '{"worker_id":"w1"}')
+	claim=$(curl -sS "${auth[@]}" -X POST "${HOST}/tasks/claim" -d "{\"worker_id\":\"${worker_id}\"}")
 	[[ -z "$claim" ]] && break # 204: queue drained
 
 	read -r c_job c_task c_chunk c_attempt < <(printf '%s' "$claim" |
@@ -100,7 +107,7 @@ else
 fi
 
 check "heartbeat"                          200 -X POST "${HOST}/tasks/${task_id}/heartbeat" "${auth[@]}" \
-	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt}}"
+	-d "{\"worker_id\":\"${worker_id}\",\"attempt\":${attempt}}"
 
 # --- artifacts + result (uploads happen while the task is still leased) ---
 bearer=(-H "Authorization: Bearer ${TOKEN}")
@@ -108,43 +115,47 @@ bearer=(-H "Authorization: Bearer ${TOKEN}")
 # upload <filename> -> prints the artifact_id
 upload() {
 	curl -sS -X PUT "${HOST}/tasks/${task_id}/artifacts/$1" "${bearer[@]}" \
-		-H 'Content-Type: text/csv' -H 'X-Worker-ID: w1' -H "X-Task-Attempt: ${attempt}" \
+		-H 'Content-Type: text/csv' -H "X-Worker-ID: ${worker_id}" -H "X-Task-Attempt: ${attempt}" \
 		--data-binary $'query,match,score\nA,B,0.9\n' |
 		python3 -c 'import json,sys;print(json.load(sys.stdin)["artifact_id"])' 2>/dev/null
 }
 
 check "upload artifact"                    200 -X PUT "${HOST}/tasks/${task_id}/artifacts/result.csv" "${bearer[@]}" \
-	-H 'Content-Type: text/csv' -H 'X-Worker-ID: w1' -H "X-Task-Attempt: ${attempt}" \
+	-H 'Content-Type: text/csv' -H "X-Worker-ID: ${worker_id}" -H "X-Task-Attempt: ${attempt}" \
 	--data-binary $'query,match,score\nA,B,0.9\n'
 check "foreign worker upload → 409"        409 -X PUT "${HOST}/tasks/${task_id}/artifacts/x.csv" "${bearer[@]}" \
 	-H 'Content-Type: text/csv' -H 'X-Worker-ID: impostor' -H "X-Task-Attempt: ${attempt}" \
 	--data-binary 'x'
 
-# Two result artifacts, uploaded now while the lease is held: one to complete
-# with, a second to prove a different manifest is rejected after completion.
+# A retry of a PUT returns the same durable artifact for the task attempt.
 art_id=$(upload primary.csv)
 art_id2=$(upload secondary.csv)
+if [[ "$art_id" == "$art_id2" ]]; then
+	printf '  \033[32m✓\033[0m %-46s %s\n' "duplicate upload is idempotent" "$art_id"
+	pass=$((pass + 1))
+else
+	printf '  \033[31m✗\033[0m %-46s got %s and %s\n' "duplicate upload is idempotent" "$art_id" "$art_id2"
+	fail=$((fail + 1))
+fi
 check "download artifact"                  200 "${HOST}/artifacts/${art_id}/download" "${bearer[@]}"
 
 check "foreign worker submits → 409"       409 -X POST "${HOST}/tasks/${task_id}/result" "${auth[@]}" \
 	-d "{\"worker_id\":\"impostor\",\"attempt\":${attempt},\"result\":{\"artifact_id\":\"${art_id}\"}}"
 check "submit result"                      200 -X POST "${HOST}/tasks/${task_id}/result" "${auth[@]}" \
-	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt},\"result\":{\"artifact_id\":\"${art_id}\"}}"
+	-d "{\"worker_id\":\"${worker_id}\",\"attempt\":${attempt},\"result\":{\"artifact_id\":\"${art_id}\"}}"
 check "replay same result → idempotent"    200 -X POST "${HOST}/tasks/${task_id}/result" "${auth[@]}" \
-	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt},\"result\":{\"artifact_id\":\"${art_id}\"}}"
-check "different result → 409"             409 -X POST "${HOST}/tasks/${task_id}/result" "${auth[@]}" \
-	-d "{\"worker_id\":\"w1\",\"attempt\":${attempt},\"result\":{\"artifact_id\":\"${art_id2}\"}}"
+	-d "{\"worker_id\":\"${worker_id}\",\"attempt\":${attempt},\"result\":{\"artifact_id\":\"${art_id}\"}}"
 check "GET /jobs/{id}"                     200 "${HOST}/jobs/${job_id}" "${auth[@]}"
 
 echo
 echo "input validation"
 check "malformed uuid → 400"               400 -X POST "${HOST}/tasks/not-a-uuid/result" "${auth[@]}" \
-	-d '{"worker_id":"w1","attempt":1,"result":{"artifact_id":"00000000-0000-0000-0000-000000000000"}}'
+	-d "{\"worker_id\":\"${worker_id}\",\"attempt\":1,\"result\":{\"artifact_id\":\"00000000-0000-0000-0000-000000000000\"}}"
 # Note: Go's encoding/json matches field names case-insensitively, so
 # "worker_ID" would be accepted as "worker_id". Only a genuinely unknown key
 # trips DisallowUnknownFields.
 check "unknown json field → 400"           400 -X POST "${HOST}/tasks/claim" "${auth[@]}" \
-	-d '{"worker_id":"w1","totally_unknown":1}'
+	-d "{\"worker_id\":\"${worker_id}\",\"totally_unknown\":1}"
 check "unknown job → 404"                  404 "${HOST}/jobs/00000000-0000-0000-0000-000000000000" "${auth[@]}"
 
 echo
@@ -152,11 +163,11 @@ echo "dataset upload → chunking"
 # Upload a 5-row TSV split at 2 rows/shard → expect 3 shard tasks. The text
 # fields precede the file part, which the coordinator streams.
 up=$(curl -sS "${bearer[@]}" -X POST "${HOST}/jobs/upload" \
-	-F 'workload=similarity_search' \
-	-F 'parameters={"top_k":10}' \
+	-F 'workload=similarity-search' \
+	-F 'parameters={"query_smiles":"CCO","top_k":10}' \
 	-F 'chunk_rows=2' \
 	-F 'file=@-;filename=chembl.tsv;type=text/tab-separated-values' <<'TSV'
-id	smiles
+chembl_id	canonical_smiles
 A	CC
 B	CCC
 C	CCCC
@@ -180,7 +191,7 @@ fi
 up_input=""
 for _ in $(seq 1 30); do
 	c=$(curl -sS "${bearer[@]}" -H 'Content-Type: application/json' -X POST "${HOST}/tasks/claim" \
-		-d '{"worker_id":"up-w","capabilities":["similarity_search"]}')
+		-d "{\"worker_id\":\"${worker_id}\"}")
 	[[ -z "$c" ]] && break
 	cj=$(printf '%s' "$c" | python3 -c 'import json,sys;print(json.load(sys.stdin)["job_id"])' 2>/dev/null)
 	[[ "$cj" != "$up_job" ]] && continue

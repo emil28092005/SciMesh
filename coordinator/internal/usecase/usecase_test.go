@@ -68,18 +68,18 @@ func newHarness() *harness {
 	}
 	tx := memstore.Tx{}
 	h.createJob = usecase.NewCreateJob(h.jobs, h.tasks, tx, h.clk)
-	h.submit = usecase.NewSubmitDataset(h.blobs, h.arts, h.jobs, h.tasks, tx, h.clk)
-	h.claim = usecase.NewClaimTask(h.tasks, h.clk, lease)
+	h.submit = usecase.NewSubmitDataset(h.blobs, h.arts, h.jobs, h.tasks, tx, h.clk, 3)
+	h.claim = usecase.NewClaimTask(h.tasks, h.jobs, h.work, tx, h.clk, lease)
 	h.renew = usecase.NewRenewLease(h.tasks, h.work, tx, h.clk, lease)
 	h.complete = usecase.NewCompleteTask(h.tasks, h.jobs, h.arts, tx, h.clk)
 	h.fail = usecase.NewFailTask(h.tasks, h.jobs, tx, h.clk)
 	h.status = usecase.NewGetJobStatus(h.jobs, h.tasks)
 	h.results = usecase.NewListResults(h.tasks)
 	h.register = usecase.NewRegisterWorker(h.work, h.clk)
-	h.uploadArt = usecase.NewUploadArtifact(h.tasks, h.arts, h.blobs, h.clk)
+	h.uploadArt = usecase.NewUploadArtifact(h.tasks, h.arts, h.blobs, tx, h.clk)
 	h.downloadArt = usecase.NewDownloadArtifact(h.arts, h.blobs)
 	h.getInput = usecase.NewGetTaskInput(h.tasks, h.arts, h.blobs)
-	h.expire = usecase.NewExpireLeases(h.tasks, h.clk)
+	h.expire = usecase.NewExpireLeases(h.tasks, h.jobs, tx, h.clk)
 	h.cancel = usecase.NewCancelJob(h.jobs, h.tasks, tx, h.clk)
 	return h
 }
@@ -135,6 +135,44 @@ func TestClaimLeasesAndAdvancesAttempt(t *testing.T) {
 	}
 	if c.Attempt != 1 || c.LeaseOwner != "w1" {
 		t.Errorf("attempt=%d owner=%q, want 1/w1", c.Attempt, c.LeaseOwner)
+	}
+}
+
+func TestRegisteredWorkerCannotBroadenItsCapabilitiesAtClaim(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "restricted", 1)
+	worker, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "search-only", Capabilities: []string{"similarity-search"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{
+		WorkerID: worker.ID.String(), Workloads: []string{"restricted"},
+	})
+	if err != nil || claimed != nil {
+		t.Fatalf("claim = (%v, %v), want no compatible task", claimed, err)
+	}
+}
+
+func TestCreateJobRejectsUnsafeDistributedScientificPlans(t *testing.T) {
+	h := newHarness()
+	_, err := h.createJob.Execute(ctx, usecase.CreateJobInput{
+		Workload: "similarity-graph", InputURI: "s3://input",
+		Chunks: []usecase.ChunkInput{{ChunkIndex: 0, InputURI: "s3://chunk", InputSHA256: "sha"}},
+	})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("graph job err = %v, want ErrInvalidInput", err)
+	}
+	_, err = h.createJob.Execute(ctx, usecase.CreateJobInput{
+		Workload: "similarity-search", InputURI: "s3://input", Parameters: map[string]any{"query_id": "CHEMBL1"},
+		Chunks: []usecase.ChunkInput{
+			{ChunkIndex: 0, InputURI: "s3://chunk0", InputSHA256: "sha"},
+			{ChunkIndex: 1, InputURI: "s3://chunk1", InputSHA256: "sha"},
+		},
+	})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("sharded query_id job err = %v, want ErrInvalidInput", err)
 	}
 }
 
@@ -281,7 +319,7 @@ func TestUploadRejectsLeaseThatExpiresDuringStreaming(t *testing.T) {
 	h.seedJob(t, "w", 1)
 	taskID, attempt := h.leaseOne(t, "w1", "w")
 	h.uploadArt = usecase.NewUploadArtifact(
-		h.tasks, h.arts, expiringBlobStore{BlobStore: h.blobs, clock: h.clk}, h.clk,
+		h.tasks, h.arts, expiringBlobStore{BlobStore: h.blobs, clock: h.clk}, memstore.Tx{}, h.clk,
 	)
 
 	_, err := h.uploadArt.Execute(ctx, usecase.UploadArtifactInput{
@@ -414,6 +452,23 @@ func TestUploadArtifactRejectsForeignWorker(t *testing.T) {
 	}
 }
 
+func TestUploadArtifactIsIdempotentPerTaskAttempt(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1)
+	taskID, attempt := h.leaseOne(t, "w1", "w")
+	first := h.uploadResult(t, taskID, "w1", attempt)
+	second, err := h.uploadArt.Execute(ctx, usecase.UploadArtifactInput{
+		TaskID: taskID, WorkerID: "w1", Attempt: attempt,
+		Filename: "retry.csv", ContentType: "text/csv", Body: strings.NewReader("different bytes"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID != first {
+		t.Errorf("retry artifact = %s, want existing %s", second.ID, first)
+	}
+}
+
 func TestDownloadArtifactRoundTrips(t *testing.T) {
 	h := newHarness()
 	h.seedJob(t, "w", 1)
@@ -434,10 +489,10 @@ func TestDownloadArtifactRoundTrips(t *testing.T) {
 
 func TestSubmitDatasetChunksAndServesInput(t *testing.T) {
 	h := newHarness()
-	tsv := "id\tsmiles\nA\tCC\nB\tCCC\nC\tCCCC\nD\tCCCCC\nE\tCCCCCC\n"
+	tsv := "chembl_id\tcanonical_smiles\nA\tCC\nB\tCCC\nC\tCCCC\nD\tCCCCC\nE\tCCCCCC\n"
 
 	res, err := h.submit.Execute(ctx, usecase.SubmitDatasetInput{
-		Workload: "w", RowsPerShard: 2, Filename: "chembl.tsv",
+		Workload: "similarity-search", Parameters: map[string]any{"query_smiles": "CCO"}, RowsPerShard: 2, Filename: "chembl.tsv",
 		ContentType: "text/tab-separated-values", Body: strings.NewReader(tsv),
 	})
 	if err != nil {
@@ -453,7 +508,7 @@ func TestSubmitDatasetChunksAndServesInput(t *testing.T) {
 		t.Errorf("job total = %d, want 3", prog.Total)
 	}
 
-	c, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{WorkerID: "w1", Workloads: []string{"w"}})
+	c, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{WorkerID: "w1", Workloads: []string{"similarity-search"}})
 	if err != nil || c == nil {
 		t.Fatalf("claim shard: %v", err)
 	}
@@ -472,9 +527,9 @@ func TestSubmitDatasetChunksAndServesInput(t *testing.T) {
 
 func TestSubmitDatasetLimitsRowsBeforeCreatingShards(t *testing.T) {
 	h := newHarness()
-	tsv := "id\tsmiles\nA\tCC\nB\tCCC\nC\tCCCC\nD\tCCCCC\nE\tCCCCCC\n"
+	tsv := "chembl_id\tcanonical_smiles\nA\tCC\nB\tCCC\nC\tCCCC\nD\tCCCCC\nE\tCCCCCC\n"
 	res, err := h.submit.Execute(ctx, usecase.SubmitDatasetInput{
-		Workload: "w", RowsPerShard: 2, MaxRows: 3, Filename: "chembl.tsv",
+		Workload: "similarity-search", Parameters: map[string]any{"query_smiles": "CCO"}, RowsPerShard: 2, MaxRows: 3, Filename: "chembl.tsv",
 		ContentType: "text/tab-separated-values", Body: strings.NewReader(tsv),
 	})
 	if err != nil {
@@ -482,6 +537,26 @@ func TestSubmitDatasetLimitsRowsBeforeCreatingShards(t *testing.T) {
 	}
 	if res.TaskCount != 2 {
 		t.Fatalf("task_count = %d, want 2", res.TaskCount)
+	}
+}
+
+func TestSubmitDatasetRejectsUnsupportedDistributedWorkloads(t *testing.T) {
+	h := newHarness()
+	_, err := h.submit.Execute(ctx, usecase.SubmitDatasetInput{
+		Workload: "similarity-graph", Parameters: map[string]any{"threshold": 0.7}, RowsPerShard: 2,
+		Filename: "chembl.tsv", ContentType: "text/tab-separated-values",
+		Body: strings.NewReader("chembl_id\tcanonical_smiles\nA\tCC\n"),
+	})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("graph submission err = %v, want ErrInvalidInput", err)
+	}
+	_, err = h.submit.Execute(ctx, usecase.SubmitDatasetInput{
+		Workload: "similarity-search", Parameters: map[string]any{"query_id": "CHEMBL1"}, RowsPerShard: 2,
+		Filename: "chembl.tsv", ContentType: "text/tab-separated-values",
+		Body: strings.NewReader("chembl_id\tcanonical_smiles\nA\tCC\n"),
+	})
+	if !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("query_id submission err = %v, want ErrInvalidInput", err)
 	}
 }
 
@@ -529,5 +604,24 @@ func TestExpireLeasesReclaims(t *testing.T) {
 	n, err := h.expire.Execute(ctx)
 	if err != nil || n != 1 {
 		t.Errorf("expire = (%d, %v), want (1, nil)", n, err)
+	}
+}
+
+func TestFinalLeaseExpiryPersistsFailedJobAndCannotBeCancelled(t *testing.T) {
+	h := newHarness()
+	jobID := h.seedJob(t, "w", 1)
+	for attempt := 1; attempt <= domain.DefaultMaxAttempts; attempt++ {
+		h.leaseOne(t, "w1", "w")
+		h.clk.Advance(lease + time.Second)
+		if _, err := h.expire.Execute(ctx); err != nil {
+			t.Fatalf("expire attempt %d: %v", attempt, err)
+		}
+	}
+	progress, err := h.status.Execute(ctx, jobID)
+	if err != nil || progress.Job.Status != domain.JobFailed || progress.DeriveStatus() != domain.JobFailed {
+		t.Fatalf("progress = %+v, err = %v; want persisted failed job", progress, err)
+	}
+	if _, err := h.cancel.Execute(ctx, jobID); !errors.Is(err, domain.ErrJobNotCancellable) {
+		t.Errorf("cancel terminal lease failure = %v, want ErrJobNotCancellable", err)
 	}
 }

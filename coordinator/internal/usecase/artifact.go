@@ -14,12 +14,13 @@ type UploadArtifact struct {
 	tasks     TaskRepository
 	artifacts ArtifactRepository
 	blobs     BlobStore
+	tx        TxManager
 	clk       Clock
 }
 
 func NewUploadArtifact(tasks TaskRepository, artifacts ArtifactRepository,
-	blobs BlobStore, clk Clock) *UploadArtifact {
-	return &UploadArtifact{tasks: tasks, artifacts: artifacts, blobs: blobs, clk: clk}
+	blobs BlobStore, tx TxManager, clk Clock) *UploadArtifact {
+	return &UploadArtifact{tasks: tasks, artifacts: artifacts, blobs: blobs, tx: tx, clk: clk}
 }
 
 func (uc *UploadArtifact) Execute(ctx context.Context, in UploadArtifactInput) (*domain.Artifact, error) {
@@ -31,6 +32,15 @@ func (uc *UploadArtifact) Execute(ctx context.Context, in UploadArtifactInput) (
 	// task's output — the coordinator never trusts an ownership claim on faith.
 	if !task.IsLeaseHeldBy(in.WorkerID, in.Attempt, uc.clk.Now()) {
 		return nil, domain.ErrLeaseConflict
+	}
+	// A client can retry a PUT after losing the response. Return the one durable
+	// result for this lease attempt instead of storing duplicate artifacts.
+	existing, err := uc.artifacts.FindPartialResult(ctx, in.TaskID, in.Attempt)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil {
+		return existing, nil
 	}
 
 	taskID := task.ID
@@ -50,25 +60,41 @@ func (uc *UploadArtifact) Execute(ctx context.Context, in UploadArtifactInput) (
 	}
 	art.SetContent(sum, size)
 
-	// The stream may take longer than the lease. Re-check after it finishes so
-	// an expired worker cannot leave a durable result record behind. Completion
-	// performs the same ownership check under its transaction.
-	current, err := uc.tasks.Get(ctx, in.TaskID)
+	// The stream may take longer than the lease. Lock the task while re-checking
+	// ownership and inserting metadata: completion or another upload cannot race
+	// this final decision. The database unique index is a second line of defence.
+	var durable *domain.Artifact
+	err = uc.tx.WithinTx(ctx, func(ctx context.Context) error {
+		current, err := uc.tasks.GetForUpdate(ctx, in.TaskID)
+		if err != nil {
+			return err
+		}
+		if !current.IsLeaseHeldBy(in.WorkerID, in.Attempt, uc.clk.Now()) {
+			return domain.ErrLeaseConflict
+		}
+		existing, err := uc.artifacts.FindPartialResult(ctx, in.TaskID, in.Attempt)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			durable = existing
+			return nil
+		}
+		if err := uc.artifacts.Insert(ctx, art); err != nil {
+			return err
+		}
+		durable = art
+		return nil
+	})
 	if err != nil {
 		_ = uc.blobs.Delete(ctx, art.StorageKey)
 		return nil, err
 	}
-	if !current.IsLeaseHeldBy(in.WorkerID, in.Attempt, uc.clk.Now()) {
+	if durable != art {
+		// Another request won the race while this stream was being written.
 		_ = uc.blobs.Delete(ctx, art.StorageKey)
-		return nil, domain.ErrLeaseConflict
 	}
-
-	// Persist the record. If that fails the blob would be an orphan, so remove it.
-	if err := uc.artifacts.Insert(ctx, art); err != nil {
-		_ = uc.blobs.Delete(ctx, art.StorageKey)
-		return nil, err
-	}
-	return art, nil
+	return durable, nil
 }
 
 // DownloadArtifact returns an artifact's metadata together with a reader over

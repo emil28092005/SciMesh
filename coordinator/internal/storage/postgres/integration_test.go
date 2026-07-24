@@ -360,12 +360,23 @@ func TestCompleteTaskReplayIsIdempotent(t *testing.T) {
 		t.Errorf("replay must be idempotent, got %v", err)
 	}
 
-	// A different result artifact for the same task is a genuine conflict.
-	art2 := seedArtifact(t, pool, job.ID, &claimed.ID, domain.ArtifactPartialResult)
-	other := in
-	other.ResultArtifactID = art2.ID
-	if _, err := uc.Execute(ctx, other); !errors.Is(err, domain.ErrResultConflict) {
-		t.Errorf("err = %v, want ErrResultConflict", err)
+}
+
+func TestPartialResultIsUniquePerTaskAttempt(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	job, tasks := seedJob(t, pool, 1)
+	taskID := tasks[0].ID
+	first := seedArtifact(t, pool, job.ID, &taskID, domain.ArtifactPartialResult)
+	second, err := domain.NewArtifact(job.ID, &taskID, domain.ArtifactPartialResult, "retry.csv", "text/csv", time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := 1
+	second.Attempt = &attempt
+	second.SetContent("other-sha", 5)
+	if err := NewArtifactRepo(pool).Insert(ctx, second); err == nil {
+		t.Fatalf("second partial artifact for %s/%d was accepted after %s", taskID, attempt, first.ID)
 	}
 }
 

@@ -71,14 +71,14 @@ func run() error {
 	useCases := httptransport.UseCases{
 		RegisterWorker:   usecase.NewRegisterWorker(workerRepo, clk),
 		CreateJob:        usecase.NewCreateJob(jobRepo, taskRepo, tx, clk),
-		SubmitDataset:    usecase.NewSubmitDataset(blobStore, artifactRepo, jobRepo, taskRepo, tx, clk),
-		ClaimTask:        usecase.NewClaimTask(taskRepo, clk, cfg.LeaseDuration),
+		SubmitDataset:    usecase.NewSubmitDataset(blobStore, artifactRepo, jobRepo, taskRepo, tx, clk, cfg.DefaultMaxAttempts),
+		ClaimTask:        usecase.NewClaimTask(taskRepo, jobRepo, workerRepo, tx, clk, cfg.LeaseDuration),
 		RenewLease:       usecase.NewRenewLease(taskRepo, workerRepo, tx, clk, cfg.LeaseDuration),
 		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, tx, clk),
 		FailTask:         usecase.NewFailTask(taskRepo, jobRepo, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobRepo, taskRepo),
 		CancelJob:        usecase.NewCancelJob(jobRepo, taskRepo, tx, clk),
-		UploadArtifact:   usecase.NewUploadArtifact(taskRepo, artifactRepo, blobStore, clk),
+		UploadArtifact:   usecase.NewUploadArtifact(taskRepo, artifactRepo, blobStore, tx, clk),
 		DownloadArtifact: usecase.NewDownloadArtifact(artifactRepo, blobStore),
 		GetTaskInput:     usecase.NewGetTaskInput(taskRepo, artifactRepo, blobStore),
 		Dashboard:        usecase.NewDashboard(uiReadRepo),
@@ -87,7 +87,7 @@ func run() error {
 	// Background reapers are tracked so shutdown can wait for them. Without this
 	// the process would exit mid-UPDATE, and the deferred pool.Close() would pull
 	// connections out from under them.
-	expireLeases := usecase.NewExpireLeases(taskRepo, clk)
+	expireLeases := usecase.NewExpireLeases(taskRepo, jobRepo, tx, clk)
 	markOffline := usecase.NewMarkWorkersOffline(workerRepo, clk, cfg.WorkerOfflineAfter)
 
 	var wg sync.WaitGroup

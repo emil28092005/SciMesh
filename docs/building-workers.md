@@ -46,24 +46,25 @@ coordinator was started with. Never log it, never send it in an error body.
 
 ```http
 POST /workers/register
-{ "name": "lab-worker-01", "capabilities": ["similarity_search"] }
+{ "name": "lab-worker-01", "capabilities": ["similarity-search"] }
 ```
 
 Response: `{ "worker_id": "<uuid>", "heartbeat_interval_seconds": 15 }`.
 
-- `capabilities` are the workload names you can run — the coordinator only hands
-  you matching tasks.
+- `capabilities` are fixed at registration — the coordinator only hands you
+  matching tasks and a later claim cannot broaden that set.
 - **Keep `worker_id`**. Use it as your identity in every later call. Using the
   registered UUID is what lets the coordinator track your liveness (it marks
   workers offline after they go silent).
-- Current coordinator jobs use `similarity_search` / `similarity_graph`; the
-  reference Python worker also accepts the public CLI spellings with hyphens.
+- Current diagnostic uploads use `similarity-search` with `query_smiles`. The
+  reference worker accepts the legacy `similarity_search` spelling too. Do not
+  advertise `similarity-graph` until CTX-10 implements cross-shard pair planning.
 
 ## 2. Claim a task
 
 ```http
 POST /tasks/claim
-{ "worker_id": "<uuid>", "capabilities": ["similarity_search"] }
+{ "worker_id": "<uuid>", "capabilities": ["similarity-search"] }
 ```
 
 - `200` → a leased task (below).
@@ -74,9 +75,9 @@ POST /tasks/claim
   "task_id": "<uuid>",
   "attempt": 1,
   "lease_expires_at": "2026-07-22T12:05:00Z",
-  "workload": "similarity_search",
+  "workload": "similarity-search",
   "input": { "uri": "/tasks/<uuid>/input", "sha256": "<hex>" },
-  "parameters": { "query_id": "CHEMBL939", "top_k": 20 }
+  "parameters": { "query_smiles": "CCO", "top_k": 20 }
 }
 ```
 
@@ -192,6 +193,32 @@ Per the worker contract, at minimum:
 - the bearer token
 - poll interval and request timeout
 - a working directory for downloaded inputs and generated outputs
+
+## Run the reference worker locally
+
+Use one terminal per worker and a distinct work directory for each process:
+
+```sh
+SCIMESH_COORDINATOR_URL=http://localhost:8080 \
+SCIMESH_BEARER_TOKEN=dev-token \
+SCIMESH_WORKER_NAME=worker-1 \
+scimesh-worker --work-dir "$PWD/worker-data-1"
+```
+
+For a bounded manual check, use one of these lifecycle modes:
+
+```sh
+# Make exactly one claim; exit immediately when no task is available.
+scimesh-worker --work-dir "$PWD/worker-data-check" --once
+
+# Keep polling until two tasks complete successfully, then exit.
+scimesh-worker --work-dir "$PWD/worker-data-check" --max-tasks 2
+```
+
+`SCIMESH_MAX_TASKS` provides the same limit through the environment. Pressing
+`Ctrl+C` stops the reference worker cleanly. If it interrupts an active task,
+the worker reports a sanitized retriable failure first, emits no traceback, and
+exits with status `130`.
 
 ## Generate a client from the spec
 

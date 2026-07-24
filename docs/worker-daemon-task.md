@@ -59,7 +59,7 @@ Content-Type: application/json
 
 {
   "name": "lab-worker-01",
-  "capabilities": ["similarity-search", "similarity-graph"],
+  "capabilities": ["similarity-search"],
   "cpu_count": 8,
   "memory_mb": 16384
 }
@@ -74,8 +74,8 @@ POST /tasks/claim
 Content-Type: application/json
 
 {
-  "worker_id": "worker-01",
-  "capabilities": ["similarity-search", "similarity-graph"],
+  "worker_id": "<registered-uuid>",
+  "capabilities": ["similarity-search"],
   "max_concurrency": 1
 }
 ```
@@ -95,7 +95,7 @@ When a task is available, it returns `200 OK`:
     "sha256": "..."
   },
   "parameters": {
-    "query_id": "CHEMBL939",
+    "query_smiles": "CCO",
     "top_k": 20
   }
 }

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
+import subprocess
 import time
 from datetime import datetime, timedelta, timezone
 from urllib.request import Request
@@ -9,8 +11,10 @@ from urllib.request import Request
 import pytest
 
 from scimesh.worker.config import WorkerConfig
+from scimesh.worker import cli as worker_cli
+from scimesh.worker.cli import build_parser
 from scimesh.worker.coordinator import CoordinatorTransientError
-from scimesh.worker.daemon import LeaseHeartbeat, WorkerDaemon
+from scimesh.worker.daemon import LeaseHeartbeat, RunOnceOutcome, WorkerDaemon
 from scimesh.worker.models import (
     ClaimedTask,
     InputArtifact,
@@ -92,7 +96,7 @@ def daemon(tmp_path: Path, task: ClaimedTask | None, content: bytes):
 def test_claims_runs_uploads_and_submits_csv(tmp_path: Path) -> None:
     content = b"input fixture"
     worker, coordinator, artifacts, runner, _ = daemon(tmp_path, make_task(content), content)
-    assert worker.run_once() is True
+    assert worker.run_once() == RunOnceOutcome(claimed=True, completed=True)
     assert runner.calls == 1
     assert len(artifacts.uploaded) == 1
     assert coordinator.heartbeats == [("task-1", 1, "worker-1")]
@@ -104,24 +108,153 @@ def test_claims_runs_uploads_and_submits_csv(tmp_path: Path) -> None:
 
 def test_no_task_does_not_create_directory(tmp_path: Path) -> None:
     worker, _, _, runner, config = daemon(tmp_path, None, b"")
-    assert worker.run_once() is False
+    assert worker.run_once() == RunOnceOutcome(claimed=False, completed=False)
     assert runner.calls == 0
     assert not config.work_dir.exists()
 
 
+def test_once_worker_exits_after_an_empty_claim(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="scimesh.worker")
+    worker, _, _, runner, _ = daemon(tmp_path, None, b"")
+    worker.config = WorkerConfig(**{**worker.config.__dict__, "exit_when_idle": True, "max_tasks": 1})
+    assert worker.run_forever() is True
+    assert runner.calls == 0
+    assert "queue_empty" in caplog.text
+
+
+def test_worker_stops_after_the_configured_number_of_claims(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="scimesh.worker")
+    content = b"input fixture"
+    worker, _, _, runner, _ = daemon(tmp_path, make_task(content), content)
+    worker.config = WorkerConfig(**{**worker.config.__dict__, "max_tasks": 1})
+    assert worker.run_forever() is True
+    assert runner.calls == 1
+    assert "max_tasks_reached" in caplog.text
+
+
+def test_keyboard_interrupt_stops_worker_without_propagating(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="scimesh.worker")
+    class InterruptingCoordinator(FakeCoordinator):
+        def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
+            raise KeyboardInterrupt
+
+    worker, _, _, _, _ = daemon(tmp_path, None, b"")
+    worker.coordinator = InterruptingCoordinator(None)
+    assert worker.run_forever() is False
+    assert "interrupted" in caplog.text
+
+
+def test_interrupting_an_active_task_reports_a_sanitized_failure(tmp_path: Path) -> None:
+    content = b"input fixture"
+    worker, coordinator, _, _, _ = daemon(tmp_path, make_task(content), content)
+
+    class InterruptingRunner(FakeRunner):
+        def run(self, task: ClaimedTask, task_dir: Path) -> RunResult:
+            raise KeyboardInterrupt
+
+    worker.runner = InterruptingRunner()
+    with pytest.raises(KeyboardInterrupt):
+        worker.run_once()
+    assert coordinator.failures == [
+        {
+            "worker_id": "worker-1",
+            "attempt": 1,
+            "error_code": "InterruptedError",
+            "error_message": "worker interrupted by operator",
+        }
+    ]
+
+
+def test_max_tasks_counts_successes_not_failed_claims(tmp_path: Path) -> None:
+    successful_content = b"successful input"
+
+    class SequencedCoordinator(FakeCoordinator):
+        def __init__(self) -> None:
+            super().__init__(None)
+            self.tasks = [
+                make_task(b"bad input", "wrong-checksum"),
+                ClaimedTask(
+                    "task-2",
+                    1,
+                    (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat(),
+                    "similarity-search",
+                    InputArtifact(
+                        "https://example.test/input",
+                        hashlib.sha256(successful_content).hexdigest(),
+                    ),
+                    {"query_id": "CHEMBL1"},
+                ),
+            ]
+
+        def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
+            return self.tasks.pop(0) if self.tasks else None
+
+    coordinator = SequencedCoordinator()
+    artifacts, runner = FakeArtifacts(successful_content), FakeRunner()
+    config = WorkerConfig("https://example.test", "worker-1", tmp_path / "work", max_tasks=1)
+    worker = WorkerDaemon(config, coordinator, artifacts, runner)
+    assert worker.run_forever() is True
+    assert len(coordinator.failures) == 1
+    assert len(coordinator.submissions) == 1
+    assert runner.calls == 1
+
+
+def test_worker_cli_lifecycle_options_are_explicit_and_exclusive() -> None:
+    parser = build_parser()
+    assert parser.parse_args(["--once"]).once is True
+    assert parser.parse_args(["--max-tasks", "2"]).max_tasks == 2
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--once", "--max-tasks", "2"])
+
+
+def test_worker_cli_uses_a_nonzero_exit_code_for_interruption(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class InterruptedDaemon:
+        def __init__(self, *_: object) -> None:
+            pass
+
+        def run_forever(self) -> bool:
+            return False
+
+    monkeypatch.setattr(worker_cli, "WorkerDaemon", InterruptedDaemon)
+    assert worker_cli.main(
+        ["--coordinator-url", "https://example.test", "--work-dir", str(tmp_path)]
+    ) == 130
+
+
+@pytest.mark.parametrize("value", [0, -1, True])
+def test_max_tasks_must_be_positive(value: object, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="max_tasks"):
+        WorkerConfig("https://example.test", None, tmp_path, max_tasks=value)  # type: ignore[arg-type]
+
+
 def test_bad_checksum_reports_failure_without_running(tmp_path: Path) -> None:
     worker, coordinator, _, runner, _ = daemon(tmp_path, make_task(b"actual", "not-the-hash"), b"actual")
-    assert worker.run_once() is True
+    assert worker.run_once() == RunOnceOutcome(claimed=True, completed=False)
     assert runner.calls == 0
     assert coordinator.failures[0]["error_code"] == "ValueError"
     assert not coordinator.submissions
+
+
+def test_failure_reporting_removes_paths_outside_the_worker_directory(tmp_path: Path) -> None:
+    worker, coordinator, _, _, _ = daemon(tmp_path, make_task(b"input"), b"input")
+    error = subprocess.CalledProcessError(
+        1,
+        ["/home/alice/.venv/bin/python", "-m", "scimesh.cli", "/private/input.tsv"],
+    )
+    worker._report_failure(make_task(b"input"), error)
+    message = coordinator.failures[0]["error_message"]
+    assert "/home/alice" not in message
+    assert "/private/input.tsv" not in message
+    assert "<path>" in message
 
 
 def test_directory_creation_failure_is_reported(tmp_path: Path) -> None:
     content = b"input fixture"
     worker, coordinator, _, _, config = daemon(tmp_path, make_task(content), content)
     (config.work_dir / "task-1" / "1").mkdir(parents=True)
-    assert worker.run_once() is True
+    assert worker.run_once() == RunOnceOutcome(claimed=True, completed=False)
     assert coordinator.failures[0]["error_code"] == "FileExistsError"
 
 
@@ -312,6 +445,7 @@ def test_environment_overrides_allow_cli_only_configuration(monkeypatch: pytest.
     assert config.worker_id is None
     assert "similarity-search" in config.capabilities
     assert "similarity_search" in config.capabilities
+    assert "similarity-graph" not in config.capabilities
 
 
 def test_relative_work_dir_is_normalized_for_runner_subprocesses(

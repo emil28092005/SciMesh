@@ -7,11 +7,18 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // ErrNoRows is returned when the input has a header but no data rows: a job with
 // zero tasks could never complete, so it is rejected at the source.
 var ErrNoRows = fmt.Errorf("input has no data rows")
+
+// maxShardBytes bounds the coordinator memory used by one in-progress shard.
+// The uploaded file may be much larger: it is first stored on disk, then split
+// in small bounded pieces. Operators can lower rowsPerShard when this limit is
+// reached rather than exhausting the coordinator process.
+const maxShardBytes = 64 << 20 // 64 MiB
 
 // SplitTSV reads a header-plus-rows text stream and cuts it into shards of at
 // most rowsPerShard data rows. Every shard repeats the header, so a worker can
@@ -26,13 +33,25 @@ var ErrNoRows = fmt.Errorf("input has no data rows")
 // Only one shard is buffered at a time, so memory is bounded by shard size (a
 // worker-sized slice of the data), not by the size of the whole dataset.
 func SplitTSV(r io.Reader, rowsPerShard int, emit func(index int, shard io.Reader) error) error {
-	return SplitTSVLimit(r, rowsPerShard, 0, emit)
+	return splitTSVLimit(r, rowsPerShard, 0, nil, emit)
 }
 
 // SplitTSVLimit behaves like SplitTSV but emits no more than maxRows data rows.
 // A maxRows value of zero means unlimited. This lets an operator make a small,
 // representative pipeline check without materialising a second dataset file.
 func SplitTSVLimit(r io.Reader, rowsPerShard, maxRows int, emit func(index int, shard io.Reader) error) error {
+	return splitTSVLimit(r, rowsPerShard, maxRows, nil, emit)
+}
+
+// SplitChEMBLTSVLimit is the coordinator's scientific-upload splitter. It
+// validates the two columns every local SciMesh workload requires before any
+// shard task is persisted, while generic SplitTSV remains reusable for future
+// non-chemistry workloads.
+func SplitChEMBLTSVLimit(r io.Reader, rowsPerShard, maxRows int, emit func(index int, shard io.Reader) error) error {
+	return splitTSVLimit(r, rowsPerShard, maxRows, validateChEMBLHeader, emit)
+}
+
+func splitTSVLimit(r io.Reader, rowsPerShard, maxRows int, validateHeader func([]byte) error, emit func(index int, shard io.Reader) error) error {
 	if rowsPerShard <= 0 {
 		return fmt.Errorf("rowsPerShard must be positive, got %d", rowsPerShard)
 	}
@@ -51,6 +70,11 @@ func SplitTSVLimit(r io.Reader, rowsPerShard, maxRows int, emit func(index int, 
 		return ErrNoRows // completely empty input
 	}
 	header := append([]byte(nil), sc.Bytes()...)
+	if validateHeader != nil {
+		if err := validateHeader(header); err != nil {
+			return err
+		}
+	}
 
 	var (
 		buf   bytes.Buffer
@@ -71,8 +95,14 @@ func SplitTSVLimit(r io.Reader, rowsPerShard, maxRows int, emit func(index int, 
 
 	for sc.Scan() {
 		if rows == 0 {
+			if len(header)+1 > maxShardBytes {
+				return fmt.Errorf("TSV header exceeds maximum shard size of %d bytes", maxShardBytes)
+			}
 			buf.Write(header)
 			buf.WriteByte('\n')
+		}
+		if buf.Len()+len(sc.Bytes())+1 > maxShardBytes {
+			return fmt.Errorf("shard exceeds maximum size of %d bytes; lower rowsPerShard", maxShardBytes)
 		}
 		buf.Write(sc.Bytes())
 		buf.WriteByte('\n')
@@ -100,6 +130,20 @@ func SplitTSVLimit(r io.Reader, rowsPerShard, maxRows int, emit func(index int, 
 
 	if index == 0 {
 		return ErrNoRows // header only, no data
+	}
+	return nil
+}
+
+func validateChEMBLHeader(header []byte) error {
+	seen := make(map[string]struct{})
+	for _, field := range strings.Split(strings.TrimPrefix(string(header), "\ufeff"), "\t") {
+		seen[field] = struct{}{}
+	}
+	if _, ok := seen["chembl_id"]; !ok {
+		return fmt.Errorf("TSV is missing required column chembl_id")
+	}
+	if _, ok := seen["canonical_smiles"]; !ok {
+		return fmt.Errorf("TSV is missing required column canonical_smiles")
 	}
 	return nil
 }
