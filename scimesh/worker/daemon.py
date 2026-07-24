@@ -81,26 +81,43 @@ class WorkerDaemon:
 
     def run_forever(self) -> None:
         failures = 0
-        while True:
-            try:
-                if not self._registered:
-                    self._register_worker()
-                self._cleanup_expired_directories()
-                claimed = self.run_once()
-                failures = 0
-                if not claimed:
-                    self._sleep(self.config.poll_interval)
-            except CoordinatorTransientError as error:
-                failures += 1
-                self._log("failed", error_type=type(error).__name__)
-                self._sleep(min(self.config.poll_interval * 2 ** min(failures, 6), 60.0))
+        processed_tasks = 0
+        self._log(
+            "started",
+            max_tasks=self.config.max_tasks,
+            exit_when_idle=self.config.exit_when_idle,
+        )
+        try:
+            while True:
+                try:
+                    if not self._registered:
+                        self._register_worker()
+                    self._cleanup_expired_directories()
+                    claimed = self.run_once()
+                    failures = 0
+                    if claimed:
+                        processed_tasks += 1
+                        if self.config.max_tasks is not None and processed_tasks >= self.config.max_tasks:
+                            self._log("stopped", reason="max_tasks_reached", processed_tasks=processed_tasks)
+                            return
+                    elif self.config.exit_when_idle:
+                        self._log("stopped", reason="queue_empty", processed_tasks=processed_tasks)
+                        return
+                    else:
+                        self._sleep(self.config.poll_interval)
+                except CoordinatorTransientError as error:
+                    failures += 1
+                    self._log("failed", error_type=type(error).__name__)
+                    self._sleep(min(self.config.poll_interval * 2 ** min(failures, 6), 60.0))
+        except KeyboardInterrupt:
+            self._log("stopped", reason="interrupted", processed_tasks=processed_tasks)
 
     def run_once(self) -> bool:
         worker_id = self._worker_id()
-        self._log("claiming")
+        self._log("claiming", log_level=logging.DEBUG)
         task = self.coordinator.claim(worker_id, self.config.capabilities)
         if task is None:
-            self._log("idle")
+            self._log("idle", log_level=logging.DEBUG)
             return False
         started = time.monotonic()
         task_dir = self.config.work_dir / task.task_id / str(task.attempt)
@@ -135,7 +152,7 @@ class WorkerDaemon:
                     },
                 },
             )
-            self._log("idle", task, elapsed_seconds=round(time.monotonic() - started, 3))
+            self._log("completed", task, elapsed_seconds=round(time.monotonic() - started, 3))
         except CoordinatorConflictError as error:
             self._log("lease_lost", task, error_type=type(error).__name__)
         except Exception as error:
@@ -180,9 +197,16 @@ class WorkerDaemon:
         """Keep completion payload exact: coordinator owns all artifact metadata."""
         return {"artifact_id": uploaded.artifact_id}
 
-    def _log(self, state: str, task: ClaimedTask | None = None, **extra: object) -> None:
+    def _log(
+        self,
+        state: str,
+        task: ClaimedTask | None = None,
+        *,
+        log_level: int = logging.INFO,
+        **extra: object,
+    ) -> None:
         fields = {"worker_id": self.config.worker_id, "task_id": task.task_id if task else None, "attempt": task.attempt if task else None, "state": state, **extra}
-        self.log.info("worker_event %s", fields)
+        self.log.log(log_level, "worker_event %s", fields)
 
     def _cleanup_expired_directories(self) -> None:
         """Remove only old task attempt directories when retention was configured."""

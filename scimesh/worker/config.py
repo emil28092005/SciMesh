@@ -36,6 +36,8 @@ class WorkerConfig:
     heartbeat_interval: float = 15.0
     bearer_token: str | None = None
     cleanup_after_seconds: float | None = None
+    max_tasks: int | None = None
+    exit_when_idle: bool = False
     # The local CLI uses hyphens; the first coordinator contract used
     # underscores. Advertise both stable spellings while jobs are migrated.
     capabilities: tuple[str, ...] = (
@@ -66,6 +68,15 @@ class WorkerConfig:
         _positive_number(self.heartbeat_interval, "heartbeat_interval")
         if self.cleanup_after_seconds is not None:
             _positive_number(self.cleanup_after_seconds, "cleanup_after_seconds", allow_zero=True)
+        if self.max_tasks is not None:
+            if (
+                isinstance(self.max_tasks, bool)
+                or not isinstance(self.max_tasks, int)
+                or self.max_tasks < 1
+            ):
+                raise ValueError("max_tasks must be positive when set")
+        if not isinstance(self.exit_when_idle, bool):
+            raise ValueError("exit_when_idle must be a boolean")
         if not self.capabilities:
             raise ValueError("capabilities cannot be empty")
         # Runner subprocesses use a task directory as their cwd. Keep the
@@ -90,6 +101,7 @@ class WorkerConfig:
         cleanup = value("cleanup_after_seconds", "SCIMESH_CLEANUP_AFTER_SECONDS")
         cpu_count = value("cpu_count", "SCIMESH_CPU_COUNT", os.cpu_count() or 1)
         memory_mb = value("memory_mb", "SCIMESH_MEMORY_MB")
+        max_tasks = value("max_tasks", "SCIMESH_MAX_TASKS")
         return cls(
             coordinator_url=url.rstrip("/"),
             worker_id=value("worker_id", "SCIMESH_WORKER_ID"),
@@ -102,4 +114,6 @@ class WorkerConfig:
             heartbeat_interval=float(value("heartbeat_interval", "SCIMESH_HEARTBEAT_INTERVAL", "15")),
             bearer_token=value("bearer_token", "SCIMESH_BEARER_TOKEN"),
             cleanup_after_seconds=float(cleanup) if cleanup else None,
+            max_tasks=int(max_tasks) if max_tasks is not None else None,
+            exit_when_idle=bool(values.get("exit_when_idle", False)),
         )

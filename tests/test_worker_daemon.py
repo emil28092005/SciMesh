@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from pathlib import Path
 import time
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,7 @@ from urllib.request import Request
 import pytest
 
 from scimesh.worker.config import WorkerConfig
+from scimesh.worker.cli import build_parser
 from scimesh.worker.coordinator import CoordinatorTransientError
 from scimesh.worker.daemon import LeaseHeartbeat, WorkerDaemon
 from scimesh.worker.models import (
@@ -107,6 +109,51 @@ def test_no_task_does_not_create_directory(tmp_path: Path) -> None:
     assert worker.run_once() is False
     assert runner.calls == 0
     assert not config.work_dir.exists()
+
+
+def test_once_worker_exits_after_an_empty_claim(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="scimesh.worker")
+    worker, _, _, runner, _ = daemon(tmp_path, None, b"")
+    worker.config = WorkerConfig(**{**worker.config.__dict__, "exit_when_idle": True, "max_tasks": 1})
+    worker.run_forever()
+    assert runner.calls == 0
+    assert "queue_empty" in caplog.text
+
+
+def test_worker_stops_after_the_configured_number_of_claims(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="scimesh.worker")
+    content = b"input fixture"
+    worker, _, _, runner, _ = daemon(tmp_path, make_task(content), content)
+    worker.config = WorkerConfig(**{**worker.config.__dict__, "max_tasks": 1})
+    worker.run_forever()
+    assert runner.calls == 1
+    assert "max_tasks_reached" in caplog.text
+
+
+def test_keyboard_interrupt_stops_worker_without_propagating(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="scimesh.worker")
+    class InterruptingCoordinator(FakeCoordinator):
+        def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
+            raise KeyboardInterrupt
+
+    worker, _, _, _, _ = daemon(tmp_path, None, b"")
+    worker.coordinator = InterruptingCoordinator(None)
+    worker.run_forever()
+    assert "interrupted" in caplog.text
+
+
+def test_worker_cli_lifecycle_options_are_explicit_and_exclusive() -> None:
+    parser = build_parser()
+    assert parser.parse_args(["--once"]).once is True
+    assert parser.parse_args(["--max-tasks", "2"]).max_tasks == 2
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--once", "--max-tasks", "2"])
+
+
+@pytest.mark.parametrize("value", [0, -1, True])
+def test_max_tasks_must_be_positive(value: object, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="max_tasks"):
+        WorkerConfig("https://example.test", None, tmp_path, max_tasks=value)  # type: ignore[arg-type]
 
 
 def test_bad_checksum_reports_failure_without_running(tmp_path: Path) -> None:

@@ -84,7 +84,7 @@ start_worker() {
         SCIMESH_BEARER_TOKEN="$TOKEN" \
         SCIMESH_WORKER_NAME="$worker_name" \
         SCIMESH_POLL_INTERVAL=0.2 \
-        "$WORKER_PYTHON" -m scimesh.worker.cli --work-dir "$worker_dir" >"$worker_dir.log" 2>&1 &
+        "$WORKER_PYTHON" -m scimesh.worker.cli --work-dir "$worker_dir" --max-tasks 2 >"$worker_dir.log" 2>&1 &
     STARTED_WORKER_PID=$!
 }
 

@@ -193,6 +193,31 @@ Per the worker contract, at minimum:
 - poll interval and request timeout
 - a working directory for downloaded inputs and generated outputs
 
+## Run the reference worker locally
+
+Use one terminal per worker and a distinct work directory for each process:
+
+```sh
+SCIMESH_COORDINATOR_URL=http://localhost:8080 \
+SCIMESH_BEARER_TOKEN=dev-token \
+SCIMESH_WORKER_NAME=worker-1 \
+scimesh-worker --work-dir "$PWD/worker-data-1"
+```
+
+For a bounded manual check, use one of these lifecycle modes:
+
+```sh
+# Make exactly one claim; exit immediately when no task is available.
+scimesh-worker --work-dir "$PWD/worker-data-check" --once
+
+# Keep polling until two tasks have been claimed and handled, then exit.
+scimesh-worker --work-dir "$PWD/worker-data-check" --max-tasks 2
+```
+
+`SCIMESH_MAX_TASKS` provides the same limit through the environment. Pressing
+`Ctrl+C` stops the reference worker cleanly; it reports a concise `stopped`
+event rather than a traceback.
+
 ## Generate a client from the spec
 
 Instead of hand-writing request code, generate it:
