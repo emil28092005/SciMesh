@@ -472,7 +472,7 @@ func TestSimilaritySearchLifecyclePublishesFinalResult(t *testing.T) {
 	}
 	defer uiResponse.Body.Close()
 	uiBody, _ := io.ReadAll(uiResponse.Body)
-	if uiResponse.StatusCode != http.StatusOK || !strings.Contains(string(uiBody), "Final result ready") || !strings.Contains(string(uiBody), "Preview CSV") {
+	if uiResponse.StatusCode != http.StatusOK || !strings.Contains(string(uiBody), "Final result ready") || !strings.Contains(string(uiBody), "Preview CSV") || !strings.Contains(string(uiBody), "Processing speed") {
 		t.Fatalf("final UI = (%d, %q)", uiResponse.StatusCode, uiBody)
 	}
 
