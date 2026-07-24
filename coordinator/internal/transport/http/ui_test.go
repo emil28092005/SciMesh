@@ -43,3 +43,12 @@ func TestUITaskErrorPresentationDoesNotExposeCommand(t *testing.T) {
 		t.Error("error hint must explain the failure")
 	}
 }
+
+func TestUIWorkerStatusPresentation(t *testing.T) {
+	if got := uiWorkerStatusLabel("busy"); got != "Busy" {
+		t.Errorf("busy worker label = %q", got)
+	}
+	if got := uiWorkerStatusClass("busy"); got != "active" {
+		t.Errorf("busy worker class = %q", got)
+	}
+}

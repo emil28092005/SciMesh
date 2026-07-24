@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,17 +22,21 @@ type UIReadRepository interface {
 }
 
 type JobCard struct {
-	ID        string    `json:"id"`
-	Workload  string    `json:"workload"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	Total     int       `json:"total"`
-	Pending   int       `json:"pending"`
-	Leased    int       `json:"leased"`
-	Running   int       `json:"running"`
-	Completed int       `json:"completed"`
-	Failed    int       `json:"failed"`
-	Cancelled int       `json:"cancelled"`
+	ID               string     `json:"id"`
+	Workload         string     `json:"workload"`
+	Status           string     `json:"status"`
+	CreatedAt        time.Time  `json:"created_at"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	ReducerStartedAt *time.Time `json:"reducer_started_at,omitempty"`
+	ErrorCode        string     `json:"error_code,omitempty"`
+	ErrorMessage     string     `json:"error_message,omitempty"`
+	Total            int        `json:"total"`
+	Pending          int        `json:"pending"`
+	Leased           int        `json:"leased"`
+	Running          int        `json:"running"`
+	Completed        int        `json:"completed"`
+	Failed           int        `json:"failed"`
+	Cancelled        int        `json:"cancelled"`
 }
 
 type TaskCard struct {
@@ -42,8 +47,18 @@ type TaskCard struct {
 	MaxAttempts    int        `json:"max_attempts"`
 	LeaseOwner     string     `json:"lease_owner,omitempty"`
 	LeaseExpiresAt *time.Time `json:"lease_expires_at,omitempty"`
+	StartedAt      *time.Time `json:"started_at,omitempty"`
+	CompletedAt    *time.Time `json:"completed_at,omitempty"`
 	ErrorCode      string     `json:"error_code,omitempty"`
 	ErrorMessage   string     `json:"error_message,omitempty"`
+}
+
+// ParameterCard is an intentionally small allowlist of run configuration that
+// helps an operator verify what is being computed without exposing arbitrary
+// job payloads to the browser.
+type ParameterCard struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
 }
 
 type ArtifactCard struct {
@@ -65,14 +80,18 @@ type WorkerCard struct {
 }
 
 type DashboardView struct {
-	Jobs    []JobCard
-	Workers []WorkerCard
+	Jobs          []JobCard    `json:"jobs"`
+	Workers       []WorkerCard `json:"workers"`
+	ActiveJobs    int          `json:"active_jobs"`
+	FinishedJobs  int          `json:"finished_jobs"`
+	OnlineWorkers int          `json:"online_workers"`
 }
 type JobDetailView struct {
 	JobCard
-	Tasks                []TaskCard     `json:"tasks"`
-	Artifacts            []ArtifactCard `json:"artifacts"`
-	FinalResultAvailable bool           `json:"final_result_available"`
+	Tasks                []TaskCard      `json:"tasks"`
+	Artifacts            []ArtifactCard  `json:"artifacts"`
+	Parameters           []ParameterCard `json:"parameters"`
+	FinalResultAvailable bool            `json:"final_result_available"`
 }
 
 type Dashboard struct{ read UIReadRepository }
@@ -98,10 +117,20 @@ func (d *Dashboard) Overview(ctx context.Context, limit int) (DashboardView, err
 		return DashboardView{}, err
 	}
 	for _, job := range jobs {
-		out.Jobs = append(out.Jobs, jobCard(job, tasksByJob[job.ID]))
+		card := jobCard(job, tasksByJob[job.ID])
+		out.Jobs = append(out.Jobs, card)
+		switch card.Status {
+		case string(domain.JobCompleted), string(domain.JobFailed), string(domain.JobCancelled):
+			out.FinishedJobs++
+		default:
+			out.ActiveJobs++
+		}
 	}
 	for _, worker := range workers {
 		out.Workers = append(out.Workers, WorkerCard{ID: worker.ID.String(), Name: worker.Name, Status: string(worker.Status), Capabilities: worker.Capabilities, LastHeartbeatAt: worker.LastHeartbeatAt})
+		if worker.Status == domain.WorkerOnline || worker.Status == domain.WorkerBusy {
+			out.OnlineWorkers++
+		}
 	}
 	return out, nil
 }
@@ -119,11 +148,27 @@ func (d *Dashboard) JobDetail(ctx context.Context, jobID uuid.UUID) (JobDetailVi
 	if err != nil {
 		return JobDetailView{}, err
 	}
-	out := JobDetailView{JobCard: jobCard(*job, tasks), Tasks: make([]TaskCard, 0, len(tasks)), Artifacts: make([]ArtifactCard, 0, len(artifacts))}
+	workers, err := d.read.ListWorkers(ctx, 100)
+	if err != nil {
+		return JobDetailView{}, err
+	}
+	workerNames := make(map[string]string, len(workers))
+	for _, worker := range workers {
+		workerNames[worker.ID.String()] = worker.Name
+	}
+	out := JobDetailView{
+		JobCard:    jobCard(*job, tasks),
+		Tasks:      make([]TaskCard, 0, len(tasks)),
+		Artifacts:  make([]ArtifactCard, 0, len(artifacts)),
+		Parameters: uiParameters(job.Parameters),
+	}
 	for _, task := range tasks {
-		card := TaskCard{ID: task.ID.String(), ChunkIndex: task.ChunkIndex, Status: string(task.Status), Attempt: task.Attempt, MaxAttempts: task.MaxAttempts, LeaseExpiresAt: task.LeaseExpiresAt}
+		card := TaskCard{ID: task.ID.String(), ChunkIndex: task.ChunkIndex, Status: string(task.Status), Attempt: task.Attempt, MaxAttempts: task.MaxAttempts, LeaseExpiresAt: task.LeaseExpiresAt, StartedAt: task.StartedAt, CompletedAt: task.CompletedAt}
 		if task.LeaseOwner != nil {
-			card.LeaseOwner = *task.LeaseOwner
+			card.LeaseOwner = workerNames[*task.LeaseOwner]
+			if card.LeaseOwner == "" {
+				card.LeaseOwner = "Worker " + shortID(*task.LeaseOwner)
+			}
 		}
 		if task.ErrorCode != nil {
 			card.ErrorCode = *task.ErrorCode
@@ -158,7 +203,13 @@ func (d *Dashboard) ArtifactBelongsToJob(ctx context.Context, jobID, artifactID 
 }
 
 func jobCard(job domain.Job, tasks []domain.Task) JobCard {
-	c := JobCard{ID: job.ID.String(), Workload: job.Workload, CreatedAt: job.CreatedAt}
+	c := JobCard{ID: job.ID.String(), Workload: job.Workload, CreatedAt: job.CreatedAt, CompletedAt: job.CompletedAt, ReducerStartedAt: job.ReducerStartedAt}
+	if job.ErrorCode != nil {
+		c.ErrorCode = *job.ErrorCode
+	}
+	if job.ErrorMessage != nil {
+		c.ErrorMessage = *job.ErrorMessage
+	}
 	for _, task := range tasks {
 		c.Total++
 		switch task.Status {
@@ -179,4 +230,47 @@ func jobCard(job domain.Job, tasks []domain.Task) JobCard {
 	p := domain.JobProgress{Job: job, Total: c.Total, Pending: c.Pending, Leased: c.Leased + c.Running, Done: c.Completed, Failed: c.Failed, Cancelled: c.Cancelled}
 	c.Status = string(p.DeriveStatus())
 	return c
+}
+
+func uiParameters(parameters map[string]any) []ParameterCard {
+	keys := []struct {
+		key   string
+		label string
+	}{
+		{"query_smiles", "Target SMILES"},
+		{"query_id", "Target ChEMBL ID"},
+		{"top_k", "Global top-k"},
+		{"threshold", "Similarity threshold"},
+		{"threshold_direction", "Threshold direction"},
+	}
+	out := make([]ParameterCard, 0, len(keys))
+	for _, entry := range keys {
+		value, ok := parameters[entry.key]
+		if !ok {
+			continue
+		}
+		formatted, ok := formatUIParameter(value)
+		if ok {
+			out = append(out, ParameterCard{Label: entry.label, Value: formatted})
+		}
+	}
+	return out
+}
+
+func formatUIParameter(value any) (string, bool) {
+	switch typed := value.(type) {
+	case string:
+		return typed, true
+	case int, int64, float64, bool:
+		return fmt.Sprint(typed), true
+	default:
+		return "", false
+	}
+}
+
+func shortID(value string) string {
+	if len(value) <= 8 {
+		return value
+	}
+	return value[:8]
 }

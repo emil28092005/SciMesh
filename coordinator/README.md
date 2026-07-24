@@ -76,10 +76,19 @@ UI_AUTH_TOKEN='local-ui-secret' make up
 ```
 
 The UI is disabled by default and never accepts the worker bearer token.
-It shows recent jobs, task/worker state, diagnostic shard artifacts, and the
-final CSV for completed similarity-search jobs. The coordinator enters
-`reducing` after the last shard completes, then exposes the final deterministic
-global top-k result when merging succeeds.
+The **control room** shows live workers, recent runs, shard state/attempts,
+safe failures, coordinator artifacts, and the final CSV for completed
+similarity-search jobs. The job page follows the real stages: TSV accepted →
+shards execute → workers return CSVs → `reducing` → final deterministic global
+top-k result. It polls only its own coordinator read-model and never controls
+or exposes worker processes.
+
+For a hands-on run, open `/ui`, choose **New similarity search**, select a
+small ChEMBL-style TSV, then leave one or more `scimesh-worker` processes
+running in separate terminals. The detail page updates every two seconds and
+stops polling after a completed, failed, or cancelled job. Download the
+`final_result` artifact only after the job reaches **Completed**; shard partial
+CSVs remain available as diagnostics.
 
 `up` starts three services in order: Postgres waits until `pg_isready` passes, a
 one-shot `migrate` container applies the schema and exits, and only then does the

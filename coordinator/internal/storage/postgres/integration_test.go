@@ -133,6 +133,33 @@ func TestClaimReductionIsAtomic(t *testing.T) {
 	}
 }
 
+func TestUIReadRepoListsReducerFields(t *testing.T) {
+	pool := testPool(t)
+	job, _ := seedJob(t, pool, 1)
+	jobs := NewJobRepo(pool)
+	ctx := context.Background()
+	if err := jobs.UpdateStatus(ctx, job.ID, domain.JobReducing, nil); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := jobs.ClaimReduction(ctx, job.ID, time.Now().UTC()); err != nil || !claimed {
+		t.Fatalf("claim reduction = (%v, %v)", claimed, err)
+	}
+	listed, err := NewUIReadRepo(pool).ListJobs(ctx, 20)
+	if err != nil {
+		t.Fatalf("list UI jobs: %v", err)
+	}
+	for _, item := range listed {
+		if item.ID != job.ID {
+			continue
+		}
+		if item.Status != domain.JobReducing || item.ReducerStartedAt == nil {
+			t.Fatalf("UI reducer projection = %+v", item)
+		}
+		return
+	}
+	t.Fatalf("seeded job %s is missing from UI list", job.ID)
+}
+
 // A job must land whole or not at all: a half-created job leaves chunks no
 // worker could ever complete.
 func TestCreateJobRollsBackOnFailure(t *testing.T) {

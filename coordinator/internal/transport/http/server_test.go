@@ -152,8 +152,33 @@ func TestUIRequiresDistinctCredentialAndRendersDashboard(t *testing.T) {
 		t.Fatalf("UI status: %d", resp.StatusCode)
 	}
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "SciMesh operator dashboard") {
+	if !strings.Contains(string(body), "SciMesh control room") {
 		t.Errorf("dashboard body missing title")
+	}
+}
+
+func TestUIOverviewReturnsLiveSafeProjection(t *testing.T) {
+	e := newEnv(t, healthy)
+	code, _ := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
+	if code != http.StatusCreated {
+		t.Fatalf("create job: %d", code)
+	}
+	req, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui/api/overview", nil)
+	req.SetBasicAuth("operator", uiToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var overview map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&overview); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || overview["active_jobs"].(float64) != 1 || overview["online_workers"].(float64) != 1 {
+		t.Fatalf("overview = (%d, %v)", resp.StatusCode, overview)
+	}
+	if _, leaked := overview["worker_auth_token"]; leaked {
+		t.Fatal("overview must not expose authentication configuration")
 	}
 }
 
@@ -436,6 +461,33 @@ func TestSimilaritySearchLifecyclePublishesFinalResult(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK || string(body) != "rank,chembl_id,canonical_smiles,similarity\n1,A,CC,0.900000\n" {
 		t.Fatalf("final result = (%d, %q)", resp.StatusCode, body)
+	}
+
+	uiRequest, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui/jobs/"+jobID, nil)
+	uiRequest.SetBasicAuth("operator", uiToken)
+	uiResponse, err := http.DefaultClient.Do(uiRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer uiResponse.Body.Close()
+	uiBody, _ := io.ReadAll(uiResponse.Body)
+	if uiResponse.StatusCode != http.StatusOK || !strings.Contains(string(uiBody), "Final result ready") {
+		t.Fatalf("final UI = (%d, %q)", uiResponse.StatusCode, uiBody)
+	}
+
+	jsonRequest, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui/api/jobs/"+jobID, nil)
+	jsonRequest.SetBasicAuth("operator", uiToken)
+	jsonResponse, err := http.DefaultClient.Do(jsonRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer jsonResponse.Body.Close()
+	var detail map[string]any
+	if err := json.NewDecoder(jsonResponse.Body).Decode(&detail); err != nil {
+		t.Fatal(err)
+	}
+	if jsonResponse.StatusCode != http.StatusOK || detail["final_result_available"] != true {
+		t.Fatalf("final UI JSON = (%d, %v)", jsonResponse.StatusCode, detail)
 	}
 }
 

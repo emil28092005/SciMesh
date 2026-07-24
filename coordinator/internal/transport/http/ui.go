@@ -26,6 +26,7 @@ var uiTemplates = template.Must(template.New("ui").Funcs(template.FuncMap{
 	"taskErrorLabel":    uiTaskErrorLabel,
 	"taskErrorHint":     uiTaskErrorHint,
 	"workerStatusLabel": uiWorkerStatusLabel,
+	"workerStatusClass": uiWorkerStatusClass,
 	"workloadLabel":     uiWorkloadLabel,
 	"progressPercent":   uiProgressPercent,
 	"cancellable":       uiCancellable,
@@ -101,10 +102,23 @@ func uiWorkerStatusLabel(status string) string {
 	switch status {
 	case "online":
 		return "Available"
+	case "busy":
+		return "Busy"
 	case "offline":
 		return "Offline"
 	default:
 		return status
+	}
+}
+
+func uiWorkerStatusClass(status string) string {
+	switch status {
+	case "online":
+		return "success"
+	case "busy":
+		return "active"
+	default:
+		return "waiting"
 	}
 }
 
@@ -205,6 +219,20 @@ func (s *Server) handleUIHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderUI(w, "dashboard.html", view)
+}
+
+// handleUIOverviewJSON is the bounded polling projection used by the operator
+// dashboard. It intentionally returns only the safe UI read model, never
+// worker tokens, storage keys, or database entities.
+func (s *Server) handleUIOverviewJSON(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	view, err := s.uc.Dashboard.Overview(ctx, 20)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 func (s *Server) handleUINewJob(w http.ResponseWriter, r *http.Request) {

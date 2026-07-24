@@ -41,12 +41,11 @@ func (r *UIReadRepo) ListJobs(ctx context.Context, limit int) ([]domain.Job, err
 	for rows.Next() {
 		var j domain.Job
 		var status string
-		var inputURI *string
-		if err := rows.Scan(&j.ID, &j.Workload, &inputURI, &j.Parameters, &status, &j.CreatedAt, &j.CompletedAt); err != nil {
+		if err := rows.Scan(
+			&j.ID, &j.Workload, &j.InputURI, &j.Parameters, &status, &j.CreatedAt, &j.CompletedAt,
+			&j.InputArtifactID, &j.ResultArtifactID, &j.ErrorCode, &j.ErrorMessage, &j.ReducerStartedAt,
+		); err != nil {
 			return nil, err
-		}
-		if inputURI != nil {
-			j.InputURI = *inputURI
 		}
 		j.Status = domain.JobStatus(status)
 		jobs = append(jobs, j)

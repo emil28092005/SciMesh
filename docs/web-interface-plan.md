@@ -12,16 +12,28 @@ for a trusted local team. The coordinator remains the only process with direct
 database and artifact-storage access; the browser never calls PostgreSQL and
 never receives a worker bearer token.
 
-The first release must be useful before CTX-07--CTX-10 are complete. Therefore
-it has two visibly different modes:
+## Current delivered scope
+
+The initial operator UI and CTX-09 final reduction are now implemented. The
+control room polls a bounded, coordinator-owned read model every two seconds
+while a tab is visible. It shows the worker fleet, recent jobs, safe shard
+diagnostics, the actual `reducing` phase, and final-result availability. A job
+detail page renders the concrete pipeline stages—input accepted, shards,
+worker CSVs, reduction, final CSV—from coordinator state and replaces task and
+artifact views as work changes. All browser mutations remain limited to
+validated dataset upload and operator cancellation.
+
+The interface must distinguish an in-progress distributed search from a run
+whose reducer has produced a durable final result:
 
 | Mode | What it proves | What it must not claim |
 | --- | --- | --- |
-| **Pipeline check** | Upload, task creation, claim, heartbeat, artifact upload, task completion, retries, and downloads work end-to-end. | That multiple shard results have been scientifically reduced into one answer. |
-| **Final run** | A reducer has produced a durable final CSV for the full job. | Available only after CTX-09, and for graph only after CTX-10. |
+| **In-progress run** | Upload, task creation, claim, heartbeat, artifact upload, task completion, retries, and shard diagnostics work end-to-end. | That the partial CSVs are a global scientific answer. |
+| **Final run** | A reducer has produced a durable final CSV for the full job. | Available for `similarity-search` after CTX-09; graph remains unavailable until CTX-10. |
 
 Never label a partial artifact as a final molecular result. The UI must show a
-clear `Pipeline check — partial results` badge while a reducer is unavailable.
+clear waiting or `reducing` stage until a final artifact exists and the job is
+`completed`.
 
 ## 2. Constraints and decisions
 
@@ -74,7 +86,7 @@ clear `Pipeline check — partial results` badge while a reducer is unavailable.
 | Worker registration/lease flow | Implemented | Add a read-only worker list; no browser worker controls. |
 | Task diagnostics | No public list/detail response | Add sanitized job task list with attempt, status, lease owner, expiry and error. |
 | Artifact download | Worker endpoint exists | Add UI-authorized, job-scoped download proxy. |
-| Final result | Reducer is not implemented | Gate behind CTX-09; show partial diagnostic artifacts meanwhile. |
+| Final result | CTX-09 final artifact and download route exist | Show the `reducing` stage, then make the final CSV prominent only for `completed`. |
 | Distributed graph correctness | Planner/reducer unavailable | Do not advertise a multi-shard graph as final until CTX-10. |
 
 ## 5. Proposed structure
@@ -186,11 +198,10 @@ Rules:
 Inputs: exactly one `query_smiles` or `query_id`, `top_k`, optional threshold,
 threshold direction, `max_rows`, and `progress_every`.
 
-For a runnable manual pipeline check before CTX-08, offer `query_smiles` and
-default `chunk_rows` large enough to create one shard. A `query_id` across
-multiple shards is disabled with an explanation until CTX-07 resolves it once
-before fan-out. The detail page calls an artifact a **partial top-k CSV**, not
-a global top-k, until CTX-09 reduction exists.
+The current upload form accepts `query_smiles`, because resolving a
+cross-shard `query_id` has not yet been connected to coordinator uploads. The
+detail page calls an artifact a **partial top-k CSV** until all shards are
+complete and CTX-09 reduction stores the final global result.
 
 ### 8.3 Similarity graph
 
@@ -283,7 +294,7 @@ checksum/size metadata display, and prominent partial/final labels.
 file; `Content-Disposition` is safe; preview never loads an unbounded CSV; no
 final-result button exists before CTX-09.
 
-### WUI-06 — Final-result UX after CTX-09
+### WUI-06 — Final-result UX after CTX-09 — implemented
 
 **Depends on:** CTX-09 and WUI-05.
 
@@ -365,8 +376,9 @@ that the interface exists today.
 
 ## 13. Definition of done for the first hand-testable release
 
-WUI-00 through WUI-05 are complete when a clean local checkout can run a
-trusted, authenticated local UI; display coordinator readiness, workers, jobs,
-tasks and safe errors; submit a valid small search pipeline check; poll it to a
-terminal task state; and download/preview the coordinator-owned partial CSV.
-The page must make the absence of final reduction impossible to miss.
+The hand-testable release is complete when a clean local checkout can run a
+trusted, authenticated local UI; display workers, jobs, pipeline stages, tasks
+and safe errors; submit a valid small search; poll it through `reducing`; and
+download the coordinator-owned final CSV only after completion. The page must
+make the distinction between partial diagnostics and the final result
+impossible to miss.

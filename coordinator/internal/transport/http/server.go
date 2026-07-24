@@ -81,6 +81,7 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 		ui.HandleFunc("GET /ui", s.handleUIHome)
 		ui.HandleFunc("GET /ui/jobs/new", s.handleUINewJob)
 		ui.HandleFunc("GET /ui/jobs/{job_id}", s.handleUIJob)
+		ui.HandleFunc("GET /ui/api/overview", s.handleUIOverviewJSON)
 		ui.HandleFunc("GET /ui/api/jobs/{job_id}", s.handleUIJobJSON)
 		ui.HandleFunc("POST /ui/api/jobs/{job_id}/cancel", s.handleCancelJob)
 		ui.HandleFunc("POST /ui/api/jobs/upload", s.handleUploadDataset)

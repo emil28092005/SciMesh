@@ -38,7 +38,7 @@ real PostgreSQL smoke test) passed on 2026-07-24.
 | CTX-08 Distributed similarity-search | Implemented | Python planner resolves `query_id` once, creates deterministic shard plans, worker adapter emits exact partial top-k CSVs/metrics, and reducer matches the local reference. |
 | CTX-09 Reducer and final-result API | Implemented | Atomic `reducing` claim, deterministic coordinator-side top-k reducer, sanitized reducer failure, final artifact persistence, `result_uri`, and final CSV download. |
 | CTX-10 Distributed similarity-graph | Not started | Local reference exists. |
-| CTX-11 Dashboard/operator view | Implemented | Protected local view: job/task/worker status, validated similarity-search upload, partial-artifact diagnostics, final-result download, and bounded polling. |
+| CTX-11 Dashboard/operator view | Implemented | Protected live control room: recent-run/worker overview, real pipeline-stage visualization, shard attempts and safe failures, validated similarity-search upload, coordinator artifacts, final-result download, and bounded polling. |
 | CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
 
 ## Next recommended assignment
