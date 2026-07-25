@@ -132,3 +132,10 @@ pytest
 ```
 
 The package separates common dataset parsing and fingerprints from independent workloads. Add future workloads through the workload registry without changing the main CLI.
+
+## Team
+
+- Emil — Project Lead
+- Kristina — Tech Lead
+- Arkhip — Programmer
+- Makar — Programmer
