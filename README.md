@@ -135,7 +135,7 @@ The package separates common dataset parsing and fingerprints from independent w
 
 ## Team
 
-- Emil — Project Lead
-- Kristina — Tech Lead
-- Arkhip — Programmer
-- Makar — Programmer
+- [Emil](https://github.com/emil28092005) — Project Lead
+- [Kristina](https://github.com/kristtma) — Tech Lead
+- [Arkhip](https://github.com/hIpa-ussr) — Programmer
+- [Makar](https://github.com/RERAN4K) — Programmer
