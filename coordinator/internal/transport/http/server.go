@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emil28092005/SciMesh/coordinator/internal/metrics"
 	tokenpkg "github.com/emil28092005/SciMesh/coordinator/internal/token"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
 )
@@ -50,6 +51,8 @@ type Server struct {
 	userserviceURL string
 	// httpClient makes the login/register calls to the userservice.
 	httpClient *http.Client
+	// metrics holds the Prometheus registry and HTTP instrumentation.
+	metrics *metrics.Metrics
 	// ready probes downstream dependencies (the database) for /health. Kept as
 	// a func so the transport layer never imports pgx.
 	ready func(context.Context) error
@@ -66,6 +69,7 @@ func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval 
 		verifier:          tokenpkg.NewVerifier(jwtSecret),
 		userserviceURL:    strings.TrimRight(userserviceURL, "/"),
 		httpClient:        &http.Client{Timeout: 10 * time.Second},
+		metrics:           metrics.New(),
 		ready:             ready,
 	}
 }
@@ -97,6 +101,8 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
+	// Unauthenticated like /health, so a Prometheus scraper needs no credential.
+	mux.Handle("GET /metrics", s.metrics.Handler())
 
 	hasBasicAuth := len(uiToken) > 0 && uiToken[0] != ""
 	if s.uc.Dashboard != nil && (s.uiSessionMode() || hasBasicAuth) {
@@ -157,7 +163,8 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 		withAccessLog(s.log), // including the 401s below
 		withAuth(token, s.verifier),
 	))
-	return mux
+	// Measure every request once, outermost, with a normalized route label.
+	return s.metrics.Middleware(mux)
 }
 
 // handleHealth reports readiness. It probes the database so an orchestrator
