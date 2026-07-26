@@ -32,6 +32,11 @@ type Config struct {
 	// user-JWT auth entirely — the pre-userservice behaviour. Must match the
 	// userservice's JWT_SECRET.
 	JWTSecret string
+	// Base URL of the userservice, e.g. http://userservice:8081. When set
+	// together with JWTSecret, the operator UI authenticates via userservice
+	// login/registration (cookie session) instead of the static UI_AUTH_TOKEN
+	// basic auth. Empty keeps the basic-auth UI.
+	UserserviceURL string
 
 	// Minimum log level: debug, info, warn, error.
 	LogLevel string
@@ -87,6 +92,7 @@ func LoadConfig() (Config, error) {
 		Token:              getEnv("COORDINATOR_TOKEN", os.Getenv("WORKER_AUTH_TOKEN")),
 		UIToken:            os.Getenv("UI_AUTH_TOKEN"),
 		JWTSecret:          os.Getenv("JWT_SECRET"),
+		UserserviceURL:     os.Getenv("USERSERVICE_URL"),
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 		LogFile:            os.Getenv("LOG_FILE"),
 		StorageDir:         getEnv("COORDINATOR_STORAGE_DIR", "./data"),

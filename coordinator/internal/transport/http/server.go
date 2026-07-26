@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	tokenpkg "github.com/emil28092005/SciMesh/coordinator/internal/token"
@@ -44,13 +45,18 @@ type Server struct {
 	// verifier validates userservice JWTs. nil disables user-JWT auth, leaving
 	// only the shared service token — the pre-userservice behaviour.
 	verifier *tokenpkg.Verifier
+	// userserviceURL is the base URL the UI proxies login/registration to. Empty
+	// keeps the static basic-auth UI.
+	userserviceURL string
+	// httpClient makes the login/register calls to the userservice.
+	httpClient *http.Client
 	// ready probes downstream dependencies (the database) for /health. Kept as
 	// a func so the transport layer never imports pgx.
 	ready func(context.Context) error
 }
 
 func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval time.Duration,
-	maxUploadBytes int64, jwtSecret string, ready func(context.Context) error) *Server {
+	maxUploadBytes int64, jwtSecret, userserviceURL string, ready func(context.Context) error) *Server {
 	return &Server{
 		uc:                uc,
 		log:               log,
@@ -58,8 +64,17 @@ func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval 
 		heartbeatInterval: heartbeatInterval,
 		maxUploadBytes:    maxUploadBytes,
 		verifier:          tokenpkg.NewVerifier(jwtSecret),
+		userserviceURL:    strings.TrimRight(userserviceURL, "/"),
+		httpClient:        &http.Client{Timeout: 10 * time.Second},
 		ready:             ready,
 	}
+}
+
+// uiSessionMode reports whether the operator UI authenticates via userservice
+// login (cookie session) rather than the static basic-auth token. It needs both
+// a verifier (to check the JWT locally) and a userservice URL (to issue it).
+func (s *Server) uiSessionMode() bool {
+	return s.verifier != nil && s.userserviceURL != ""
 }
 
 // Handler builds the router. Go 1.22's ServeMux matches on method and path
@@ -82,19 +97,51 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.handleHealth)
-	if len(uiToken) > 0 && uiToken[0] != "" && s.uc.Dashboard != nil {
+
+	hasBasicAuth := len(uiToken) > 0 && uiToken[0] != ""
+	if s.uc.Dashboard != nil && (s.uiSessionMode() || hasBasicAuth) {
 		ui := http.NewServeMux()
-		ui.HandleFunc("GET /ui", s.handleUIHome)
-		ui.HandleFunc("GET /ui/jobs/new", s.handleUINewJob)
-		ui.HandleFunc("GET /ui/jobs/{job_id}", s.handleUIJob)
-		ui.HandleFunc("GET /ui/api/overview", s.handleUIOverviewJSON)
-		ui.HandleFunc("GET /ui/api/jobs/{job_id}", s.handleUIJobJSON)
-		ui.HandleFunc("POST /ui/api/jobs/{job_id}/cancel", s.handleCancelJob)
-		ui.HandleFunc("POST /ui/api/jobs/upload", s.handleUploadDataset)
-		ui.HandleFunc("GET /ui/jobs/{job_id}/artifacts/{artifact_id}", s.handleUIArtifactDownload)
-		ui.HandleFunc("GET /ui/jobs/{job_id}/artifacts/{artifact_id}/preview", s.handleUIArtifactPreview)
-		mux.Handle("/ui", chain(ui, withRequestID, withAccessLog(s.log), withBasicAuth(uiToken[0]), withSameOrigin))
-		mux.Handle("/ui/", chain(ui, withRequestID, withAccessLog(s.log), withBasicAuth(uiToken[0]), withSameOrigin))
+
+		// The operator application routes, all requiring an authenticated caller.
+		app := []struct {
+			pattern string
+			handler http.HandlerFunc
+		}{
+			{"GET /ui", s.handleUIHome},
+			{"GET /ui/jobs/new", s.handleUINewJob},
+			{"GET /ui/jobs/{job_id}", s.handleUIJob},
+			{"GET /ui/api/overview", s.handleUIOverviewJSON},
+			{"GET /ui/api/jobs/{job_id}", s.handleUIJobJSON},
+			{"POST /ui/api/jobs/{job_id}/cancel", s.handleCancelJob},
+			{"POST /ui/api/jobs/upload", s.handleUploadDataset},
+			{"GET /ui/jobs/{job_id}/artifacts/{artifact_id}", s.handleUIArtifactDownload},
+			{"GET /ui/jobs/{job_id}/artifacts/{artifact_id}/preview", s.handleUIArtifactPreview},
+		}
+
+		if s.uiSessionMode() {
+			// Public auth pages — reachable without a session so a user can log in.
+			ui.HandleFunc("GET /ui/login", s.handleUILoginForm)
+			ui.HandleFunc("POST /ui/login", s.handleUILogin)
+			ui.HandleFunc("GET /ui/register", s.handleUIRegisterForm)
+			ui.HandleFunc("POST /ui/register", s.handleUIRegister)
+			ui.HandleFunc("POST /ui/logout", s.handleUILogout)
+			gate := withUISession(s.verifier)
+			for _, rt := range app {
+				ui.Handle(rt.pattern, gate(rt.handler))
+			}
+		} else {
+			for _, rt := range app {
+				ui.HandleFunc(rt.pattern, rt.handler)
+			}
+		}
+
+		common := []func(http.Handler) http.Handler{withRequestID, withAccessLog(s.log)}
+		if !s.uiSessionMode() {
+			common = append(common, withBasicAuth(uiToken[0]))
+		}
+		common = append(common, withSameOrigin)
+		mux.Handle("/ui", chain(ui, common...))
+		mux.Handle("/ui/", chain(ui, common...))
 	} else {
 		// More specific than the protected catch-all: UI absence is not an auth
 		// failure and does not disclose that a UI feature is configured elsewhere.

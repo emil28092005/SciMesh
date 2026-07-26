@@ -1,0 +1,28 @@
+{{define "register.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Register · SciMesh</title>
+  <style>
+    :root{color:#e5efff;background:#08111f;font:16px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 10% -8%,#183f77 0,transparent 32rem),#08111f}a{color:#94bdff}.card{width:min(92vw,380px);border:1px solid #294662;border-radius:15px;background:#0d1a2cdd;box-shadow:0 20px 45px #00000021;padding:28px}.eyebrow{margin:0 0 4px;color:#7baaff;font-size:.78rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase}h1{margin:0 0 18px;color:#f4f8ff;font-size:1.7rem;letter-spacing:-.03em}label{display:block;margin:14px 0 5px;color:#eaf2ff;font-weight:750}input{width:100%;border:1px solid #42617f;border-radius:9px;padding:10px 11px;background:#0a1626;color:#e5efff;font:inherit}input:focus{outline:2px solid #5d97f5;outline-offset:1px}.hint{margin:5px 0 0;color:#92a9c6;font-size:.85rem}.button{display:block;width:100%;margin-top:22px;border:0;border-radius:10px;padding:12px 16px;background:#67e3b8;color:#062018;font:inherit;font-weight:850;cursor:pointer}.error{margin:14px 0 0;color:#ffacba}.alt{margin:18px 0 0;color:#9fb3cf;font-size:.92rem}</style>
+</head>
+<body>
+  <main class="card">
+    <p class="eyebrow">SciMesh</p>
+    <h1>Create account</h1>
+    <form method="post" action="/ui/register">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="username" required autofocus>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required>
+      <p class="hint">At least 8 characters.</p>
+      <button class="button" type="submit">Register</button>
+    </form>
+    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    <p class="alt">Already have an account? <a href="/ui/login">Sign in</a></p>
+  </main>
+</body>
+</html>
+{{end}}
