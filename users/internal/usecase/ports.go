@@ -22,6 +22,9 @@ type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	// GetByID returns the user with id, or ErrUserNotFound.
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
+	// SetVerified toggles the verified flag, returning ErrUserNotFound if no
+	// such user exists.
+	SetVerified(ctx context.Context, id uuid.UUID, verified bool) error
 }
 
 // PasswordHasher hashes and verifies passwords. The bcrypt adapter satisfies it.
@@ -30,9 +33,10 @@ type PasswordHasher interface {
 	Compare(hash, password string) error
 }
 
-// TokenIssuer mints a signed access token for an authenticated user.
+// TokenIssuer mints a signed access token for an authenticated user. It takes
+// the whole user so trust-bearing claims (role, verified) travel in the token.
 type TokenIssuer interface {
-	Issue(userID uuid.UUID, role domain.Role) (string, error)
+	Issue(u *domain.User) (string, error)
 }
 
 // Clock reads the current time; a fake one makes tests deterministic.

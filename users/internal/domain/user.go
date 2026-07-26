@@ -29,8 +29,12 @@ type User struct {
 	Email        string
 	PasswordHash string
 	Role         Role
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// Verified marks a trusted contributor whose workers' results the
+	// coordinator accepts without quorum. Distinct from Role; granted by an
+	// admin, defaults to false.
+	Verified  bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // NewUser builds a freshly registered account. It normalises the email and

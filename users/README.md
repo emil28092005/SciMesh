@@ -19,16 +19,28 @@ layers, dependencies pointing strictly inward:
 
 ## Endpoints
 
-| Method | Path        | Auth        | Purpose                                  |
-|--------|-------------|-------------|------------------------------------------|
-| GET    | `/health`   | none        | Liveness probe (checks the database)     |
-| POST   | `/register` | none        | Create an account (always role `user`)   |
-| POST   | `/login`    | none        | Verify credentials, return a signed JWT  |
-| GET    | `/me`       | Bearer JWT  | Return the caller's own account          |
+| Method | Path                      | Auth         | Purpose                                     |
+|--------|---------------------------|--------------|---------------------------------------------|
+| GET    | `/health`                 | none         | Liveness probe (checks the database)        |
+| POST   | `/register`               | none         | Create an account (always role `user`)      |
+| POST   | `/login`                  | none         | Verify credentials, return a signed JWT     |
+| GET    | `/me`                     | Bearer JWT   | Return the caller's own account             |
+| POST   | `/users/{id}/verify`      | Bearer admin | Grant the trusted-contributor badge         |
+| POST   | `/users/{id}/unverify`    | Bearer admin | Revoke the badge                            |
 
-Roles are `user` and `admin`. Registration always creates a `user`; promotion to
-`admin` is a manual database operation, never a request. The role→permission
-mapping lives in the coordinator's authorization checks, not in a table.
+Two independent attributes live on an account:
+
+- **`role`** — `user` or `admin`. Governs what you may do with your own jobs.
+  Registration always creates a `user`; promotion to `admin` is a manual
+  database operation, never a request.
+- **`verified`** — a boolean trust badge, granted **only by an admin** (the
+  `/verify` endpoints above, 403 for anyone else). It tells the coordinator
+  whether this user's volunteer workers are trusted: a verified contributor's
+  results are accepted directly, an unverified one's must pass quorum
+  cross-checking. Defaults to false.
+
+Both attributes ride in the JWT (`role`, `verified` claims), so the coordinator
+reads them from the signed token without ever calling this service.
 
 ## How it connects to the coordinator
 

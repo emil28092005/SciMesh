@@ -107,3 +107,41 @@ func TestUserRepoNotFound(t *testing.T) {
 		t.Errorf("GetByEmail unknown: got %v, want ErrUserNotFound", err)
 	}
 }
+
+func TestUserRepoSetVerified(t *testing.T) {
+	repo := NewUserRepo(testPool(t))
+	ctx := context.Background()
+	u := seedUser(t, repo)
+
+	// A fresh row defaults to unverified.
+	got, err := repo.GetByID(ctx, u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Verified {
+		t.Fatal("new user must default to unverified")
+	}
+
+	if err := repo.SetVerified(ctx, u.ID, true); err != nil {
+		t.Fatalf("grant: %v", err)
+	}
+	got, _ = repo.GetByID(ctx, u.ID)
+	if !got.Verified {
+		t.Error("verified flag not persisted")
+	}
+
+	if err := repo.SetVerified(ctx, u.ID, false); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	got, _ = repo.GetByID(ctx, u.ID)
+	if got.Verified {
+		t.Error("verified flag not cleared")
+	}
+}
+
+func TestUserRepoSetVerifiedUnknown(t *testing.T) {
+	repo := NewUserRepo(testPool(t))
+	if err := repo.SetVerified(context.Background(), uuid.New(), true); !errors.Is(err, usecase.ErrUserNotFound) {
+		t.Errorf("got %v, want ErrUserNotFound", err)
+	}
+}

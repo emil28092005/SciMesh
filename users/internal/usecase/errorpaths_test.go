@@ -29,6 +29,9 @@ func (s stubRepo) GetByEmail(context.Context, string) (*domain.User, error) {
 func (s stubRepo) GetByID(context.Context, uuid.UUID) (*domain.User, error) {
 	return nil, usecase.ErrUserNotFound
 }
+func (s stubRepo) SetVerified(context.Context, uuid.UUID, bool) error {
+	return usecase.ErrUserNotFound
+}
 
 type stubHasher struct {
 	hashErr    error
@@ -45,7 +48,7 @@ func (s stubHasher) Compare(string, string) error { return s.compareErr }
 
 type stubIssuer struct{ err error }
 
-func (s stubIssuer) Issue(uuid.UUID, domain.Role) (string, error) {
+func (s stubIssuer) Issue(*domain.User) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}

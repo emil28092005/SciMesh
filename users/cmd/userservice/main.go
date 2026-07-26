@@ -54,9 +54,10 @@ func run() error {
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.TokenTTL, clock.Now)
 
 	uc := apihttp.UseCases{
-		Register: usecase.NewRegister(users, hasher, clock),
-		Login:    usecase.NewLogin(users, hasher, issuer),
-		Users:    users,
+		Register:    usecase.NewRegister(users, hasher, clock),
+		Login:       usecase.NewLogin(users, hasher, issuer),
+		SetVerified: usecase.NewSetVerified(users),
+		Users:       users,
 	}
 
 	handler := apihttp.NewServer(log, uc, issuer)

@@ -13,19 +13,21 @@ import (
 
 // UseCases bundles the application services the handlers drive.
 type UseCases struct {
-	Register *usecase.Register
-	Login    *usecase.Login
-	Users    usecase.UserRepository
+	Register    *usecase.Register
+	Login       *usecase.Login
+	SetVerified *usecase.SetVerified
+	Users       usecase.UserRepository
 }
 
 // NewServer wires the routes and the middleware stack and returns the handler.
-// The issuer verifies tokens for the protected /me route.
+// The issuer verifies tokens for the JWT-protected routes.
 func NewServer(log *slog.Logger, uc UseCases, issuer auth.Issuer) http.Handler {
 	h := &Handlers{
-		register: uc.Register,
-		login:    uc.Login,
-		users:    uc.Users,
-		log:      log,
+		register:    uc.Register,
+		login:       uc.Login,
+		setVerified: uc.SetVerified,
+		users:       uc.Users,
+		log:         log,
 	}
 
 	mux := http.NewServeMux()
@@ -35,6 +37,13 @@ func NewServer(log *slog.Logger, uc UseCases, issuer auth.Issuer) http.Handler {
 	mux.HandleFunc("POST /login", h.handleLogin)
 	// /me proves a token round-trips; it sits behind JWT auth.
 	mux.Handle("GET /me", chain(http.HandlerFunc(h.handleMe), withJWT(issuer)))
+
+	// Admin-only: grant or revoke the trusted-contributor badge. withAdmin sits
+	// inside withJWT so the role is available from the verified token.
+	mux.Handle("POST /users/{id}/verify",
+		chain(h.handleSetVerified(true), withJWT(issuer), withAdmin))
+	mux.Handle("POST /users/{id}/unverify",
+		chain(h.handleSetVerified(false), withJWT(issuer), withAdmin))
 
 	// Outermost first: every request gets an ID and an access-log line.
 	return chain(mux, withRequestID, withAccessLog(log))

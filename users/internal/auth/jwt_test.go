@@ -16,7 +16,7 @@ func TestIssueVerifyRoundTrip(t *testing.T) {
 	iss := NewIssuer(testSecret, time.Hour, nil)
 	id := uuid.New()
 
-	token, err := iss.Issue(id, domain.RoleAdmin)
+	token, err := iss.Issue(&domain.User{ID: id, Role: domain.RoleAdmin, Verified: true})
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
@@ -31,12 +31,15 @@ func TestIssueVerifyRoundTrip(t *testing.T) {
 	if claims.Role != domain.RoleAdmin {
 		t.Errorf("role = %q, want admin", claims.Role)
 	}
+	if !claims.Verified {
+		t.Error("verified claim not carried in token")
+	}
 }
 
 func TestVerifyRejectsExpired(t *testing.T) {
 	// Negative TTL: the token is already expired when issued.
 	iss := NewIssuer(testSecret, -time.Minute, nil)
-	token, _ := iss.Issue(uuid.New(), domain.RoleUser)
+	token, _ := iss.Issue(&domain.User{ID: uuid.New(), Role: domain.RoleUser})
 
 	if _, err := iss.Verify(token); err == nil {
 		t.Error("expired token accepted")
@@ -44,7 +47,7 @@ func TestVerifyRejectsExpired(t *testing.T) {
 }
 
 func TestVerifyRejectsWrongSecret(t *testing.T) {
-	token, _ := NewIssuer(testSecret, time.Hour, nil).Issue(uuid.New(), domain.RoleUser)
+	token, _ := NewIssuer(testSecret, time.Hour, nil).Issue(&domain.User{ID: uuid.New(), Role: domain.RoleUser})
 
 	other := NewIssuer("another-secret-also-32-bytes-long!!!", time.Hour, nil)
 	if _, err := other.Verify(token); err == nil {

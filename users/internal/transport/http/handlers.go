@@ -5,15 +5,18 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
+
 	"github.com/emil28092005/SciMesh/users/internal/usecase"
 )
 
 // Handlers holds the use cases each endpoint drives.
 type Handlers struct {
-	register *usecase.Register
-	login    *usecase.Login
-	users    usecase.UserRepository
-	log      *slog.Logger
+	register    *usecase.Register
+	login       *usecase.Login
+	setVerified *usecase.SetVerified
+	users       usecase.UserRepository
+	log         *slog.Logger
 }
 
 // handleHealth is an unauthenticated liveness probe for the container and load
@@ -65,6 +68,27 @@ func (h *Handlers) handleMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, toUserResponse(u))
+}
+
+// handleSetVerified grants (verified=true) or revokes (false) the trusted-
+// contributor badge for the user in the path. Admin-only; the withAdmin
+// middleware has already enforced the role by the time this runs.
+func (h *Handlers) handleSetVerified(verified bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{
+				Error:     "invalid user id",
+				RequestID: requestIDFrom(r.Context()),
+			})
+			return
+		}
+		if err := h.setVerified.Execute(r.Context(), id, verified); err != nil {
+			writeError(w, r, h.log, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 }
 
 // decodeJSON reads a size-capped JSON body into dst, rejecting unknown fields.

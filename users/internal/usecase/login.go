@@ -34,7 +34,7 @@ func (l *Login) Execute(ctx context.Context, email, password string) (string, *d
 		return "", nil, ErrInvalidCredentials
 	}
 
-	token, err := l.tokens.Issue(u.ID, u.Role)
+	token, err := l.tokens.Issue(u)
 	if err != nil {
 		return "", nil, err
 	}

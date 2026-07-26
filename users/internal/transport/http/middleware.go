@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/users/internal/auth"
+	"github.com/emil28092005/SciMesh/users/internal/domain"
 )
 
 type ctxKey string
@@ -92,6 +93,21 @@ func unauthorized(w http.ResponseWriter, r *http.Request) {
 func userIDFrom(ctx context.Context) (uuid.UUID, bool) {
 	id, ok := ctx.Value(userIDKey).(uuid.UUID)
 	return id, ok
+}
+
+// withAdmin rejects any caller whose token role is not admin. It must sit inside
+// withJWT, which stamps the role after verifying the token.
+func withAdmin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if role, ok := r.Context().Value(roleKey).(domain.Role); !ok || role != domain.RoleAdmin {
+			writeJSON(w, http.StatusForbidden, errorResponse{
+				Error:     "admin role required",
+				RequestID: requestIDFrom(r.Context()),
+			})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // statusRecorder captures the status code for the access log.

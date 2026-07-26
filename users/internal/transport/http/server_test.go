@@ -31,9 +31,10 @@ func newTestServer() http.Handler {
 	issuer := auth.NewIssuer(secret, time.Hour, nil)
 
 	uc := apihttp.UseCases{
-		Register: usecase.NewRegister(users, hasher, clk),
-		Login:    usecase.NewLogin(users, hasher, issuer),
-		Users:    users,
+		Register:    usecase.NewRegister(users, hasher, clk),
+		Login:       usecase.NewLogin(users, hasher, issuer),
+		SetVerified: usecase.NewSetVerified(users),
+		Users:       users,
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return apihttp.NewServer(log, uc, issuer)
@@ -189,14 +190,15 @@ func TestMeInternalError(t *testing.T) {
 
 	users := failingUsers{UserRepository: memstore.NewUserRepo()}
 	uc := apihttp.UseCases{
-		Register: usecase.NewRegister(users, hasher, clk),
-		Login:    usecase.NewLogin(users, hasher, issuer),
-		Users:    users,
+		Register:    usecase.NewRegister(users, hasher, clk),
+		Login:       usecase.NewLogin(users, hasher, issuer),
+		SetVerified: usecase.NewSetVerified(users),
+		Users:       users,
 	}
 	h := apihttp.NewServer(slog.New(slog.NewTextHandler(io.Discard, nil)), uc, issuer)
 
 	// A structurally valid token for a caller the failing repo can't load.
-	token, err := issuer.Issue(uuid.New(), "user")
+	token, err := issuer.Issue(&domain.User{ID: uuid.New(), Role: domain.RoleUser})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,5 +210,116 @@ func TestMeInternalError(t *testing.T) {
 	// The body must not disclose the underlying error.
 	if bytes.Contains(rec.Body.Bytes(), []byte("db exploded")) {
 		t.Error("internal error leaked to the client")
+	}
+}
+
+// mintToken issues a token with the package secret for a synthetic caller of the
+// given role — enough to drive the admin-gated endpoints.
+func mintToken(t *testing.T, role domain.Role) string {
+	t.Helper()
+	token, err := auth.NewIssuer(secret, time.Hour, nil).Issue(&domain.User{ID: uuid.New(), Role: role})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+// registerUser creates an account and returns its id.
+func registerUser(t *testing.T, h http.Handler, email string) string {
+	t.Helper()
+	rec := do(t, h, http.MethodPost, "/register", "", map[string]string{"email": email, "password": "password123"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("register: %d", rec.Code)
+	}
+	var reg struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &reg); err != nil {
+		t.Fatal(err)
+	}
+	return reg.ID
+}
+
+func TestAdminVerifiesUserEndToEnd(t *testing.T) {
+	h := newTestServer()
+	id := registerUser(t, h, "contrib@example.com")
+
+	// Admin grants the badge.
+	rec := do(t, h, http.MethodPost, "/users/"+id+"/verify", mintToken(t, domain.RoleAdmin), nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("admin verify: got %d, body %s", rec.Code, rec.Body)
+	}
+
+	// The change is visible when the contributor logs in.
+	rec = do(t, h, http.MethodPost, "/login", "", map[string]string{"email": "contrib@example.com", "password": "password123"})
+	var lr struct {
+		User struct {
+			Verified bool `json:"verified"`
+		} `json:"user"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &lr); err != nil {
+		t.Fatal(err)
+	}
+	if !lr.User.Verified {
+		t.Error("verified badge not reflected after admin granted it")
+	}
+}
+
+func TestVerifyRequiresAdminRole(t *testing.T) {
+	h := newTestServer()
+	id := registerUser(t, h, "someone@example.com")
+
+	// A plain user token must not be able to grant the badge.
+	rec := do(t, h, http.MethodPost, "/users/"+id+"/verify", mintToken(t, domain.RoleUser), nil)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("plain user: got %d, want 403", rec.Code)
+	}
+}
+
+func TestVerifyRequiresAuth(t *testing.T) {
+	h := newTestServer()
+	rec := do(t, h, http.MethodPost, "/users/"+uuid.NewString()+"/verify", "", nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("no token: got %d, want 401", rec.Code)
+	}
+}
+
+func TestVerifyInvalidID(t *testing.T) {
+	h := newTestServer()
+	rec := do(t, h, http.MethodPost, "/users/not-a-uuid/verify", mintToken(t, domain.RoleAdmin), nil)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("bad id: got %d, want 400", rec.Code)
+	}
+}
+
+func TestVerifyUnknownUser(t *testing.T) {
+	h := newTestServer()
+	rec := do(t, h, http.MethodPost, "/users/"+uuid.NewString()+"/verify", mintToken(t, domain.RoleAdmin), nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown user: got %d, want 404", rec.Code)
+	}
+}
+
+func TestUnverifyRevokes(t *testing.T) {
+	h := newTestServer()
+	id := registerUser(t, h, "revoke@example.com")
+	admin := mintToken(t, domain.RoleAdmin)
+
+	if rec := do(t, h, http.MethodPost, "/users/"+id+"/verify", admin, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("verify: %d", rec.Code)
+	}
+	if rec := do(t, h, http.MethodPost, "/users/"+id+"/unverify", admin, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("unverify: %d", rec.Code)
+	}
+
+	rec := do(t, h, http.MethodPost, "/login", "", map[string]string{"email": "revoke@example.com", "password": "password123"})
+	var lr struct {
+		User struct {
+			Verified bool `json:"verified"`
+		} `json:"user"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &lr)
+	if lr.User.Verified {
+		t.Error("verified should be false after unverify")
 	}
 }
