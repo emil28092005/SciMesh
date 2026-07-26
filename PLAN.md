@@ -820,6 +820,47 @@ CTX-09 enables final result downloads.
 - failure/retry scenarios have automated coverage;
 - README contains architecture diagram, security caveat, and troubleshooting.
 
+### CTX-13 — In-worker CPU parallelism
+
+**Goal:** Allow a worker to use a bounded, configured number of CPU threads or
+processes while preserving the existing one-task-per-lease coordinator model.
+
+**Depends on:** CTX-12.
+
+**Acceptance criteria:**
+
+- worker concurrency is an explicit configuration value with a safe default of
+  one;
+- a task's internal parallel execution has bounded memory and does not build a
+  dense N×N similarity matrix;
+- CPU-parallel `similarity-search` and `similarity-graph` outputs match the
+  single-threaded local reference byte-for-byte where ordering is observable;
+- result ordering is deterministic across worker counts and block sizes;
+- cancellation, lease loss, and worker failure stop child work safely and do
+  not report a successful result;
+- benchmarks and tests cover one-worker and multi-worker configurations.
+
+### CTX-14 — GPU-accelerated workload execution
+
+**Goal:** Add an optional GPU execution backend for supported molecular
+workloads, while retaining the validated CPU implementation as the reference
+and fallback.
+
+**Depends on:** CTX-13.
+
+**Acceptance criteria:**
+
+- GPU capability and backend version are advertised explicitly by a worker;
+- the coordinator schedules GPU work only to compatible workers and CPU-only
+  workers continue to claim CPU tasks;
+- unsupported hardware, unavailable drivers, and GPU execution errors produce
+  sanitized failures or a documented CPU fallback;
+- GPU results match the CPU reference within a documented, tested numerical
+  tolerance and preserve deterministic output ordering;
+- GPU memory use is bounded and no dense N×N similarity matrix is created;
+- CPU-only CI verifies backend selection and contract behavior, with GPU
+  integration tests documented for compatible runners.
+
 ---
 
 ## 10. Suggested assignment bundles
@@ -948,7 +989,9 @@ Before merging a task, reviewer checks:
 Do not start these before CTX-12 is accepted.
 
 - Replace local artifact storage with S3/MinIO behind an `ArtifactStore` API.
-- Add worker labels/capacity-aware scheduling and concurrency > 1.
+- Add worker labels and capacity-aware scheduling.
+- Implement CTX-13 for bounded in-worker CPU parallelism.
+- Implement CTX-14 for optional GPU-accelerated workload execution.
 - Add cancellation propagation to workers.
 - Add image outputs and final PDF reporting to job artifacts.
 - Add CV/video workloads using the same planner/runner/reducer contract.
