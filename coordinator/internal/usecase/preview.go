@@ -53,6 +53,11 @@ func (p *PreviewArtifact) Execute(ctx context.Context, jobID, artifactID uuid.UU
 	if err != nil {
 		return ArtifactPreviewView{}, err
 	}
+	// Another user's job (and not admin): report not-found, matching the
+	// artifact-absent response so nothing about it leaks.
+	if err := authorizeJobAccess(ctx, job); err != nil {
+		return ArtifactPreviewView{}, domain.ErrArtifactNotFound
+	}
 	artifacts, err := p.read.ListArtifactsByJob(ctx, jobID)
 	if err != nil {
 		return ArtifactPreviewView{}, err

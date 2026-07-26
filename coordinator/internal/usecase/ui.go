@@ -14,7 +14,9 @@ import (
 // It intentionally exposes no storage paths or credentials.
 type UIReadRepository interface {
 	GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error)
-	ListJobs(ctx context.Context, limit int) ([]domain.Job, error)
+	// ListJobs returns the most recent jobs. A non-nil owner restricts the list
+	// to that user's jobs; nil returns all (operator/admin view).
+	ListJobs(ctx context.Context, owner *uuid.UUID, limit int) ([]domain.Job, error)
 	ListTasksByJob(ctx context.Context, jobID uuid.UUID) ([]domain.Task, error)
 	ListTasksByJobs(ctx context.Context, jobIDs []uuid.UUID) (map[uuid.UUID][]domain.Task, error)
 	ListWorkers(ctx context.Context, limit int) ([]domain.Worker, error)
@@ -99,7 +101,7 @@ type Dashboard struct{ read UIReadRepository }
 func NewDashboard(read UIReadRepository) *Dashboard { return &Dashboard{read: read} }
 
 func (d *Dashboard) Overview(ctx context.Context, limit int) (DashboardView, error) {
-	jobs, err := d.read.ListJobs(ctx, limit)
+	jobs, err := d.read.ListJobs(ctx, uiOwnerFilter(ctx), limit)
 	if err != nil {
 		return DashboardView{}, err
 	}
@@ -138,6 +140,11 @@ func (d *Dashboard) Overview(ctx context.Context, limit int) (DashboardView, err
 func (d *Dashboard) JobDetail(ctx context.Context, jobID uuid.UUID) (JobDetailView, error) {
 	job, err := d.read.GetJob(ctx, jobID)
 	if err != nil {
+		return JobDetailView{}, err
+	}
+	// A plain user may only open their own job; a mismatch reads as not-found so
+	// the page never reveals another user's job exists.
+	if err := authorizeJobAccess(ctx, job); err != nil {
 		return JobDetailView{}, err
 	}
 	tasks, err := d.read.ListTasksByJob(ctx, jobID)
@@ -197,6 +204,10 @@ func (d *Dashboard) DownloadableArtifactBelongsToJob(ctx context.Context, jobID,
 	job, err := d.read.GetJob(ctx, jobID)
 	if err != nil {
 		return false, err
+	}
+	// Not the caller's job (and not admin): treat as if the artifact is absent.
+	if err := authorizeJobAccess(ctx, job); err != nil {
+		return false, nil //nolint:nilerr // masking the authz error as "not found" is intentional
 	}
 	artifacts, err := d.read.ListArtifactsByJob(ctx, jobID)
 	if err != nil {

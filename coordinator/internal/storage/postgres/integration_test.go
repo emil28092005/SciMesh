@@ -144,7 +144,7 @@ func TestUIReadRepoListsReducerFields(t *testing.T) {
 	if claimed, err := jobs.ClaimReduction(ctx, job.ID, time.Now().UTC()); err != nil || !claimed {
 		t.Fatalf("claim reduction = (%v, %v)", claimed, err)
 	}
-	listed, err := NewUIReadRepo(pool).ListJobs(ctx, 20)
+	listed, err := NewUIReadRepo(pool).ListJobs(ctx, nil, 20)
 	if err != nil {
 		t.Fatalf("list UI jobs: %v", err)
 	}

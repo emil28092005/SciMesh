@@ -20,6 +20,18 @@ func ownerFromContext(ctx context.Context) *uuid.UUID {
 	return nil
 }
 
+// uiOwnerFilter returns the owner a UI listing must be restricted to: nil for an
+// operator/admin or an unauthenticated (basic-auth) session, which see all jobs,
+// or the caller's id for a plain user, who sees only their own.
+func uiOwnerFilter(ctx context.Context) *uuid.UUID {
+	r, ok := authctx.From(ctx)
+	if !ok || r.IsAdmin() {
+		return nil
+	}
+	id := r.UserID
+	return &id
+}
+
 // authorizeJobAccess enforces that a non-admin user may only act on their own
 // job. It returns ErrJobNotFound — not a 403 — on a mismatch, so the response
 // never reveals that another user's job exists.

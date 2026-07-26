@@ -24,11 +24,15 @@ func (r *UIReadRepo) GetJob(ctx context.Context, id uuid.UUID) (*domain.Job, err
 	return job, err
 }
 
-func (r *UIReadRepo) ListJobs(ctx context.Context, limit int) ([]domain.Job, error) {
+func (r *UIReadRepo) ListJobs(ctx context.Context, owner *uuid.UUID, limit int) ([]domain.Job, error) {
 	if limit < 1 || limit > 100 {
 		return nil, domain.ErrInvalidInput
 	}
-	sql, args, err := psql.Select(jobColumns...).From("jobs").OrderBy("created_at DESC", "id DESC").Limit(uint64(limit)).ToSql()
+	q := psql.Select(jobColumns...).From("jobs")
+	if owner != nil {
+		q = q.Where(sq.Eq{"owner_id": *owner})
+	}
+	sql, args, err := q.OrderBy("created_at DESC", "id DESC").Limit(uint64(limit)).ToSql()
 	if err != nil {
 		return nil, err
 	}
