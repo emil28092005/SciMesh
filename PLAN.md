@@ -66,7 +66,8 @@ Coordinator reducer -> final artifact -> download/status API
 
 - cloud object storage, Kubernetes, autoscaling, and multi-region operation;
 - arbitrary shell commands sent by coordinator to workers;
-- user accounts, multi-tenancy, billing, or sophisticated authorization;
+- user accounts, multi-tenancy, billing, or sophisticated authorization
+  (planned after the first release in CTX-15);
 - GPU scheduling and multiprocessing inside a worker;
 - Docker as a required runtime dependency;
 - video/CV processing implementation;
@@ -861,6 +862,28 @@ and fallback.
 - CPU-only CI verifies backend selection and contract behavior, with GPU
   integration tests documented for compatible runners.
 
+### CTX-15 — User Service and access control
+
+**Goal:** Introduce a dedicated User Service for user identity and access
+control, without coupling workers to user credentials or moving scientific
+workload logic into the service.
+
+**Depends on:** CTX-12.
+
+**Acceptance criteria:**
+
+- the service has a versioned, documented API and owns user identity data;
+- credentials and authentication tokens are stored and handled securely; they
+  are never logged or exposed to workers;
+- authenticated identity is propagated to coordinator requests through an
+  explicit, validated boundary;
+- authorization restricts access to jobs and artifacts to the intended user or
+  project;
+- unauthenticated, expired-token, and cross-user access attempts have
+  automated failure tests;
+- the existing single-operator demo remains usable through a documented local
+  development configuration.
+
 ---
 
 ## 10. Suggested assignment bundles
@@ -992,11 +1015,12 @@ Do not start these before CTX-12 is accepted.
 - Add worker labels and capacity-aware scheduling.
 - Implement CTX-13 for bounded in-worker CPU parallelism.
 - Implement CTX-14 for optional GPU-accelerated workload execution.
+- Implement CTX-15 for the User Service and authenticated user/project access.
 - Add cancellation propagation to workers.
 - Add image outputs and final PDF reporting to job artifacts.
 - Add CV/video workloads using the same planner/runner/reducer contract.
 - Add observability export (Prometheus/OpenTelemetry).
-- Add per-user/project authorization and signed artifact URLs.
+- Add signed artifact URLs.
 - Add shard caching and content-addressed input deduplication.
 - Add job priority and fair scheduling.
 - Add a CLI for submitting and monitoring remote jobs.
