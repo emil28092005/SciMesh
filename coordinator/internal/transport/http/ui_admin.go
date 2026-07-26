@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -68,7 +69,7 @@ func (s *Server) handleUIAdminUserAction(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	status, err := s.callUserserviceAuthed(r.Context(), http.MethodPost, "/users/"+userID+"/"+action, c.Value)
+	status, _, err := s.callUserserviceAuthed(r.Context(), http.MethodPost, "/users/"+userID+"/"+action, c.Value)
 	if err != nil {
 		s.log.Error("admin action proxy", "err", err, "action", action)
 		http.Redirect(w, r, "/ui/admin?error=service+unavailable", http.StatusSeeOther)
@@ -89,21 +90,25 @@ func (s *Server) handleUIAdminUserAction(w http.ResponseWriter, r *http.Request)
 // callUserserviceAuthed makes an authenticated call to the userservice, passing
 // the caller's JWT through as a bearer token. Used for admin actions; login and
 // registration use the unauthenticated callUserservice.
-func (s *Server) callUserserviceAuthed(ctx context.Context, method, path, bearer string) (int, error) {
+func (s *Server) callUserserviceAuthed(ctx context.Context, method, path, bearer string) (int, []byte, error) {
 	// path is not attacker-controlled: the caller composes it only from a
 	// uuid-validated id and an action from a fixed whitelist, and the host is
 	// the operator-configured userservice — so the SSRF taint gosec sees here
 	// cannot reach an arbitrary destination.
 	req, err := http.NewRequestWithContext(ctx, method, s.userserviceURL+path, nil) //nolint:gosec // G704: path is validated, host is config
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+bearer)
 
 	resp, err := s.httpClient.Do(req) //nolint:gosec // G704: see above
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode, nil
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0, nil, err
+	}
+	return resp.StatusCode, body, nil
 }
