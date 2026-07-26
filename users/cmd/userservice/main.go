@@ -57,6 +57,7 @@ func run() error {
 		Register:    usecase.NewRegister(users, hasher, clock),
 		Login:       usecase.NewLogin(users, hasher, issuer),
 		SetVerified: usecase.NewSetVerified(users),
+		SetRole:     usecase.NewSetRole(users),
 		Users:       users,
 	}
 

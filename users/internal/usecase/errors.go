@@ -15,4 +15,5 @@ var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrPasswordTooShort   = errors.New("password too short")
 	ErrPasswordTooLong    = errors.New("password too long")
+	ErrInvalidRole        = errors.New("invalid role")
 )

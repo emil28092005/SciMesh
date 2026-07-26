@@ -25,6 +25,9 @@ type UserRepository interface {
 	// SetVerified toggles the verified flag, returning ErrUserNotFound if no
 	// such user exists.
 	SetVerified(ctx context.Context, id uuid.UUID, verified bool) error
+	// SetRole changes a user's role, returning ErrUserNotFound if no such user
+	// exists.
+	SetRole(ctx context.Context, id uuid.UUID, role domain.Role) error
 }
 
 // PasswordHasher hashes and verifies passwords. The bcrypt adapter satisfies it.

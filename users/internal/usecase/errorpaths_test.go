@@ -32,6 +32,9 @@ func (s stubRepo) GetByID(context.Context, uuid.UUID) (*domain.User, error) {
 func (s stubRepo) SetVerified(context.Context, uuid.UUID, bool) error {
 	return usecase.ErrUserNotFound
 }
+func (s stubRepo) SetRole(context.Context, uuid.UUID, domain.Role) error {
+	return usecase.ErrUserNotFound
+}
 
 type stubHasher struct {
 	hashErr    error

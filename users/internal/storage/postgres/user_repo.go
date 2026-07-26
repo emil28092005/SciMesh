@@ -85,6 +85,27 @@ func (r *UserRepo) SetVerified(ctx context.Context, id uuid.UUID, verified bool)
 	return nil
 }
 
+// SetRole changes a user's role and returns ErrUserNotFound when the id matches
+// no row.
+func (r *UserRepo) SetRole(ctx context.Context, id uuid.UUID, role domain.Role) error {
+	sql, args, err := psql.Update("users").
+		Set("role", string(role)).
+		Set("updated_at", sq.Expr("now()")).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return err
+	}
+	tag, err := conn(ctx, r.pool).Exec(ctx, sql, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return usecase.ErrUserNotFound
+	}
+	return nil
+}
+
 func scanUser(row pgx.Row) (*domain.User, error) {
 	var (
 		u    domain.User

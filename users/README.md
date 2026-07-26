@@ -27,6 +27,8 @@ layers, dependencies pointing strictly inward:
 | GET    | `/me`                     | Bearer JWT   | Return the caller's own account             |
 | POST   | `/users/{id}/verify`      | Bearer admin | Grant the trusted-contributor badge         |
 | POST   | `/users/{id}/unverify`    | Bearer admin | Revoke the badge                            |
+| POST   | `/users/{id}/promote`     | Bearer admin | Set the user's role to admin                |
+| POST   | `/users/{id}/demote`      | Bearer admin | Set the user's role back to user            |
 
 Two independent attributes live on an account:
 

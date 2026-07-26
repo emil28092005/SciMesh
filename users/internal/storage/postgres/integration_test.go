@@ -145,3 +145,21 @@ func TestUserRepoSetVerifiedUnknown(t *testing.T) {
 		t.Errorf("got %v, want ErrUserNotFound", err)
 	}
 }
+
+func TestUserRepoSetRole(t *testing.T) {
+	repo := NewUserRepo(testPool(t))
+	ctx := context.Background()
+	u := seedUser(t, repo)
+
+	if err := repo.SetRole(ctx, u.ID, domain.RoleAdmin); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	got, _ := repo.GetByID(ctx, u.ID)
+	if got.Role != domain.RoleAdmin {
+		t.Errorf("role = %q, want admin", got.Role)
+	}
+
+	if err := repo.SetRole(ctx, uuid.New(), domain.RoleAdmin); !errors.Is(err, usecase.ErrUserNotFound) {
+		t.Errorf("unknown user: got %v, want ErrUserNotFound", err)
+	}
+}

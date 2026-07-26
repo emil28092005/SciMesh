@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/emil28092005/SciMesh/users/internal/auth"
+	"github.com/emil28092005/SciMesh/users/internal/domain"
 	"github.com/emil28092005/SciMesh/users/internal/usecase"
 )
 
@@ -16,6 +17,7 @@ type UseCases struct {
 	Register    *usecase.Register
 	Login       *usecase.Login
 	SetVerified *usecase.SetVerified
+	SetRole     *usecase.SetRole
 	Users       usecase.UserRepository
 }
 
@@ -26,6 +28,7 @@ func NewServer(log *slog.Logger, uc UseCases, issuer auth.Issuer) http.Handler {
 		register:    uc.Register,
 		login:       uc.Login,
 		setVerified: uc.SetVerified,
+		setRole:     uc.SetRole,
 		users:       uc.Users,
 		log:         log,
 	}
@@ -44,6 +47,10 @@ func NewServer(log *slog.Logger, uc UseCases, issuer auth.Issuer) http.Handler {
 		chain(h.handleSetVerified(true), withJWT(issuer), withAdmin))
 	mux.Handle("POST /users/{id}/unverify",
 		chain(h.handleSetVerified(false), withJWT(issuer), withAdmin))
+	mux.Handle("POST /users/{id}/promote",
+		chain(h.handleSetRole(domain.RoleAdmin), withJWT(issuer), withAdmin))
+	mux.Handle("POST /users/{id}/demote",
+		chain(h.handleSetRole(domain.RoleUser), withJWT(issuer), withAdmin))
 
 	// Outermost first: every request gets an ID and an access-log line.
 	return chain(mux, withRequestID, withAccessLog(log))

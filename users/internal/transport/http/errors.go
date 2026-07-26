@@ -52,6 +52,8 @@ func statusForError(err error) (int, string) {
 		return http.StatusBadRequest, "password must be at least 8 characters"
 	case errors.Is(err, usecase.ErrPasswordTooLong):
 		return http.StatusBadRequest, "password must be at most 72 bytes"
+	case errors.Is(err, usecase.ErrInvalidRole):
+		return http.StatusBadRequest, "invalid role"
 	case errors.Is(err, domain.ErrEmptyEmail), errors.Is(err, domain.ErrInvalidEmail):
 		return http.StatusBadRequest, "email is not a valid address"
 	default:

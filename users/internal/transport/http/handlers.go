@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/emil28092005/SciMesh/users/internal/domain"
 	"github.com/emil28092005/SciMesh/users/internal/usecase"
 )
 
@@ -15,6 +16,7 @@ type Handlers struct {
 	register    *usecase.Register
 	login       *usecase.Login
 	setVerified *usecase.SetVerified
+	setRole     *usecase.SetRole
 	users       usecase.UserRepository
 	log         *slog.Logger
 }
@@ -84,6 +86,26 @@ func (h *Handlers) handleSetVerified(verified bool) http.HandlerFunc {
 			return
 		}
 		if err := h.setVerified.Execute(r.Context(), id, verified); err != nil {
+			writeError(w, r, h.log, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleSetRole promotes (admin) or demotes (user) the user in the path. Admin-
+// only; the withAdmin middleware has already enforced the caller's role.
+func (h *Handlers) handleSetRole(role domain.Role) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{
+				Error:     "invalid user id",
+				RequestID: requestIDFrom(r.Context()),
+			})
+			return
+		}
+		if err := h.setRole.Execute(r.Context(), id, role); err != nil {
 			writeError(w, r, h.log, err)
 			return
 		}

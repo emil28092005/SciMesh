@@ -34,6 +34,7 @@ func newTestServer() http.Handler {
 		Register:    usecase.NewRegister(users, hasher, clk),
 		Login:       usecase.NewLogin(users, hasher, issuer),
 		SetVerified: usecase.NewSetVerified(users),
+		SetRole:     usecase.NewSetRole(users),
 		Users:       users,
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -193,6 +194,7 @@ func TestMeInternalError(t *testing.T) {
 		Register:    usecase.NewRegister(users, hasher, clk),
 		Login:       usecase.NewLogin(users, hasher, issuer),
 		SetVerified: usecase.NewSetVerified(users),
+		SetRole:     usecase.NewSetRole(users),
 		Users:       users,
 	}
 	h := apihttp.NewServer(slog.New(slog.NewTextHandler(io.Discard, nil)), uc, issuer)
@@ -297,6 +299,51 @@ func TestVerifyUnknownUser(t *testing.T) {
 	rec := do(t, h, http.MethodPost, "/users/"+uuid.NewString()+"/verify", mintToken(t, domain.RoleAdmin), nil)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("unknown user: got %d, want 404", rec.Code)
+	}
+}
+
+func TestAdminPromotesAndDemotes(t *testing.T) {
+	h := newTestServer()
+	id := registerUser(t, h, "promote@example.com")
+	admin := mintToken(t, domain.RoleAdmin)
+
+	if rec := do(t, h, http.MethodPost, "/users/"+id+"/promote", admin, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("promote: got %d, body %s", rec.Code, rec.Body)
+	}
+	// The promoted user now logs in as an admin.
+	rec := do(t, h, http.MethodPost, "/login", "", map[string]string{"email": "promote@example.com", "password": "password123"})
+	var lr struct {
+		User struct {
+			Role string `json:"role"`
+		} `json:"user"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &lr)
+	if lr.User.Role != "admin" {
+		t.Errorf("role after promote = %q, want admin", lr.User.Role)
+	}
+
+	if rec := do(t, h, http.MethodPost, "/users/"+id+"/demote", admin, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("demote: got %d", rec.Code)
+	}
+}
+
+func TestPromoteRequiresAdmin(t *testing.T) {
+	h := newTestServer()
+	id := registerUser(t, h, "target@example.com")
+
+	if rec := do(t, h, http.MethodPost, "/users/"+id+"/promote", mintToken(t, domain.RoleUser), nil); rec.Code != http.StatusForbidden {
+		t.Errorf("plain user promote: got %d, want 403", rec.Code)
+	}
+	if rec := do(t, h, http.MethodPost, "/users/"+id+"/promote", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("no token: got %d, want 401", rec.Code)
+	}
+}
+
+func TestPromoteUnknownUser(t *testing.T) {
+	h := newTestServer()
+	rec := do(t, h, http.MethodPost, "/users/"+uuid.NewString()+"/promote", mintToken(t, domain.RoleAdmin), nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown user promote: got %d, want 404", rec.Code)
 	}
 }
 

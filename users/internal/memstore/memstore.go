@@ -72,6 +72,18 @@ func (r *UserRepo) SetVerified(_ context.Context, id uuid.UUID, verified bool) e
 	return nil
 }
 
+func (r *UserRepo) SetRole(_ context.Context, id uuid.UUID, role domain.Role) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.byID[id]
+	if !ok {
+		return usecase.ErrUserNotFound
+	}
+	u.Role = role
+	r.byID[id] = u
+	return nil
+}
+
 // Clock is a fixed usecase.Clock for deterministic tests.
 type Clock struct{ T time.Time }
 
