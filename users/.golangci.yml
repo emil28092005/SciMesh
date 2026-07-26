@@ -51,4 +51,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/emil28092005/SciMesh/coordinator
+        - github.com/emil28092005/SciMesh/users

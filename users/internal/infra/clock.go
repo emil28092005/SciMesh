@@ -8,6 +8,6 @@ type System struct{}
 
 func NewClock() System { return System{} }
 
-// Now returns UTC so every timestamp the coordinator writes is comparable
+// Now returns UTC so every timestamp this service writes is comparable
 // regardless of the host's timezone.
 func (System) Now() time.Time { return time.Now().UTC() }

@@ -25,7 +25,7 @@ func NewPool(ctx context.Context, cfg Config, log *slog.Logger) (*pgxpool.Pool, 
 	}
 	// pgxpool.New is lazy, so a ping is needed to actually reach the server.
 	// It is retried because at startup — especially under docker-compose, where
-	// the coordinator can boot before Postgres is accepting connections — a
+	// this service can boot before Postgres is accepting connections — a
 	// service should wait for its database rather than crash-loop.
 	if err := pingWithRetry(ctx, pool, cfg.DBConnectTimeout, log); err != nil {
 		pool.Close()

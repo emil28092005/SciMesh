@@ -9,6 +9,8 @@ Dockerfile
 .dockerignore
 
 # Local build artifacts
-/coordinator
+/userservice
 /bin/
 *.out
+/data/
+/logs/

@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// Transient PostgreSQL failures. Under concurrent claiming these are expected
-// rather than exceptional: two coordinators touching neighbouring rows can
+// Transient PostgreSQL failures. Under concurrent writes these are expected
+// rather than exceptional: two service instances touching neighbouring rows can
 // deadlock or fail to serialize, and the correct response is to try again.
 const (
 	codeSerializationFailure = "40001"
@@ -60,7 +60,7 @@ func isTransient(err error) bool {
 // withRetry runs op, retrying only transient database failures with
 // exponential backoff and jitter, and giving up as soon as ctx is done.
 //
-// Jitter matters here: without it, several coordinators that collide once will
+// Jitter matters here: without it, several instances that collide once will
 // retry in lockstep and collide again at exactly the same moment.
 func withRetry(ctx context.Context, op func(context.Context) error) error {
 	b := backoff.NewExponentialBackOff()

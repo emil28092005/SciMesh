@@ -1,4 +1,4 @@
-/coordinator
+/userservice
 /bin/
 .env
 *.out

@@ -1,230 +1,65 @@
-# SciMesh Coordinator
+# SciMesh userservice
 
-Durable task-queue server for SciMesh, in Go on PostgreSQL. It owns all database
-access; workers talk to it only over HTTP and never receive DB credentials.
+Authentication service for SciMesh, in Go on PostgreSQL. It owns user accounts
+and issues the JWTs the coordinator trusts. It is a **separate bounded context**
+from the coordinator: its own database, its own binary. The only thing shared
+between the two services is the JWT signing secret.
 
-Built as a **modular monolith following Clean Architecture** — one binary, four
-layers, dependencies pointing strictly inward. See
-`docs/database-integration-task.md` and `docs/worker-daemon-task.md` in the repo
-root for the full contract.
-
-## Layers
+Built as a modular monolith following Clean Architecture — one binary, four
+layers, dependencies pointing strictly inward:
 
 ```
-        infra       config, pgxpool, http.Server, clock    ← frameworks & drivers
-        transport   http handlers      ← inbound: who calls us
-        storage     sql repositories   ← outbound: who we call
-        usecase     business operations + PORTS            ← application rules
-        domain      Task, Job + their invariants           ← enterprise rules
-
-                            ┌── transport ──┐
-        domain ◄── usecase ◄┤               ├◄── infra
-                            └── storage ────┘
+   infra       config, DB pool, clock, HTTP server     ← drivers
+   transport   HTTP handlers + JWT middleware          ← incoming
+   storage     SQL repository                          ← outgoing
+   usecase     Register / Login + PORTS (interfaces)   ← application rules
+   domain      User, Role, invariants                  ← business rules
+   auth        bcrypt hasher, HS256 JWT issuer         ← crypto adapters
 ```
-
-`transport` and `storage` are one layer — the "interface adapters" ring — split
-by direction rather than by category, so a file's path tells you its role.
-
-The rule that matters: **source dependencies point only inward**. `domain`
-imports nothing from this module; `usecase` sees only `domain`; `transport` and
-`storage` know nothing of each other. Verify it at any time with:
-
-```sh
-go list -f '{{range .Imports}}{{.}}{{"\n"}}{{end}}' ./internal/domain | grep internal   # must be empty
-```
-
-## Layout
-
-```
-coordinator/
-  cmd/coordinator/main.go      # composition root: the only place with concrete types
-  internal/
-    domain/                    # entities + rules, no I/O
-      task.go                    Task, lease/complete/fail/expire transitions
-      job.go                     Job, chunk fan-out, status derivation
-      errors.go                  business-rule violations
-    usecase/                   # one type per operation, dependencies injected
-      ports.go                   TaskRepository, JobRepository, TxManager, Clock
-      dto.go                     use-case boundary inputs
-      task.go                    claim, renew, complete, fail, expire
-      job.go                     create, status, results, stitch
-    transport/http/            # routing, DTOs, middleware, error mapping
-    storage/postgres/          # SQL behind the ports; TxManager via context
-    infra/                     # config.go db.go clock.go server.go
-  migrations/                  # golang-migrate SQL, run as an explicit command
-```
-
-A full map — file-by-file table, a request traced through every layer, and a
-"where do I add X" guide — lives in [ARCHITECTURE.md](ARCHITECTURE.md).
-
-## Quickstart
-
-### With Docker (nothing to install but Docker)
-
-```sh
-make up                       # Postgres → migrations → coordinator
-curl localhost:8080/health
-make logs                     # follow the coordinator
-make down                     # stop (add down-clean to drop the DB volume)
-```
-
-To enable the local operator UI, set a separate credential before starting:
-
-```sh
-UI_AUTH_TOKEN='local-ui-secret' make up
-# Open http://localhost:8080/ui and use any username with this value as password.
-```
-
-The UI is disabled by default and never accepts the worker bearer token.
-The **control room** shows live workers, recent runs, shard state/attempts,
-safe failures, coordinator artifacts, and the final CSV for completed
-similarity-search jobs. The job page follows the real stages: TSV accepted →
-shards execute → workers return CSVs → `reducing` → final deterministic global
-top-k result. It polls only its own coordinator read-model and never controls
-or exposes worker processes.
-
-For a hands-on run, open `/ui`, choose **New similarity search**, select a
-small ChEMBL-style TSV, then leave one or more `scimesh-worker` processes
-running in separate terminals. The detail page updates every two seconds and
-stops polling after a completed, failed, or cancelled job. Use **Preview CSV**
-to inspect a bounded first page of a partial or completed final result before
-downloading it. The UI never exposes source datasets or shard inputs; partial
-CSVs remain available only as diagnostics.
-
-### One-command manual demo
-
-From the repository root, create the Python environment once, then start a
-self-contained UI demo with two local reference workers:
-
-```sh
-python3 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
-make demo-ui
-```
-
-This uses a separate Docker project and ports `18080` (coordinator) and
-`55432` (PostgreSQL), so it does not conflict with the normal stack. Open
-`http://localhost:18080/ui`, use username `operator` and password
-`demo-ui-secret`, upload a small ChEMBL TSV, and observe the workers process
-it. Change the worker count with `make demo-ui WORKERS=3`; stop all demo
-services and workers with `make demo-down`.
-
-The job page shows a live **Processing speed** graph in completed shards per
-minute. It uses the coordinator snapshots observed by the open browser tab, so
-it is a transparent local-session measurement rather than a persisted metric.
-Use **Preview CSV** before downloading a partial diagnostic or completed final
-result. Run `make help` from either the repository root or this directory for
-the full list of demo commands.
-
-`up` starts three services in order: Postgres waits until `pg_isready` passes, a
-one-shot `migrate` container applies the schema and exits, and only then does the
-coordinator start — so it never queries a database that has no tables.
-
-> **Needs BuildKit.** The Dockerfile uses `RUN --mount=type=cache` to reuse the
-> Go module and compiler caches between builds. If the build fails with
-> *"the --mount option requires BuildKit"*, install the buildx plugin —
-> `pacman -S docker-buildx` on Arch, `apt install docker-buildx-plugin` on Debian.
-
-### Locally, against your own Postgres
-
-```sh
-cp .env.example .env          # then edit DATABASE_URL / WORKER_AUTH_TOKEN
-                              # it is loaded automatically — no export needed
-
-make tidy                     # fetch deps (needs network once)
-make migrate-up               # apply schema (needs the migrate CLI)
-make run                      # start the server
-```
-
-## Configuration
-
-Settings come from the environment. A `.env` file is loaded at startup via
-`godotenv` as a local-dev convenience (override its path with `ENV_FILE`):
-
-- a missing `.env` is not an error — production injects real env vars;
-- **real environment variables always win** over the file, so an orchestrator's
-  values are never shadowed by a stale `.env` baked into an image.
-
-See `.env.example`; only `DATABASE_URL` is required.
 
 ## Endpoints
 
-| Method | Path                               | Purpose                                       |
-| ------ | ---------------------------------- | --------------------------------------------- |
-| POST   | `/workers/register`                | Register a worker, get its id                 |
-| POST   | `/jobs`                            | Create job + tasks from chunk URIs            |
-| POST   | `/jobs/upload`                     | Upload a dataset; coordinator chunks it       |
-| GET    | `/jobs/{job_id}`                   | Aggregate job progress                        |
-| POST   | `/tasks/claim`                     | Atomically lease one task (`204` if none)     |
-| GET    | `/tasks/{task_id}/input`           | Download the task's input shard               |
-| POST   | `/tasks/{task_id}/heartbeat`       | Renew the caller's lease (→ `running`)        |
-| PUT    | `/tasks/{task_id}/artifacts/{name}`| Upload a partial-result artifact              |
-| POST   | `/tasks/{task_id}/result`          | Complete with an artifact id (idempotent)     |
-| POST   | `/tasks/{task_id}/failure`         | Record failure / retryable state              |
-| GET    | `/artifacts/{artifact_id}/download`| Download an artifact by id                    |
-| GET    | `/health`                          | Readiness incl. database (unauthenticated)    |
+| Method | Path        | Auth        | Purpose                                  |
+|--------|-------------|-------------|------------------------------------------|
+| GET    | `/health`   | none        | Liveness probe (checks the database)     |
+| POST   | `/register` | none        | Create an account (always role `user`)   |
+| POST   | `/login`    | none        | Verify credentials, return a signed JWT  |
+| GET    | `/me`       | Bearer JWT  | Return the caller's own account          |
 
-The full contract is in [`docs/api-contract.md`](../docs/api-contract.md) and
-[`docs/openapi.yaml`](../docs/openapi.yaml); a worker-author guide is in
-[`docs/building-workers.md`](../docs/building-workers.md).
+Roles are `user` and `admin`. Registration always creates a `user`; promotion to
+`admin` is a manual database operation, never a request. The role→permission
+mapping lives in the coordinator's authorization checks, not in a table.
 
-## Poking the API
+## How it connects to the coordinator
 
-Two ways, both checked in:
+The coordinator never calls this service at runtime. A client logs in here, gets
+a JWT, and presents it to the coordinator, which verifies the signature locally
+with the same `JWT_SECRET` and reads `sub` (the user id) into `jobs.owner_id`.
 
-```sh
-make smoke                    # every endpoint, asserted; non-zero exit on failure
-```
+That link is **off by default**: until the coordinator is given a matching
+`JWT_SECRET`, it accepts only the shared worker token and stores `owner_id` as
+NULL. Set the same secret (≥ 32 bytes, byte-for-byte identical) on both services
+to turn it on.
 
-`api/requests.http` runs the same calls one at a time from an editor with a REST
-client (VSCodium/VS Code "REST Client", JetBrains HTTP Client). Later requests
-reuse ids captured from earlier responses, so it doubles as API documentation.
-
-## Status
-
-Works end to end: a worker registers, a dataset is uploaded and chunked into
-shard tasks (or a job is created from chunk URIs), tasks are leased one at a
-time, downloaded, heartbeated (`leased → running`), completed via uploaded
-result artifacts, and reflected in job progress. A reaper reclaims expired
-leases and marks silent workers offline.
-
-Done: schema + migrations, atomic claim (`FOR UPDATE SKIP LOCKED`), optimistic
-concurrency, result/failure paths, lease expiry, worker registry + liveness,
-artifact storage, dataset upload + chunking, request-size limits.
-
-Still stubbed: `StitchJob.Execute` — merging per-chunk top-k into the final CSV
-is workload semantics that belongs to the Python side (reducer).
-
-## Tests
-
-Unit tests need **no database** — domain rules, use-case orchestration (over
-in-memory `internal/memstore`), and HTTP handlers (via `httptest`):
+## Run
 
 ```sh
-make test           # go test ./...
-make vet
-make lint
-go test -race ./...
+# whole stack: Postgres + migrations + the service on :8081
+make up
+
+# or locally against your own Postgres
+cp .env.example .env   # then edit JWT_SECRET and DATABASE_URL
+make run
 ```
 
-Integration tests run against a **real PostgreSQL** (the spec forbids mocks
-here — they verify `FOR UPDATE SKIP LOCKED`, optimistic concurrency, rollback):
+## Verify
 
 ```sh
-docker compose up -d
-make test-integration TEST_DATABASE_URL='postgres://scimesh:scimesh@localhost:5432/scimesh?sslmode=disable'
+make test              # unit tests
+make check             # vet, lint, race, integration, smoke — needs Docker
+make smoke             # end-to-end against a running service
 ```
 
-CI (`.github/workflows/coordinator.yml`) runs vet, gofmt, race tests, lint, and
-the integration suite against a Postgres service on every push and PR.
-
-For the complete local verification, including an isolated Docker PostgreSQL
-and the HTTP smoke flow, run:
-
-```sh
-make check
-```
-
-It uses Compose project `scimesh-check` and ports `55432`/`18080` by default,
-so it does not connect to a PostgreSQL already running on `5432`. Override
-`CHECK_POSTGRES_PORT`, `CHECK_COORDINATOR_PORT`, or `CHECK_PROJECT` if needed.
+Password hashing uses bcrypt (`golang.org/x/crypto/bcrypt`); the salt and cost
+are embedded in the stored hash, so there is no separate salt column. Tokens are
+HS256 (`github.com/golang-jwt/jwt/v5`).
