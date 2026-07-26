@@ -1,0 +1,10 @@
+# Prometheus scrape config for the SciMesh demo. Prometheus runs in the same
+# compose network as the coordinator, so it reaches it by service name.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: coordinator
+    static_configs:
+      - targets: ["coordinator:8080"]

@@ -12,6 +12,8 @@ project=${DEMO_PROJECT:-scimesh-demo}
 postgres_port=${DEMO_POSTGRES_PORT:-55432}
 coordinator_port=${DEMO_COORDINATOR_PORT:-18080}
 userservice_port=${DEMO_USERSERVICE_PORT:-18081}
+prometheus_port=${DEMO_PROMETHEUS_PORT:-19090}
+grafana_port=${DEMO_GRAFANA_PORT:-13000}
 ui_token=${DEMO_UI_TOKEN:-demo-ui-secret}
 worker_token=${DEMO_WORKER_TOKEN:-demo-worker-token}
 # Shared HS256 secret; the coordinator verifies userservice tokens with it. Must
@@ -34,6 +36,8 @@ compose() {
   POSTGRES_PORT="$postgres_port" \
   COORDINATOR_PORT="$coordinator_port" \
   USERSERVICE_PORT="$userservice_port" \
+  PROMETHEUS_PORT="$prometheus_port" \
+  GRAFANA_PORT="$grafana_port" \
   UI_AUTH_TOKEN="$ui_token" \
   WORKER_AUTH_TOKEN="$worker_token" \
   JWT_SECRET="$jwt_secret" \
@@ -41,7 +45,8 @@ compose() {
   BOOTSTRAP_ADMIN_PASSWORD="$admin_password" \
   docker compose -p "$project" \
     -f "$coordinator_dir/docker-compose.yml" \
-    -f "$coordinator_dir/docker-compose.users.yml" "$@"
+    -f "$coordinator_dir/docker-compose.users.yml" \
+    -f "$coordinator_dir/docker-compose.monitoring.yml" "$@"
 }
 
 stop_workers() {
@@ -152,6 +157,8 @@ SciMesh manual demo is ready.
   UI:          http://localhost:$coordinator_port/ui   (shows a login page)
   Admin login: $admin_email / $admin_password
   Userservice: http://localhost:$userservice_port
+  Grafana:     http://localhost:$grafana_port   (anonymous view; admin/${GRAFANA_PASSWORD:-admin} to edit)
+  Prometheus:  http://localhost:$prometheus_port
   Workers:     $workers local reference workers
 
 Sign in with the admin above, or register a new account from the login page.
