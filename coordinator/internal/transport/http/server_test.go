@@ -50,7 +50,7 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 		SubmitDataset:    usecase.NewSubmitDataset(blobs, arts, jobs, tasks, tx, clk, 3),
 		ClaimTask:        usecase.NewClaimTask(tasks, jobs, work, tx, clk, lease),
 		RenewLease:       usecase.NewRenewLease(tasks, work, tx, clk, lease),
-		CompleteTask:     usecase.NewCompleteTask(tasks, jobs, arts, tx, clk),
+		CompleteTask:     usecase.NewCompleteTask(tasks, jobs, arts, work, memstore.NewTaskResultRepo(), tx, clk, 2),
 		ReduceJob:        usecase.NewReduceJob(jobs, tasks, arts, blobs, tx, clk),
 		FailTask:         usecase.NewFailTask(tasks, jobs, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobs, tasks),

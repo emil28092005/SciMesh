@@ -84,6 +84,9 @@ WITH candidate AS (
     WHERE status = 'pending'
       AND attempt < max_attempts
       AND (cardinality($1::text[]) = 0 OR workload = ANY($1))
+      AND ($5::uuid IS NULL OR NOT EXISTS (
+          SELECT 1 FROM task_results tr
+          WHERE tr.task_id = tasks.id AND tr.owner_id = $5))
     ORDER BY created_at, chunk_index
     FOR UPDATE SKIP LOCKED
     LIMIT 1
@@ -108,7 +111,7 @@ func (r *TaskRepo) ClaimNext(ctx context.Context, f usecase.ClaimFilter) (*domai
 
 	var task *domain.Task
 	err := withRetry(ctx, func(ctx context.Context) error {
-		row := conn(ctx, r.pool).QueryRow(ctx, claimNextSQL, workloads, f.Owner, f.LeaseUntil, f.Now)
+		row := conn(ctx, r.pool).QueryRow(ctx, claimNextSQL, workloads, f.Owner, f.LeaseUntil, f.Now, f.VoterOwner)
 		t, err := scanTask(row)
 		if errors.Is(err, pgx.ErrNoRows) {
 			task = nil

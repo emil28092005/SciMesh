@@ -61,6 +61,9 @@ type Config struct {
 	LeaseDuration time.Duration
 	// Default attempt ceiling for newly created tasks.
 	DefaultMaxAttempts int
+	// How many distinct owners must agree on an untrusted result before it is
+	// accepted (trusted workers are accepted directly).
+	QuorumSize int
 	// How often the background lease-reaper runs.
 	ReaperInterval time.Duration
 	// A worker silent for longer than this is marked offline by the reaper.
@@ -103,6 +106,7 @@ func LoadConfig() (Config, error) {
 		HeartbeatInterval:  15 * time.Second,
 		LeaseDuration:      2 * time.Minute,
 		DefaultMaxAttempts: 3,
+		QuorumSize:         2,
 		ReaperInterval:     30 * time.Second,
 		WorkerOfflineAfter: 1 * time.Minute,
 	}
@@ -146,6 +150,12 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.DefaultMaxAttempts, err = getEnvInt("DEFAULT_MAX_ATTEMPTS", cfg.DefaultMaxAttempts); err != nil {
 		return Config{}, err
+	}
+	if cfg.QuorumSize, err = getEnvInt("QUORUM_SIZE", cfg.QuorumSize); err != nil {
+		return Config{}, err
+	}
+	if cfg.QuorumSize < 1 {
+		return Config{}, fmt.Errorf("QUORUM_SIZE must be positive")
 	}
 	if cfg.DefaultMaxAttempts < 1 {
 		return Config{}, fmt.Errorf("DEFAULT_MAX_ATTEMPTS must be positive")

@@ -60,13 +60,14 @@ func run() error {
 	}
 
 	var (
-		clk          = infra.NewClock()
-		tx           = postgres.NewTxManager(pool)
-		taskRepo     = postgres.NewTaskRepo(pool)
-		jobRepo      = postgres.NewJobRepo(pool)
-		workerRepo   = postgres.NewWorkerRepo(pool)
-		artifactRepo = postgres.NewArtifactRepo(pool)
-		uiReadRepo   = postgres.NewUIReadRepo(pool)
+		clk            = infra.NewClock()
+		tx             = postgres.NewTxManager(pool)
+		taskRepo       = postgres.NewTaskRepo(pool)
+		jobRepo        = postgres.NewJobRepo(pool)
+		workerRepo     = postgres.NewWorkerRepo(pool)
+		artifactRepo   = postgres.NewArtifactRepo(pool)
+		uiReadRepo     = postgres.NewUIReadRepo(pool)
+		taskResultRepo = postgres.NewTaskResultRepo(pool)
 	)
 
 	useCases := httptransport.UseCases{
@@ -75,7 +76,7 @@ func run() error {
 		SubmitDataset:    usecase.NewSubmitDataset(blobStore, artifactRepo, jobRepo, taskRepo, tx, clk, cfg.DefaultMaxAttempts),
 		ClaimTask:        usecase.NewClaimTask(taskRepo, jobRepo, workerRepo, tx, clk, cfg.LeaseDuration),
 		RenewLease:       usecase.NewRenewLease(taskRepo, workerRepo, tx, clk, cfg.LeaseDuration),
-		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, tx, clk),
+		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, workerRepo, taskResultRepo, tx, clk, cfg.QuorumSize),
 		ReduceJob:        usecase.NewReduceJob(jobRepo, taskRepo, artifactRepo, blobStore, tx, clk),
 		FailTask:         usecase.NewFailTask(taskRepo, jobRepo, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobRepo, taskRepo),

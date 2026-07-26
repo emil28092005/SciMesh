@@ -24,6 +24,10 @@ const (
 // ErrCodeLeaseExpired marks tasks failed by the reaper rather than by a worker.
 const ErrCodeLeaseExpired = "lease_expired"
 
+// ErrCodeQuorumFailed marks a task whose untrusted results never reached a
+// verifying quorum before its attempts ran out.
+const ErrCodeQuorumFailed = "quorum_failed"
+
 // Task is one independently executable chunk of a job.
 //
 // Nullable columns are pointers so "no lease" stays distinguishable from
@@ -213,6 +217,33 @@ func (t *Task) CompleteWith(resultArtifactID uuid.UUID, metrics map[string]any,
 	t.ErrorCode = nil
 	t.ErrorMessage = nil
 	t.Version++
+	return nil
+}
+
+// ReleaseAfterVote returns an untrusted worker's task to the queue after its
+// result was recorded as a quorum vote but quorum was not yet reached, so a
+// different owner can compute it independently. When no attempts remain the task
+// fails: its untrusted results could not be verified.
+func (t *Task) ReleaseAfterVote(worker string, attempt int, now time.Time) error {
+	if t.Status == TaskCompleted {
+		return nil // settled by a concurrent quorum
+	}
+	if err := t.verifyLease(worker, attempt, now); err != nil {
+		return err
+	}
+	t.LeaseOwner = nil
+	t.LeaseExpiresAt = nil
+	t.Version++
+
+	if t.CanRetry() {
+		t.Status = TaskPending
+		return nil
+	}
+	code, msg := ErrCodeQuorumFailed, "untrusted results did not reach quorum"
+	t.ErrorCode = &code
+	t.ErrorMessage = &msg
+	t.Status = TaskFailed
+	t.CompletedAt = &now
 	return nil
 }
 

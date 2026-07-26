@@ -23,6 +23,15 @@ type ClaimFilter struct {
 	Owner      string   // worker ID taking the lease
 	Now        time.Time
 	LeaseUntil time.Time
+	// VoterOwner, when set, excludes tasks this owner has already voted on, so
+	// an untrusted worker never verifies its own chunk twice.
+	VoterOwner *uuid.UUID
+}
+
+// TaskResultRepository records and tallies quorum votes for untrusted results.
+type TaskResultRepository interface {
+	RecordVote(ctx context.Context, taskID, ownerID uuid.UUID, sha256 string, artifactID uuid.UUID) error
+	CountAgreeing(ctx context.Context, taskID uuid.UUID, sha256 string) (int, error)
 }
 
 // TaskRepository persists tasks.
