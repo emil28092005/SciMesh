@@ -60,6 +60,18 @@ func run() error {
 		Users:       users,
 	}
 
+	// Seed the first admin, if configured. Idempotent: a no-op once it exists.
+	if cfg.BootstrapAdminEmail != "" && cfg.BootstrapAdminPassword != "" {
+		created, err := usecase.NewBootstrapAdmin(users, hasher, clock).
+			Execute(ctx, cfg.BootstrapAdminEmail, cfg.BootstrapAdminPassword)
+		if err != nil {
+			return fmt.Errorf("bootstrap admin: %w", err)
+		}
+		if created {
+			log.Info("bootstrap admin created", "email", cfg.BootstrapAdminEmail)
+		}
+	}
+
 	handler := apihttp.NewServer(log, uc, issuer)
 	// A blanket per-request deadline: bcrypt is bounded, so anything slower is a
 	// stuck handler we want to shed rather than hold a connection open.

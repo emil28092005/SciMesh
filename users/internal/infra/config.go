@@ -32,6 +32,13 @@ type Config struct {
 	// bcrypt work factor. 0 falls back to the library default (currently 10).
 	BcryptCost int
 
+	// Optional first-admin bootstrap. When both are set and no such account
+	// exists, the service creates it with role=admin on startup — the only way
+	// to get the first admin, since /register always makes a plain user and
+	// promotion needs an existing admin. Idempotent: a no-op once created.
+	BootstrapAdminEmail    string
+	BootstrapAdminPassword string
+
 	// Minimum log level: debug, info, warn, error.
 	LogLevel string
 	// Path to a rotated log file. Empty logs to stdout only.
@@ -64,15 +71,17 @@ func LoadConfig() (Config, error) {
 	}
 
 	cfg := Config{
-		Addr:             getEnv("USERSERVICE_ADDR", ":8081"),
-		DatabaseURL:      os.Getenv("DATABASE_URL"),
-		JWTSecret:        os.Getenv("JWT_SECRET"),
-		LogLevel:         getEnv("LOG_LEVEL", "info"),
-		LogFile:          os.Getenv("LOG_FILE"),
-		TokenTTL:         24 * time.Hour,
-		DBMaxConns:       10,
-		DBConnectTimeout: 30 * time.Second,
-		RequestTimeout:   15 * time.Second,
+		Addr:                   getEnv("USERSERVICE_ADDR", ":8081"),
+		DatabaseURL:            os.Getenv("DATABASE_URL"),
+		JWTSecret:              os.Getenv("JWT_SECRET"),
+		BootstrapAdminEmail:    os.Getenv("BOOTSTRAP_ADMIN_EMAIL"),
+		BootstrapAdminPassword: os.Getenv("BOOTSTRAP_ADMIN_PASSWORD"),
+		LogLevel:               getEnv("LOG_LEVEL", "info"),
+		LogFile:                os.Getenv("LOG_FILE"),
+		TokenTTL:               24 * time.Hour,
+		DBMaxConns:             10,
+		DBConnectTimeout:       30 * time.Second,
+		RequestTimeout:         15 * time.Second,
 	}
 
 	if cfg.DatabaseURL == "" {
