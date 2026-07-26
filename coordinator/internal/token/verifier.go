@@ -13,8 +13,9 @@ import (
 
 // Claims is the subset of a userservice token the coordinator cares about.
 type Claims struct {
-	UserID uuid.UUID
-	Role   string
+	UserID   uuid.UUID
+	Role     string
+	Verified bool
 }
 
 // Verifier checks tokens against the shared HS256 secret.
@@ -32,7 +33,8 @@ func NewVerifier(secret string) *Verifier {
 }
 
 type claims struct {
-	Role string `json:"role"`
+	Role     string `json:"role"`
+	Verified bool   `json:"verified"`
 	jwt.RegisteredClaims
 }
 
@@ -54,5 +56,5 @@ func (v *Verifier) Verify(raw string) (Claims, error) {
 	if err != nil {
 		return Claims{}, fmt.Errorf("token subject is not a uuid: %w", err)
 	}
-	return Claims{UserID: id, Role: c.Role}, nil
+	return Claims{UserID: id, Role: c.Role, Verified: c.Verified}, nil
 }

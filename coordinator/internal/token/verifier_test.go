@@ -12,8 +12,14 @@ const secret = "coordinator-verify-secret-32-bytes!!"
 
 func sign(t *testing.T, method jwt.SigningMethod, key any, sub, role string, exp time.Time) string {
 	t.Helper()
+	return signVerified(t, method, key, sub, role, false, exp)
+}
+
+func signVerified(t *testing.T, method jwt.SigningMethod, key any, sub, role string, verified bool, exp time.Time) string {
+	t.Helper()
 	tok := jwt.NewWithClaims(method, claims{
-		Role: role,
+		Role:     role,
+		Verified: verified,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   sub,
 			ExpiresAt: jwt.NewNumericDate(exp),
@@ -24,6 +30,19 @@ func sign(t *testing.T, method jwt.SigningMethod, key any, sub, role string, exp
 		t.Fatalf("sign: %v", err)
 	}
 	return raw
+}
+
+func TestVerifyCarriesVerifiedClaim(t *testing.T) {
+	v := NewVerifier(secret)
+	raw := signVerified(t, jwt.SigningMethodHS256, []byte(secret), uuid.New().String(), "user", true, time.Now().Add(time.Hour))
+
+	claims, err := v.Verify(raw)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if !claims.Verified {
+		t.Error("verified claim not read from token")
+	}
 }
 
 func TestNewVerifierNilWhenNoSecret(t *testing.T) {

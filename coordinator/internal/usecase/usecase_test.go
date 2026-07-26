@@ -265,6 +265,71 @@ func TestClaimEmptyQueueReturnsNil(t *testing.T) {
 	}
 }
 
+func TestRegisterWorkerDefaultsToTrusted(t *testing.T) {
+	h := newHarness()
+	// A shared-token registration carries no owner and no explicit trust.
+	w, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "lab", Capabilities: []string{"w"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.TrustLevel != domain.WorkerTrusted {
+		t.Errorf("trust = %q, want trusted", w.TrustLevel)
+	}
+	if w.OwnerID != nil {
+		t.Errorf("owner = %v, want nil for a shared-token worker", w.OwnerID)
+	}
+}
+
+func TestRegisterWorkerRecordsOwnerAndUntrusted(t *testing.T) {
+	h := newHarness()
+	owner := uuid.New()
+	w, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "volunteer", Capabilities: []string{"w"},
+		OwnerID: &owner, TrustLevel: domain.WorkerUntrusted,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.TrustLevel != domain.WorkerUntrusted {
+		t.Errorf("trust = %q, want untrusted", w.TrustLevel)
+	}
+	if w.OwnerID == nil || *w.OwnerID != owner {
+		t.Errorf("owner = %v, want %v", w.OwnerID, owner)
+	}
+}
+
+func TestUntrustedWorkerIsQuarantinedFromClaims(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1) // a task is waiting
+	owner := uuid.New()
+	worker, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "volunteer", Capabilities: []string{"w"},
+		OwnerID: &owner, TrustLevel: domain.WorkerUntrusted,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Even with a matching task available, an untrusted worker gets nothing:
+	// its results cannot be verified until quorum (C2) exists.
+	claimed, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{WorkerID: worker.ID.String()})
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if claimed != nil {
+		t.Error("untrusted worker must receive no task (quarantine)")
+	}
+
+	// A trusted worker still drains the same queue.
+	trusted, _ := h.register.Execute(ctx, usecase.RegisterWorkerInput{Name: "lab", Capabilities: []string{"w"}})
+	got, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{WorkerID: trusted.ID.String()})
+	if err != nil || got == nil {
+		t.Fatalf("trusted claim = (%v, %v), want a task", got, err)
+	}
+}
+
 func TestClaimRequiresWorkerID(t *testing.T) {
 	h := newHarness()
 	if _, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{}); !errors.Is(err, domain.ErrInvalidInput) {

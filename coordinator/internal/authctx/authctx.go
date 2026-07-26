@@ -15,12 +15,18 @@ import (
 // Requester at all (From returns ok=false), which is how worker traffic and
 // legacy unauthenticated-user traffic stay owner-less.
 type Requester struct {
-	UserID uuid.UUID
-	Role   string
+	UserID   uuid.UUID
+	Role     string
+	Verified bool
 }
 
 // IsAdmin reports whether the requester may act on any user's jobs.
 func (r Requester) IsAdmin() bool { return r.Role == "admin" }
+
+// IsTrusted reports whether workers this requester registers produce results
+// the coordinator accepts without quorum. Admins and verified contributors are
+// trusted; a plain unverified user is not.
+func (r Requester) IsTrusted() bool { return r.IsAdmin() || r.Verified }
 
 type ctxKey struct{}
 

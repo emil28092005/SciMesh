@@ -51,6 +51,13 @@ func (uc *ClaimTask) Execute(ctx context.Context, in ClaimTaskInput) (*domain.Cl
 		if err != nil {
 			return nil, err
 		}
+		// C1 quarantine: an untrusted volunteer worker may register but receives
+		// no tasks, because there is not yet (until quorum, C2) any way to verify
+		// its results. Report an empty queue rather than an error, so its poller
+		// simply idles.
+		if worker.TrustLevel == domain.WorkerUntrusted {
+			return nil, nil
+		}
 		// Never trust caller-supplied capabilities: registration is the durable
 		// worker identity and its allowlist.
 		workloads = worker.Capabilities

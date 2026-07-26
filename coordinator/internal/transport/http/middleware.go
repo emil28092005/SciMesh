@@ -70,8 +70,9 @@ func withAuth(token string, verifier *tokenpkg.Verifier) func(http.Handler) http
 			if verifier != nil && presented != "" {
 				if claims, err := verifier.Verify(presented); err == nil {
 					ctx := authctx.With(r.Context(), authctx.Requester{
-						UserID: claims.UserID,
-						Role:   claims.Role,
+						UserID:   claims.UserID,
+						Role:     claims.Role,
+						Verified: claims.Verified,
 					})
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return

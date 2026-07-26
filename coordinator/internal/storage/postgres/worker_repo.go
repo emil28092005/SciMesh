@@ -23,13 +23,13 @@ func NewWorkerRepo(pool *pgxpool.Pool) *WorkerRepo {
 	return &WorkerRepo{pool: pool}
 }
 
-var workerColumns = []string{"id", "name", "capabilities", "status", "last_heartbeat_at", "created_at", "updated_at"}
+var workerColumns = []string{"id", "name", "capabilities", "status", "owner_id", "trust_level", "last_heartbeat_at", "created_at", "updated_at"}
 
 func (r *WorkerRepo) Insert(ctx context.Context, w *domain.Worker) error {
 	sql, args, err := psql.Insert("workers").
 		Columns(workerColumns...).
 		// capabilities is a jsonb column; pgx marshals the []string to a JSON array.
-		Values(w.ID, w.Name, w.Capabilities, string(w.Status),
+		Values(w.ID, w.Name, w.Capabilities, string(w.Status), w.OwnerID, string(w.TrustLevel),
 			w.LastHeartbeatAt, w.CreatedAt, w.UpdatedAt).
 		ToSql()
 	if err != nil {
@@ -95,11 +95,13 @@ func scanWorker(row pgx.Row) (*domain.Worker, error) {
 	var (
 		w      domain.Worker
 		status string
+		trust  string
 	)
-	if err := row.Scan(&w.ID, &w.Name, &w.Capabilities, &status,
+	if err := row.Scan(&w.ID, &w.Name, &w.Capabilities, &status, &w.OwnerID, &trust,
 		&w.LastHeartbeatAt, &w.CreatedAt, &w.UpdatedAt); err != nil {
 		return nil, err
 	}
 	w.Status = domain.WorkerStatus(status)
+	w.TrustLevel = domain.WorkerTrust(trust)
 	return &w, nil
 }
