@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 )
 
@@ -50,6 +51,18 @@ func (uc *ClaimTask) Execute(ctx context.Context, in ClaimTaskInput) (*domain.Cl
 		worker, err := uc.workers.Get(ctx, workerID)
 		if err != nil {
 			return nil, err
+		}
+		// Bind the caller to the worker it claims as. A JWT-authenticated
+		// volunteer may operate only its own workers; without this the trust
+		// tier would be read off a caller-supplied worker_id, letting anyone who
+		// knows a trusted worker's id claim as it and bypass the quarantine
+		// below. A shared-token caller (no requester) is a lab operator and may
+		// act as any worker, preserving the original behaviour.
+		if r, ok := authctx.From(ctx); ok {
+			if worker.OwnerID == nil || *worker.OwnerID != r.UserID {
+				// Don't disclose that another user's worker exists.
+				return nil, domain.ErrWorkerNotFound
+			}
 		}
 		// C1 quarantine: an untrusted volunteer worker may register but receives
 		// no tasks, because there is not yet (until quorum, C2) any way to verify

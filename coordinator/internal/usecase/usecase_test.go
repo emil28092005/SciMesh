@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 	"github.com/emil28092005/SciMesh/coordinator/internal/memstore"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
@@ -297,6 +298,38 @@ func TestRegisterWorkerRecordsOwnerAndUntrusted(t *testing.T) {
 	}
 	if w.OwnerID == nil || *w.OwnerID != owner {
 		t.Errorf("owner = %v, want %v", w.OwnerID, owner)
+	}
+}
+
+func TestJWTCallerCannotClaimAsAnotherUsersWorker(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1)
+
+	// A trusted lab worker owned by nobody (shared-token registration).
+	victim, _ := h.register.Execute(ctx, usecase.RegisterWorkerInput{Name: "lab", Capabilities: []string{"w"}})
+
+	// An attacker authenticated as a JWT user tries to claim as the lab worker.
+	attacker := authctx.With(ctx, authctx.Requester{UserID: uuid.New(), Role: "user"})
+	claimed, err := h.claim.Execute(attacker, usecase.ClaimTaskInput{WorkerID: victim.ID.String()})
+	if !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Fatalf("claim as another's worker = (%v, %v), want ErrWorkerNotFound", claimed, err)
+	}
+}
+
+func TestJWTCallerClaimsAsOwnTrustedWorker(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1)
+	owner := uuid.New()
+
+	// The user's own worker, trusted (e.g. a verified contributor).
+	mine, _ := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "mine", Capabilities: []string{"w"}, OwnerID: &owner, TrustLevel: domain.WorkerTrusted,
+	})
+
+	callerCtx := authctx.With(ctx, authctx.Requester{UserID: owner, Role: "user", Verified: true})
+	got, err := h.claim.Execute(callerCtx, usecase.ClaimTaskInput{WorkerID: mine.ID.String()})
+	if err != nil || got == nil {
+		t.Fatalf("own trusted worker claim = (%v, %v), want a task", got, err)
 	}
 }
 
