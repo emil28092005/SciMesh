@@ -47,7 +47,10 @@ func do(t *testing.T, h http.Handler, method, path, token string, body any) *htt
 			t.Fatal(err)
 		}
 	}
-	req := httptest.NewRequest(method, path, &buf)
+	req, err := http.NewRequestWithContext(context.Background(), method, path, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
