@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 )
 
@@ -87,13 +88,35 @@ type DashboardView struct {
 	ActiveJobs    int          `json:"active_jobs"`
 	FinishedJobs  int          `json:"finished_jobs"`
 	OnlineWorkers int          `json:"online_workers"`
+	// Session is the signed-in user, when the UI runs in session mode. nil under
+	// basic auth. Template-only, never serialised to the polling JSON.
+	Session *SessionView `json:"-"`
 }
+
+// SessionView is the minimal identity the UI header needs to show who is signed
+// in and to offer a logout control.
+type SessionView struct {
+	Role     string
+	Verified bool
+}
+
+// sessionViewFrom builds the header session info from the request context, or
+// nil when the caller is not an authenticated user (basic-auth operator).
+func sessionViewFrom(ctx context.Context) *SessionView {
+	r, ok := authctx.From(ctx)
+	if !ok {
+		return nil
+	}
+	return &SessionView{Role: r.Role, Verified: r.Verified}
+}
+
 type JobDetailView struct {
 	JobCard
 	Tasks                []TaskCard      `json:"tasks"`
 	Artifacts            []ArtifactCard  `json:"artifacts"`
 	Parameters           []ParameterCard `json:"parameters"`
 	FinalResultAvailable bool            `json:"final_result_available"`
+	Session              *SessionView    `json:"-"`
 }
 
 type Dashboard struct{ read UIReadRepository }
@@ -134,6 +157,7 @@ func (d *Dashboard) Overview(ctx context.Context, limit int) (DashboardView, err
 			out.OnlineWorkers++
 		}
 	}
+	out.Session = sessionViewFrom(ctx)
 	return out, nil
 }
 
@@ -168,6 +192,7 @@ func (d *Dashboard) JobDetail(ctx context.Context, jobID uuid.UUID) (JobDetailVi
 		Tasks:      make([]TaskCard, 0, len(tasks)),
 		Artifacts:  make([]ArtifactCard, 0, len(artifacts)),
 		Parameters: uiParameters(job.Parameters),
+		Session:    sessionViewFrom(ctx),
 	}
 	for _, task := range tasks {
 		card := TaskCard{ID: task.ID.String(), ChunkIndex: task.ChunkIndex, Status: string(task.Status), Attempt: task.Attempt, MaxAttempts: task.MaxAttempts, LeaseExpiresAt: task.LeaseExpiresAt, StartedAt: task.StartedAt, CompletedAt: task.CompletedAt}
