@@ -11,8 +11,15 @@ repo_dir=$(CDPATH= cd -- "$coordinator_dir/.." && pwd)
 project=${DEMO_PROJECT:-scimesh-demo}
 postgres_port=${DEMO_POSTGRES_PORT:-55432}
 coordinator_port=${DEMO_COORDINATOR_PORT:-18080}
+userservice_port=${DEMO_USERSERVICE_PORT:-18081}
 ui_token=${DEMO_UI_TOKEN:-demo-ui-secret}
 worker_token=${DEMO_WORKER_TOKEN:-demo-worker-token}
+# Shared HS256 secret; the coordinator verifies userservice tokens with it. Must
+# be at least 32 bytes (both services refuse a shorter one).
+jwt_secret=${DEMO_JWT_SECRET:-demo-jwt-secret-please-change-me-0123456789}
+# The first admin, seeded into the userservice on first boot.
+admin_email=${DEMO_ADMIN_EMAIL:-root@scimesh.local}
+admin_password=${DEMO_ADMIN_PASSWORD:-rootpassword}
 workers=${DEMO_WORKERS:-2}
 demo_dir=${DEMO_DIR:-.demo}
 case "$demo_dir" in
@@ -26,9 +33,15 @@ logs_dir="$demo_dir/logs"
 compose() {
   POSTGRES_PORT="$postgres_port" \
   COORDINATOR_PORT="$coordinator_port" \
+  USERSERVICE_PORT="$userservice_port" \
   UI_AUTH_TOKEN="$ui_token" \
   WORKER_AUTH_TOKEN="$worker_token" \
-  docker compose -p "$project" -f "$coordinator_dir/docker-compose.yml" "$@"
+  JWT_SECRET="$jwt_secret" \
+  BOOTSTRAP_ADMIN_EMAIL="$admin_email" \
+  BOOTSTRAP_ADMIN_PASSWORD="$admin_password" \
+  docker compose -p "$project" \
+    -f "$coordinator_dir/docker-compose.yml" \
+    -f "$coordinator_dir/docker-compose.users.yml" "$@"
 }
 
 stop_workers() {
@@ -57,10 +70,29 @@ wait_for_coordinator() {
   done
 }
 
+wait_for_userservice() {
+  local attempt=0
+  until curl --fail --silent --show-error "http://localhost:$userservice_port/health" >/dev/null; do
+    attempt=$((attempt + 1))
+    if (( attempt >= 45 )); then
+      echo "Userservice did not become ready. Recent logs:" >&2
+      compose logs --tail=80 userservice >&2 || true
+      exit 1
+    fi
+    sleep 1
+  done
+}
+
 wait_for_workers() {
-  local attempt=0 registered overview
+  local attempt=0 registered overview cookie="$demo_dir/session.cookies"
+  # The dashboard API is behind a userservice session now, not basic auth. Log in
+  # as the seeded admin (who sees every worker) to obtain a session cookie.
+  curl --fail --silent -c "$cookie" \
+    --data-urlencode "email=$admin_email" \
+    --data-urlencode "password=$admin_password" \
+    "http://localhost:$coordinator_port/ui/login" >/dev/null 2>&1 || true
   until false; do
-    overview=$(curl --fail --silent --show-error --user "operator:$ui_token" \
+    overview=$(curl --fail --silent --show-error -b "$cookie" \
       "http://localhost:$coordinator_port/ui/api/overview" 2>/dev/null || true)
     # The overview contains no jobs at demo startup, so every `id` belongs to
     # a registered worker. Avoid adding jq just for this local helper.
@@ -96,6 +128,8 @@ start() {
   compose up -d --build
   echo "Waiting for the coordinator on http://localhost:$coordinator_port ..."
   wait_for_coordinator
+  echo "Waiting for the userservice on http://localhost:$userservice_port ..."
+  wait_for_userservice
 
   : > "$pid_file"
   for index in $(seq 1 "$workers"); do
@@ -115,13 +149,15 @@ start() {
 
 SciMesh manual demo is ready.
 
-  UI:       http://localhost:$coordinator_port/ui
-  Username: operator
-  Password: $ui_token
-  Workers:  $workers local reference workers
+  UI:          http://localhost:$coordinator_port/ui   (shows a login page)
+  Admin login: $admin_email / $admin_password
+  Userservice: http://localhost:$userservice_port
+  Workers:     $workers local reference workers
 
-Upload a small ChEMBL TSV through “New similarity search”, then watch the job
-page update. Worker logs are in $logs_dir. Stop everything with:
+Sign in with the admin above, or register a new account from the login page.
+The admin sees every job; a plain user sees only their own. Upload a small
+ChEMBL TSV through “New similarity search”, then watch the job page update.
+Worker logs are in $logs_dir. Stop everything with:
 
   make demo-down
 EOF

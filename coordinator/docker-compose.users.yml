@@ -1,0 +1,66 @@
+# Demo overlay: adds the userservice (its own Postgres + migrations) alongside
+# the coordinator and wires the two together with a shared JWT secret, so the
+# operator UI authenticates through userservice login/registration.
+#
+# Used only by scripts/demo-ui.sh, merged onto docker-compose.yml with a second
+# -f. Not part of the plain `make up` stack.
+
+services:
+  postgres-users:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-scimesh}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scimesh}
+      POSTGRES_DB: scimesh_users
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scimesh} -d scimesh_users"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  migrate-users:
+    image: migrate/migrate:v4.17.1
+    depends_on:
+      postgres-users:
+        condition: service_healthy
+    volumes:
+      - ../users/migrations:/migrations:ro
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-scimesh}:${POSTGRES_PASSWORD:-scimesh}@postgres-users:5432/scimesh_users?sslmode=disable
+      - up
+    restart: on-failure
+
+  userservice:
+    build:
+      context: ../users
+    depends_on:
+      postgres-users:
+        condition: service_healthy
+      migrate-users:
+        condition: service_completed_successfully
+    environment:
+      USERSERVICE_ADDR: ":8081"
+      DATABASE_URL: postgres://${POSTGRES_USER:-scimesh}:${POSTGRES_PASSWORD:-scimesh}@postgres-users:5432/scimesh_users?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET}
+      # Seeds the first admin the very first time it boots (idempotent after).
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-root@scimesh.local}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "${USERSERVICE_PORT:-18081}:8081"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  # Turn the coordinator UI into session mode: the same shared secret verifies
+  # userservice tokens locally, and USERSERVICE_URL is where login/register proxy.
+  coordinator:
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      USERSERVICE_URL: http://userservice:8081
