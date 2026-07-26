@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/infra"
+	"github.com/emil28092005/SciMesh/coordinator/internal/metrics"
 	"github.com/emil28092005/SciMesh/coordinator/internal/storage/blob"
 	"github.com/emil28092005/SciMesh/coordinator/internal/storage/postgres"
 	httptransport "github.com/emil28092005/SciMesh/coordinator/internal/transport/http"
@@ -108,9 +109,18 @@ func run() error {
 		}(r.name, r.fn)
 	}
 
+	// Business metrics: gauges of tasks/jobs/workers by status, sampled from the
+	// database on every Prometheus scrape.
+	statsRepo := postgres.NewStatsRepo(pool)
+	m := metrics.New()
+	m.RegisterBusiness(func(ctx context.Context) (metrics.Stats, error) {
+		tasks, jobs, workers, err := statsRepo.Counts(ctx)
+		return metrics.Stats{Tasks: tasks, Jobs: jobs, Workers: workers}, err
+	})
+
 	// pool.Ping backs /health: readiness means the database answers, not just
 	// that the process is alive.
-	api := httptransport.NewServer(useCases, log, cfg.RequestTimeout, cfg.HeartbeatInterval, cfg.MaxUploadBytes, cfg.JWTSecret, cfg.UserserviceURL, pool.Ping)
+	api := httptransport.NewServer(useCases, log, cfg.RequestTimeout, cfg.HeartbeatInterval, cfg.MaxUploadBytes, cfg.JWTSecret, cfg.UserserviceURL, m, pool.Ping)
 	err = infra.RunServer(ctx, log, cfg.Addr, api.Handler(cfg.Token, cfg.UIToken))
 
 	// Shutdown order matters, and defers alone cannot express it (they run

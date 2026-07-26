@@ -59,7 +59,10 @@ type Server struct {
 }
 
 func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval time.Duration,
-	maxUploadBytes int64, jwtSecret, userserviceURL string, ready func(context.Context) error) *Server {
+	maxUploadBytes int64, jwtSecret, userserviceURL string, m *metrics.Metrics, ready func(context.Context) error) *Server {
+	if m == nil {
+		m = metrics.New()
+	}
 	return &Server{
 		uc:                uc,
 		log:               log,
@@ -69,7 +72,7 @@ func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval 
 		verifier:          tokenpkg.NewVerifier(jwtSecret),
 		userserviceURL:    strings.TrimRight(userserviceURL, "/"),
 		httpClient:        &http.Client{Timeout: 10 * time.Second},
-		metrics:           metrics.New(),
+		metrics:           m,
 		ready:             ready,
 	}
 }
