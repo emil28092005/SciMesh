@@ -26,6 +26,12 @@ type Config struct {
 	Token string
 	// Local operator UI credential. Empty disables the embedded UI entirely.
 	UIToken string
+	// Shared HS256 secret used to verify userservice-issued JWTs. When set, a
+	// submitter may authenticate with a JWT (in addition to workers using the
+	// shared token) and their jobs are stamped with owner_id. Empty disables
+	// user-JWT auth entirely — the pre-userservice behaviour. Must match the
+	// userservice's JWT_SECRET.
+	JWTSecret string
 
 	// Minimum log level: debug, info, warn, error.
 	LogLevel string
@@ -80,6 +86,7 @@ func LoadConfig() (Config, error) {
 		// former name, still honoured so existing .env files keep working.
 		Token:              getEnv("COORDINATOR_TOKEN", os.Getenv("WORKER_AUTH_TOKEN")),
 		UIToken:            os.Getenv("UI_AUTH_TOKEN"),
+		JWTSecret:          os.Getenv("JWT_SECRET"),
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 		LogFile:            os.Getenv("LOG_FILE"),
 		StorageDir:         getEnv("COORDINATOR_STORAGE_DIR", "./data"),
@@ -99,6 +106,11 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.UIToken != "" && cfg.Token != "" && cfg.UIToken == cfg.Token {
 		return Config{}, fmt.Errorf("UI_AUTH_TOKEN must differ from the worker auth token")
+	}
+	// A short secret makes the HMAC brute-forceable; refuse a weak one rather
+	// than verify tokens against it.
+	if cfg.JWTSecret != "" && len(cfg.JWTSecret) < 32 {
+		return Config{}, fmt.Errorf("JWT_SECRET must be at least 32 bytes")
 	}
 
 	var err error

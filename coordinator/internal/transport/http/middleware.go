@@ -9,6 +9,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
+	tokenpkg "github.com/emil28092005/SciMesh/coordinator/internal/token"
 )
 
 type ctxKey string
@@ -41,25 +44,45 @@ func newRequestID() string {
 
 // withAuth enforces the shared bearer token every worker presents.
 // An empty token disables the check (local development only).
-func withAuth(token string) func(http.Handler) http.Handler {
+// withAuth authenticates a request one of two ways. Workers (and legacy
+// submitters) present the shared service token. When user-JWT auth is enabled
+// (verifier != nil), a submitter may instead present a userservice JWT; on
+// success the requester is stamped into the context so the job use cases can
+// record owner_id and enforce ownership. An empty token with no verifier
+// disables auth entirely (dev only).
+func withAuth(token string, verifier *tokenpkg.Verifier) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if token == "" {
+			if token == "" && verifier == nil {
 				next.ServeHTTP(w, r)
 				return
 			}
 			presented := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-			// Constant-time compare: a byte-by-byte early exit would let an
-			// attacker recover the token by timing responses.
-			if subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
-				w.Header().Set("WWW-Authenticate", "Bearer")
-				writeJSON(w, http.StatusUnauthorized, errorResponse{
-					Error:     "unauthorized",
-					RequestID: requestIDFrom(r.Context()),
-				})
+
+			// Shared service token: constant-time compare so a byte-by-byte
+			// early exit cannot leak the token through response timing.
+			if token != "" && subtle.ConstantTimeCompare([]byte(presented), []byte(token)) == 1 {
+				next.ServeHTTP(w, r)
 				return
 			}
-			next.ServeHTTP(w, r)
+
+			// Otherwise try a user JWT, if that path is configured.
+			if verifier != nil && presented != "" {
+				if claims, err := verifier.Verify(presented); err == nil {
+					ctx := authctx.With(r.Context(), authctx.Requester{
+						UserID: claims.UserID,
+						Role:   claims.Role,
+					})
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			writeJSON(w, http.StatusUnauthorized, errorResponse{
+				Error:     "unauthorized",
+				RequestID: requestIDFrom(r.Context()),
+			})
 		})
 	}
 }

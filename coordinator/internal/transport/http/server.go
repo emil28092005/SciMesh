@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	tokenpkg "github.com/emil28092005/SciMesh/coordinator/internal/token"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
 )
 
@@ -40,19 +41,23 @@ type Server struct {
 	requestTimeout    time.Duration
 	heartbeatInterval time.Duration
 	maxUploadBytes    int64
+	// verifier validates userservice JWTs. nil disables user-JWT auth, leaving
+	// only the shared service token — the pre-userservice behaviour.
+	verifier *tokenpkg.Verifier
 	// ready probes downstream dependencies (the database) for /health. Kept as
 	// a func so the transport layer never imports pgx.
 	ready func(context.Context) error
 }
 
 func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval time.Duration,
-	maxUploadBytes int64, ready func(context.Context) error) *Server {
+	maxUploadBytes int64, jwtSecret string, ready func(context.Context) error) *Server {
 	return &Server{
 		uc:                uc,
 		log:               log,
 		requestTimeout:    requestTimeout,
 		heartbeatInterval: heartbeatInterval,
 		maxUploadBytes:    maxUploadBytes,
+		verifier:          tokenpkg.NewVerifier(jwtSecret),
 		ready:             ready,
 	}
 }
@@ -99,7 +104,7 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 	mux.Handle("/", chain(protected,
 		withRequestID,        // outermost: every response gets an ID,
 		withAccessLog(s.log), // including the 401s below
-		withAuth(token),
+		withAuth(token, s.verifier),
 	))
 	return mux
 }

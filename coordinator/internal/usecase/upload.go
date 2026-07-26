@@ -43,6 +43,7 @@ func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (Su
 	if err != nil {
 		return SubmitDatasetResult{}, err
 	}
+	job.OwnerID = ownerFromContext(ctx)
 
 	// Everything written to blob storage, so a failed transaction can undo it.
 	var putKeys []string

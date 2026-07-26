@@ -53,6 +53,7 @@ func (uc *CreateJob) Execute(ctx context.Context, in CreateJobInput) (*domain.Jo
 	if err != nil {
 		return nil, err
 	}
+	job.OwnerID = ownerFromContext(ctx)
 
 	err = uc.tx.WithinTx(ctx, func(ctx context.Context) error {
 		if err := uc.jobs.Insert(ctx, job); err != nil {
@@ -97,6 +98,9 @@ func (uc *CancelJob) Execute(ctx context.Context, jobID uuid.UUID) (int64, error
 		if err != nil {
 			return err
 		}
+		if err := authorizeJobAccess(ctx, job); err != nil {
+			return err
+		}
 		if job.Status == domain.JobCancelled {
 			return nil
 		}
@@ -130,6 +134,9 @@ func NewGetJobStatus(jobs JobRepository, tasks TaskRepository) *GetJobStatus {
 func (uc *GetJobStatus) Execute(ctx context.Context, jobID uuid.UUID) (domain.JobProgress, error) {
 	job, err := uc.jobs.Get(ctx, jobID)
 	if err != nil {
+		return domain.JobProgress{}, err
+	}
+	if err := authorizeJobAccess(ctx, job); err != nil {
 		return domain.JobProgress{}, err
 	}
 	counts, err := uc.tasks.CountByStatus(ctx, jobID)

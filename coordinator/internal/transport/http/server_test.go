@@ -68,7 +68,7 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 	if err != nil {
 		t.Fatalf("register test worker: %v", err)
 	}
-	srv := coordhttp.NewServer(uc, slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second, 15*time.Second, 1<<30, ready)
+	srv := coordhttp.NewServer(uc, slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second, 15*time.Second, 1<<30, "", ready)
 	ts := httptest.NewServer(srv.Handler(token, configuredUIToken))
 	t.Cleanup(ts.Close)
 	return &env{ts: ts, blobs: blobs, workerID: worker.ID.String()}
