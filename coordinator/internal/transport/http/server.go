@@ -129,6 +129,9 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 			for _, rt := range app {
 				ui.Handle(rt.pattern, gate(rt.handler))
 			}
+			// Admin panel: session + admin role.
+			ui.Handle("GET /ui/admin", chain(http.HandlerFunc(s.handleUIAdmin), gate, requireAdmin))
+			ui.Handle("POST /ui/admin/user-action", chain(http.HandlerFunc(s.handleUIAdminUserAction), gate, requireAdmin))
 		} else {
 			for _, rt := range app {
 				ui.HandleFunc(rt.pattern, rt.handler)
