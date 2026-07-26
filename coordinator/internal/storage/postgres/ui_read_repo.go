@@ -44,6 +44,7 @@ func (r *UIReadRepo) ListJobs(ctx context.Context, limit int) ([]domain.Job, err
 		if err := rows.Scan(
 			&j.ID, &j.Workload, &j.InputURI, &j.Parameters, &status, &j.CreatedAt, &j.CompletedAt,
 			&j.InputArtifactID, &j.ResultArtifactID, &j.ErrorCode, &j.ErrorMessage, &j.ReducerStartedAt,
+			&j.OwnerID,
 		); err != nil {
 			return nil, err
 		}
