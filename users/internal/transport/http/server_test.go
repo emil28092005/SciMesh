@@ -2,7 +2,9 @@ package http_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -10,7 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/emil28092005/SciMesh/users/internal/auth"
+	"github.com/emil28092005/SciMesh/users/internal/domain"
 	"github.com/emil28092005/SciMesh/users/internal/memstore"
 	apihttp "github.com/emil28092005/SciMesh/users/internal/transport/http"
 	"github.com/emil28092005/SciMesh/users/internal/usecase"
@@ -163,5 +168,42 @@ func TestHealth(t *testing.T) {
 	h := newTestServer()
 	if rec := do(t, h, http.MethodGet, "/health", "", nil); rec.Code != http.StatusOK {
 		t.Errorf("health: got %d", rec.Code)
+	}
+}
+
+// failingUsers is a UserRepository whose reads fail with an unexpected (non-
+// sentinel) error, so the handler must map it to 500 and not leak internals.
+type failingUsers struct{ usecase.UserRepository }
+
+func (failingUsers) GetByID(context.Context, uuid.UUID) (*domain.User, error) {
+	return nil, errors.New("db exploded")
+}
+
+func TestMeInternalError(t *testing.T) {
+	hasher := auth.NewHasher(4)
+	clk := memstore.Clock{T: time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)}
+	issuer := auth.NewIssuer(secret, time.Hour, nil)
+
+	users := failingUsers{UserRepository: memstore.NewUserRepo()}
+	uc := apihttp.UseCases{
+		Register: usecase.NewRegister(users, hasher, clk),
+		Login:    usecase.NewLogin(users, hasher, issuer),
+		Users:    users,
+	}
+	h := apihttp.NewServer(slog.New(slog.NewTextHandler(io.Discard, nil)), uc, issuer)
+
+	// A structurally valid token for a caller the failing repo can't load.
+	token, err := issuer.Issue(uuid.New(), "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := do(t, h, http.MethodGet, "/me", token, nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("got %d, want 500", rec.Code)
+	}
+	// The body must not disclose the underlying error.
+	if bytes.Contains(rec.Body.Bytes(), []byte("db exploded")) {
+		t.Error("internal error leaked to the client")
 	}
 }
