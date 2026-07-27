@@ -128,6 +128,32 @@ func (r *UIReadRepo) ListWorkers(ctx context.Context, limit int) ([]domain.Worke
 	return workers, rows.Err()
 }
 
+func (r *UIReadRepo) ListWorkersByOwner(ctx context.Context, owner uuid.UUID, limit int) ([]domain.Worker, error) {
+	if limit < 1 || limit > 100 {
+		return nil, domain.ErrInvalidInput
+	}
+	sql, args, err := psql.Select(workerColumns...).From("workers").
+		Where(sq.Eq{"owner_id": owner}).
+		OrderBy("last_heartbeat_at DESC", "id DESC").Limit(uint64(limit)).ToSql()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := conn(ctx, r.pool).Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list workers by owner: %w", err)
+	}
+	defer rows.Close()
+	workers := make([]domain.Worker, 0)
+	for rows.Next() {
+		worker, err := scanWorker(rows)
+		if err != nil {
+			return nil, err
+		}
+		workers = append(workers, *worker)
+	}
+	return workers, rows.Err()
+}
+
 func (r *UIReadRepo) ListArtifactsByJob(ctx context.Context, jobID uuid.UUID) ([]domain.Artifact, error) {
 	sql, args, err := psql.Select(artifactColumns...).From("artifacts").Where(sq.Eq{"job_id": jobID}).OrderBy("created_at ASC", "id ASC").ToSql()
 	if err != nil {

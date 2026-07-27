@@ -8,4 +8,6 @@ var (
 	ErrEmptyEmail        = errors.New("email is required")
 	ErrInvalidEmail      = errors.New("email is not a valid address")
 	ErrEmptyPasswordHash = errors.New("password hash is required")
+
+	ErrWorkerKeyNameTooLong = errors.New("worker key name is too long")
 )

@@ -11,6 +11,14 @@ from typing import Mapping
 from urllib.parse import urlsplit
 
 
+def _clean_url(value: object | None) -> str | None:
+    """Normalise an optional URL: drop a blank one, strip a trailing slash."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text.rstrip("/") or None
+
+
 def _positive_number(value: object, name: str, *, allow_zero: bool = False) -> None:
     if (
         isinstance(value, bool)
@@ -35,6 +43,11 @@ class WorkerConfig:
     request_timeout: float = 30.0
     heartbeat_interval: float = 15.0
     bearer_token: str | None = None
+    # A long-lived per-user credential. When set (with userservice_url), the
+    # worker exchanges it for short-lived JWTs instead of using bearer_token,
+    # binding the worker to that user's account.
+    worker_key: str | None = None
+    userservice_url: str | None = None
     cleanup_after_seconds: float | None = None
     max_tasks: int | None = None
     exit_when_idle: bool = False
@@ -54,6 +67,12 @@ class WorkerConfig:
             raise ValueError("coordinator_url must be an absolute HTTP(S) URL")
         if not isinstance(self.worker_name, str) or not self.worker_name.strip():
             raise ValueError("worker_name must be non-empty")
+        if self.userservice_url is not None:
+            us = urlsplit(self.userservice_url)
+            if us.scheme not in {"http", "https"} or not us.hostname:
+                raise ValueError("userservice_url must be an absolute HTTP(S) URL")
+        if self.worker_key is not None and not self.userservice_url:
+            raise ValueError("worker_key requires userservice_url (SCIMESH_USERSERVICE_URL)")
         if isinstance(self.cpu_count, bool) or not isinstance(self.cpu_count, int) or self.cpu_count < 1:
             raise ValueError("cpu_count must be positive")
         if self.worker_id is not None and not isinstance(self.worker_id, str):
@@ -114,6 +133,8 @@ class WorkerConfig:
             request_timeout=float(value("request_timeout", "SCIMESH_REQUEST_TIMEOUT", "30")),
             heartbeat_interval=float(value("heartbeat_interval", "SCIMESH_HEARTBEAT_INTERVAL", "15")),
             bearer_token=value("bearer_token", "SCIMESH_BEARER_TOKEN"),
+            worker_key=value("worker_key", "SCIMESH_WORKER_KEY"),
+            userservice_url=_clean_url(value("userservice_url", "SCIMESH_USERSERVICE_URL")),
             cleanup_after_seconds=float(cleanup) if cleanup else None,
             max_tasks=int(max_tasks) if max_tasks is not None else None,
             exit_when_idle=bool(values.get("exit_when_idle", False)),

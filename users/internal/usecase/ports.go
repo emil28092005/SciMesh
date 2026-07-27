@@ -30,6 +30,25 @@ type UserRepository interface {
 	SetRole(ctx context.Context, id uuid.UUID, role domain.Role) error
 }
 
+// WorkerKeyRepository persists and looks up the long-lived worker keys a user
+// creates to run a worker bound to their account. Implementations return the
+// sentinel errors in errors.go so the use cases stay free of SQL types.
+type WorkerKeyRepository interface {
+	// Insert stores a freshly minted key.
+	Insert(ctx context.Context, k *domain.WorkerKey) error
+	// ListByUser returns a user's live (non-revoked) keys, newest first.
+	ListByUser(ctx context.Context, userID uuid.UUID) ([]*domain.WorkerKey, error)
+	// GetActiveByHash returns the non-revoked key with the given hash, or
+	// ErrWorkerKeyNotFound.
+	GetActiveByHash(ctx context.Context, tokenHash string) (*domain.WorkerKey, error)
+	// Revoke retires a key the user owns, returning ErrWorkerKeyNotFound when no
+	// live key with that id belongs to the user.
+	Revoke(ctx context.Context, id, userID uuid.UUID) error
+	// TouchLastUsed records a successful exchange. Best-effort: a failure here
+	// must not fail the exchange itself.
+	TouchLastUsed(ctx context.Context, id uuid.UUID) error
+}
+
 // PasswordHasher hashes and verifies passwords. The bcrypt adapter satisfies it.
 type PasswordHasher interface {
 	Hash(password string) (string, error)

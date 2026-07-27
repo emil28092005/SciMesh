@@ -48,6 +48,12 @@ func statusForError(err error) (int, string) {
 		return http.StatusUnauthorized, "invalid email or password"
 	case errors.Is(err, usecase.ErrUserNotFound):
 		return http.StatusNotFound, "user not found"
+	case errors.Is(err, usecase.ErrWorkerKeyNotFound):
+		return http.StatusNotFound, "worker key not found"
+	case errors.Is(err, usecase.ErrInvalidWorkerKey):
+		return http.StatusUnauthorized, "invalid worker key"
+	case errors.Is(err, domain.ErrWorkerKeyNameTooLong):
+		return http.StatusBadRequest, "worker key name is too long"
 	case errors.Is(err, usecase.ErrPasswordTooShort):
 		return http.StatusBadRequest, "password must be at least 8 characters"
 	case errors.Is(err, usecase.ErrPasswordTooLong):

@@ -64,3 +64,8 @@ services:
     environment:
       JWT_SECRET: ${JWT_SECRET}
       USERSERVICE_URL: http://userservice:8081
+      # Browser/host-facing URLs for the "add your machine" command. A user's
+      # worker runs on the host, so it reaches the published ports on localhost,
+      # not the in-cluster service names.
+      PUBLIC_COORDINATOR_URL: http://localhost:${COORDINATOR_PORT:-8080}
+      PUBLIC_USERSERVICE_URL: http://localhost:${USERSERVICE_PORT:-8081}

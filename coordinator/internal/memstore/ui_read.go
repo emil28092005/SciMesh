@@ -87,16 +87,44 @@ func (r *UIReadRepo) ListWorkers(_ context.Context, limit int) ([]domain.Worker,
 		copy.Capabilities = append([]string(nil), worker.Capabilities...)
 		out = append(out, copy)
 	}
+	sortWorkers(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (r *UIReadRepo) ListWorkersByOwner(_ context.Context, owner uuid.UUID, limit int) ([]domain.Worker, error) {
+	if limit < 1 || limit > 100 {
+		return nil, domain.ErrInvalidInput
+	}
+	r.workers.mu.Lock()
+	defer r.workers.mu.Unlock()
+	out := []domain.Worker{}
+	for _, worker := range r.workers.workers {
+		if worker.OwnerID == nil || *worker.OwnerID != owner {
+			continue
+		}
+		copy := *worker
+		copy.Capabilities = append([]string(nil), worker.Capabilities...)
+		out = append(out, copy)
+	}
+	sortWorkers(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// sortWorkers orders workers most-recently-seen first, breaking ties on id so
+// the order is deterministic across calls.
+func sortWorkers(out []domain.Worker) {
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].LastHeartbeatAt.Equal(out[j].LastHeartbeatAt) {
 			return out[i].ID.String() > out[j].ID.String()
 		}
 		return out[i].LastHeartbeatAt.After(out[j].LastHeartbeatAt)
 	})
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out, nil
 }
 func (r *UIReadRepo) ListArtifactsByJob(_ context.Context, jobID uuid.UUID) ([]domain.Artifact, error) {
 	r.artifacts.mu.Lock()

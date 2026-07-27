@@ -7,6 +7,7 @@ from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, build_opener
 
+from .auth import StaticTokenProvider, TokenProvider
 from .models import ClaimedTask, RegisteredWorker
 from .transport import NoRedirectHandler
 
@@ -38,11 +39,24 @@ class CoordinatorClient(Protocol):
 
 
 class HttpCoordinatorClient:
-    def __init__(self, base_url: str, timeout: float, bearer_token: str | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float,
+        bearer_token: str | None = None,
+        *,
+        token_provider: TokenProvider | None = None,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self.bearer_token = bearer_token
+        # A bearer_token argument keeps older call sites working; internally
+        # everything goes through a provider so refresh is uniform.
+        self._tokens: TokenProvider = token_provider or StaticTokenProvider(bearer_token)
         self._opener = build_opener(NoRedirectHandler())
+
+    @property
+    def bearer_token(self) -> str | None:
+        return self._tokens.token()
 
     def register(
         self, name: str, capabilities: tuple[str, ...], cpu_count: int, memory_mb: int | None
@@ -102,6 +116,11 @@ class HttpCoordinatorClient:
         return lease_expires_at
 
     def _request(self, method: str, path: str, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        return self._request_once(method, path, payload, allow_refresh=True)
+
+    def _request_once(
+        self, method: str, path: str, payload: dict[str, Any], *, allow_refresh: bool
+    ) -> tuple[int, dict[str, Any]]:
         request = Request(
             f"{self.base_url}{path}", data=json.dumps(payload).encode(), method=method,
             headers={"Content-Type": "application/json", **self._auth_header()},
@@ -114,6 +133,11 @@ class HttpCoordinatorClient:
                 except json.JSONDecodeError as error:
                     raise CoordinatorError("coordinator returned invalid JSON") from error
         except HTTPError as error:
+            # A 401 usually means the short-lived JWT expired; mint a fresh one
+            # and retry exactly once so an in-flight worker rides over the gap.
+            if error.code == 401 and allow_refresh:
+                self._tokens.refresh()
+                return self._request_once(method, path, payload, allow_refresh=False)
             if error.code >= 500:
                 raise CoordinatorTransientError(f"coordinator returned {error.code}") from error
             return error.code, {}
@@ -121,4 +145,5 @@ class HttpCoordinatorClient:
             raise CoordinatorTransientError("coordinator request failed") from error
 
     def _auth_header(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self.bearer_token}"} if self.bearer_token else {}
+        token = self._tokens.token()
+        return {"Authorization": f"Bearer {token}"} if token else {}
