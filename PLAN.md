@@ -872,7 +872,9 @@ workload logic into the service.
 
 **Acceptance criteria:**
 
-- the service has a versioned, documented API and owns user identity data;
+- the service has a versioned, documented API in
+  [`docs/user-service-api-contract.md`](docs/user-service-api-contract.md) and
+  owns user identity data;
 - credentials and authentication tokens are stored and handled securely; they
   are never logged or exposed to workers;
 - authenticated identity is propagated to coordinator requests through an

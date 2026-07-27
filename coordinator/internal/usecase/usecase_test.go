@@ -77,11 +77,11 @@ func newHarness() *harness {
 	h.claim = usecase.NewClaimTask(h.tasks, h.jobs, h.work, tx, h.clk, lease)
 	h.renew = usecase.NewRenewLease(h.tasks, h.work, tx, h.clk, lease)
 	h.complete = usecase.NewCompleteTask(h.tasks, h.jobs, h.arts, h.work, h.taskResults, tx, h.clk, 2)
-	h.fail = usecase.NewFailTask(h.tasks, h.jobs, tx, h.clk)
+	h.fail = usecase.NewFailTask(h.tasks, h.jobs, h.work, tx, h.clk)
 	h.status = usecase.NewGetJobStatus(h.jobs, h.tasks)
 	h.results = usecase.NewListResults(h.tasks)
 	h.register = usecase.NewRegisterWorker(h.work, h.clk)
-	h.uploadArt = usecase.NewUploadArtifact(h.tasks, h.arts, h.blobs, tx, h.clk)
+	h.uploadArt = usecase.NewUploadArtifact(h.tasks, h.work, h.arts, h.blobs, tx, h.clk)
 	h.downloadArt = usecase.NewDownloadArtifact(h.arts, h.blobs)
 	h.getInput = usecase.NewGetTaskInput(h.tasks, h.arts, h.blobs)
 	h.expire = usecase.NewExpireLeases(h.tasks, h.jobs, tx, h.clk)
@@ -318,6 +318,36 @@ func TestJWTCallerCannotClaimAsAnotherUsersWorker(t *testing.T) {
 	}
 }
 
+func TestJWTCallerCannotMutateAnotherUsersWorkerLease(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1)
+	victimOwner := uuid.New()
+	victim, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "victim", Capabilities: []string{"w"}, OwnerID: &victimOwner, TrustLevel: domain.WorkerTrusted,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{WorkerID: victim.ID.String()})
+	if err != nil || claimed == nil {
+		t.Fatalf("claim = (%v, %v)", claimed, err)
+	}
+	attacker := authctx.With(ctx, authctx.Requester{UserID: uuid.New(), Role: "user"})
+
+	if _, err := h.renew.Execute(attacker, usecase.RenewLeaseInput{TaskID: claimed.TaskID, WorkerID: victim.ID.String(), Attempt: claimed.Attempt}); !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Errorf("foreign heartbeat err = %v, want ErrWorkerNotFound", err)
+	}
+	if _, err := h.fail.Execute(attacker, usecase.FailTaskInput{TaskID: claimed.TaskID, WorkerID: victim.ID.String(), Attempt: claimed.Attempt, ErrorCode: "x"}); !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Errorf("foreign failure err = %v, want ErrWorkerNotFound", err)
+	}
+	if _, err := h.uploadArt.Execute(attacker, usecase.UploadArtifactInput{TaskID: claimed.TaskID, WorkerID: victim.ID.String(), Attempt: claimed.Attempt, Filename: "x.csv", ContentType: "text/csv", Body: strings.NewReader("x")}); !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Errorf("foreign upload err = %v, want ErrWorkerNotFound", err)
+	}
+	if _, err := h.complete.Execute(attacker, usecase.CompleteTaskInput{TaskID: claimed.TaskID, WorkerID: victim.ID.String(), Attempt: claimed.Attempt, ResultArtifactID: uuid.New()}); !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Errorf("foreign result err = %v, want ErrWorkerNotFound", err)
+	}
+}
+
 func TestJWTCallerClaimsAsOwnTrustedWorker(t *testing.T) {
 	h := newHarness()
 	h.seedJob(t, "w", 1)
@@ -551,7 +581,7 @@ func TestUploadRejectsLeaseThatExpiresDuringStreaming(t *testing.T) {
 	h.seedJob(t, "w", 1)
 	taskID, attempt := h.leaseOne(t, "w1", "w")
 	h.uploadArt = usecase.NewUploadArtifact(
-		h.tasks, h.arts, expiringBlobStore{BlobStore: h.blobs, clock: h.clk}, memstore.Tx{}, h.clk,
+		h.tasks, h.work, h.arts, expiringBlobStore{BlobStore: h.blobs, clock: h.clk}, memstore.Tx{}, h.clk,
 	)
 
 	_, err := h.uploadArt.Execute(ctx, usecase.UploadArtifactInput{

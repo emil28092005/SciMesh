@@ -5,6 +5,9 @@ and issues the JWTs the coordinator trusts. It is a **separate bounded context**
 from the coordinator: its own database, its own binary. The only thing shared
 between the two services is the JWT signing secret.
 
+The versioned external contract is
+[`docs/user-service-api-contract.md`](../docs/user-service-api-contract.md).
+
 Built as a modular monolith following Clean Architecture — one binary, four
 layers, dependencies pointing strictly inward:
 

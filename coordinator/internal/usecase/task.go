@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 )
 
@@ -59,11 +58,8 @@ func (uc *ClaimTask) Execute(ctx context.Context, in ClaimTaskInput) (*domain.Cl
 		// tier would be read off a caller-supplied worker_id, letting anyone who
 		// knows a trusted worker's id claim as it. A shared-token caller (no
 		// requester) is a lab operator and may act as any worker.
-		if r, ok := authctx.From(ctx); ok {
-			if worker.OwnerID == nil || *worker.OwnerID != r.UserID {
-				// Don't disclose that another user's worker exists.
-				return nil, domain.ErrWorkerNotFound
-			}
+		if err := authorizeWorkerOwner(ctx, uc.workers, in.WorkerID); err != nil {
+			return nil, err
 		}
 		// An untrusted volunteer may claim, but never a chunk its owner has
 		// already voted on — so quorum needs genuinely independent computations.
@@ -126,6 +122,9 @@ func NewRenewLease(tasks TaskRepository, workers WorkerRepository, tx TxManager,
 // locked: two concurrent heartbeats must not interleave into a lost update.
 // Whether the caller may renew at all is decided by the entity, not here.
 func (uc *RenewLease) Execute(ctx context.Context, in RenewLeaseInput) (*domain.ClaimedTask, error) {
+	if err := authorizeWorkerOwner(ctx, uc.workers, in.WorkerID); err != nil {
+		return nil, err
+	}
 	var claimed domain.ClaimedTask
 
 	err := uc.tx.WithinTx(ctx, func(ctx context.Context) error {
@@ -186,6 +185,9 @@ func NewCompleteTask(tasks TaskRepository, jobs JobRepository, artifacts Artifac
 // Lease ownership, staleness, and idempotent replays are all decided by
 // Task.CompleteWith; this use case only orchestrates.
 func (uc *CompleteTask) Execute(ctx context.Context, in CompleteTaskInput) (*domain.Task, error) {
+	if err := authorizeWorkerOwner(ctx, uc.workers, in.WorkerID); err != nil {
+		return nil, err
+	}
 	var out *domain.Task
 
 	err := uc.tx.WithinTx(ctx, func(ctx context.Context) error {
@@ -317,19 +319,23 @@ func (uc *CompleteTask) verifyResultArtifact(ctx context.Context, taskID uuid.UU
 // --- FailTask ------------------------------------------------------------
 
 type FailTask struct {
-	tasks TaskRepository
-	jobs  JobRepository
-	tx    TxManager
-	clock Clock
+	tasks   TaskRepository
+	jobs    JobRepository
+	workers WorkerRepository
+	tx      TxManager
+	clock   Clock
 }
 
-func NewFailTask(tasks TaskRepository, jobs JobRepository, tx TxManager, clock Clock) *FailTask {
-	return &FailTask{tasks: tasks, jobs: jobs, tx: tx, clock: clock}
+func NewFailTask(tasks TaskRepository, jobs JobRepository, workers WorkerRepository, tx TxManager, clock Clock) *FailTask {
+	return &FailTask{tasks: tasks, jobs: jobs, workers: workers, tx: tx, clock: clock}
 }
 
 // Execute delegates the requeue-or-terminate decision to Task.Fail, then keeps
 // the parent job's status consistent in the same transaction.
 func (uc *FailTask) Execute(ctx context.Context, in FailTaskInput) (*domain.Task, error) {
+	if err := authorizeWorkerOwner(ctx, uc.workers, in.WorkerID); err != nil {
+		return nil, err
+	}
 	var out *domain.Task
 
 	err := uc.tx.WithinTx(ctx, func(ctx context.Context) error {
