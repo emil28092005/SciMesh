@@ -1,7 +1,7 @@
 # SciMesh Status
 
-**Updated:** 2026-07-24
-**Branch baseline:** `main` at `6e67daa` (distributed similarity-search)
+**Updated:** 2026-07-27
+**Branch baseline:** `main` at `f5ead0a` (team and scaling-roadmap documentation)
 
 ## Current state
 
@@ -23,6 +23,9 @@ are reduced once into a checksum-protected final CSV, which is downloadable
 through the coordinator. The full Go checks (including a fresh migration and
 real PostgreSQL smoke test) passed on 2026-07-24.
 
+A User Service is being developed on a separate programmer branch. It is not
+yet merged, reviewed, or integrated with the coordinator/worker contract.
+
 ## Milestone tracker
 
 | CTX | Status | Notes |
@@ -40,6 +43,7 @@ real PostgreSQL smoke test) passed on 2026-07-24.
 | CTX-10 Distributed similarity-graph | Not started | Local reference exists. |
 | CTX-11 Dashboard/operator view | Implemented | Protected live control room: recent-run/worker overview, real pipeline-stage visualization, shard attempts and safe failures, validated similarity-search upload, coordinator artifacts, final-result download, and bounded polling. |
 | CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
+| CTX-15 User Service and access control | In progress (separate branch) | Proposed implementation is under development; API, security review, tests, and integration are pending. |
 
 ## Next recommended assignment
 
