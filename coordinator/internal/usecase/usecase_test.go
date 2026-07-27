@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 	"github.com/emil28092005/SciMesh/coordinator/internal/memstore"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
@@ -34,12 +35,13 @@ func (s expiringBlobStore) Put(ctx context.Context, key string, body io.Reader) 
 // harness wires every use case to in-memory stores so orchestration can be
 // tested without a database.
 type harness struct {
-	tasks *memstore.TaskRepo
-	jobs  *memstore.JobRepo
-	work  *memstore.WorkerRepo
-	arts  *memstore.ArtifactRepo
-	blobs *memstore.BlobStore
-	clk   *memstore.Clock
+	tasks       *memstore.TaskRepo
+	jobs        *memstore.JobRepo
+	work        *memstore.WorkerRepo
+	arts        *memstore.ArtifactRepo
+	blobs       *memstore.BlobStore
+	clk         *memstore.Clock
+	taskResults *memstore.TaskResultRepo
 
 	createJob   *usecase.CreateJob
 	submit      *usecase.SubmitDataset
@@ -61,24 +63,25 @@ type harness struct {
 
 func newHarness() *harness {
 	h := &harness{
-		tasks: memstore.NewTaskRepo(),
-		jobs:  memstore.NewJobRepo(),
-		work:  memstore.NewWorkerRepo(),
-		arts:  memstore.NewArtifactRepo(),
-		blobs: memstore.NewBlobStore(),
-		clk:   memstore.NewClock(time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)),
+		tasks:       memstore.NewTaskRepo(),
+		jobs:        memstore.NewJobRepo(),
+		work:        memstore.NewWorkerRepo(),
+		arts:        memstore.NewArtifactRepo(),
+		blobs:       memstore.NewBlobStore(),
+		clk:         memstore.NewClock(time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)),
+		taskResults: memstore.NewTaskResultRepo(),
 	}
 	tx := memstore.Tx{}
 	h.createJob = usecase.NewCreateJob(h.jobs, h.tasks, tx, h.clk)
 	h.submit = usecase.NewSubmitDataset(h.blobs, h.arts, h.jobs, h.tasks, tx, h.clk, 3)
 	h.claim = usecase.NewClaimTask(h.tasks, h.jobs, h.work, tx, h.clk, lease)
 	h.renew = usecase.NewRenewLease(h.tasks, h.work, tx, h.clk, lease)
-	h.complete = usecase.NewCompleteTask(h.tasks, h.jobs, h.arts, tx, h.clk)
-	h.fail = usecase.NewFailTask(h.tasks, h.jobs, tx, h.clk)
+	h.complete = usecase.NewCompleteTask(h.tasks, h.jobs, h.arts, h.work, h.taskResults, tx, h.clk, 2)
+	h.fail = usecase.NewFailTask(h.tasks, h.jobs, h.work, tx, h.clk)
 	h.status = usecase.NewGetJobStatus(h.jobs, h.tasks)
 	h.results = usecase.NewListResults(h.tasks)
 	h.register = usecase.NewRegisterWorker(h.work, h.clk)
-	h.uploadArt = usecase.NewUploadArtifact(h.tasks, h.arts, h.blobs, tx, h.clk)
+	h.uploadArt = usecase.NewUploadArtifact(h.tasks, h.work, h.arts, h.blobs, tx, h.clk)
 	h.downloadArt = usecase.NewDownloadArtifact(h.arts, h.blobs)
 	h.getInput = usecase.NewGetTaskInput(h.tasks, h.arts, h.blobs)
 	h.expire = usecase.NewExpireLeases(h.tasks, h.jobs, tx, h.clk)
@@ -265,6 +268,184 @@ func TestClaimEmptyQueueReturnsNil(t *testing.T) {
 	}
 }
 
+func TestRegisterWorkerDefaultsToTrusted(t *testing.T) {
+	h := newHarness()
+	// A shared-token registration carries no owner and no explicit trust.
+	w, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "lab", Capabilities: []string{"w"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.TrustLevel != domain.WorkerTrusted {
+		t.Errorf("trust = %q, want trusted", w.TrustLevel)
+	}
+	if w.OwnerID != nil {
+		t.Errorf("owner = %v, want nil for a shared-token worker", w.OwnerID)
+	}
+}
+
+func TestRegisterWorkerRecordsOwnerAndUntrusted(t *testing.T) {
+	h := newHarness()
+	owner := uuid.New()
+	w, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "volunteer", Capabilities: []string{"w"},
+		OwnerID: &owner, TrustLevel: domain.WorkerUntrusted,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.TrustLevel != domain.WorkerUntrusted {
+		t.Errorf("trust = %q, want untrusted", w.TrustLevel)
+	}
+	if w.OwnerID == nil || *w.OwnerID != owner {
+		t.Errorf("owner = %v, want %v", w.OwnerID, owner)
+	}
+}
+
+func TestJWTCallerCannotClaimAsAnotherUsersWorker(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1)
+
+	// A trusted lab worker owned by nobody (shared-token registration).
+	victim, _ := h.register.Execute(ctx, usecase.RegisterWorkerInput{Name: "lab", Capabilities: []string{"w"}})
+
+	// An attacker authenticated as a JWT user tries to claim as the lab worker.
+	attacker := authctx.With(ctx, authctx.Requester{UserID: uuid.New(), Role: "user"})
+	claimed, err := h.claim.Execute(attacker, usecase.ClaimTaskInput{WorkerID: victim.ID.String()})
+	if !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Fatalf("claim as another's worker = (%v, %v), want ErrWorkerNotFound", claimed, err)
+	}
+}
+
+func TestJWTCallerCannotMutateAnotherUsersWorkerLease(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1)
+	victimOwner := uuid.New()
+	victim, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "victim", Capabilities: []string{"w"}, OwnerID: &victimOwner, TrustLevel: domain.WorkerTrusted,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{WorkerID: victim.ID.String()})
+	if err != nil || claimed == nil {
+		t.Fatalf("claim = (%v, %v)", claimed, err)
+	}
+	attacker := authctx.With(ctx, authctx.Requester{UserID: uuid.New(), Role: "user"})
+
+	if _, err := h.renew.Execute(attacker, usecase.RenewLeaseInput{TaskID: claimed.TaskID, WorkerID: victim.ID.String(), Attempt: claimed.Attempt}); !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Errorf("foreign heartbeat err = %v, want ErrWorkerNotFound", err)
+	}
+	if _, err := h.fail.Execute(attacker, usecase.FailTaskInput{TaskID: claimed.TaskID, WorkerID: victim.ID.String(), Attempt: claimed.Attempt, ErrorCode: "x"}); !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Errorf("foreign failure err = %v, want ErrWorkerNotFound", err)
+	}
+	if _, err := h.uploadArt.Execute(attacker, usecase.UploadArtifactInput{TaskID: claimed.TaskID, WorkerID: victim.ID.String(), Attempt: claimed.Attempt, Filename: "x.csv", ContentType: "text/csv", Body: strings.NewReader("x")}); !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Errorf("foreign upload err = %v, want ErrWorkerNotFound", err)
+	}
+	if _, err := h.complete.Execute(attacker, usecase.CompleteTaskInput{TaskID: claimed.TaskID, WorkerID: victim.ID.String(), Attempt: claimed.Attempt, ResultArtifactID: uuid.New()}); !errors.Is(err, domain.ErrWorkerNotFound) {
+		t.Errorf("foreign result err = %v, want ErrWorkerNotFound", err)
+	}
+}
+
+func TestJWTCallerClaimsAsOwnTrustedWorker(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1)
+	owner := uuid.New()
+
+	// The user's own worker, trusted (e.g. a verified contributor).
+	mine, _ := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "mine", Capabilities: []string{"w"}, OwnerID: &owner, TrustLevel: domain.WorkerTrusted,
+	})
+
+	callerCtx := authctx.With(ctx, authctx.Requester{UserID: owner, Role: "user", Verified: true})
+	got, err := h.claim.Execute(callerCtx, usecase.ClaimTaskInput{WorkerID: mine.ID.String()})
+	if err != nil || got == nil {
+		t.Fatalf("own trusted worker claim = (%v, %v), want a task", got, err)
+	}
+}
+
+func TestUntrustedWorkerCanClaim(t *testing.T) {
+	h := newHarness()
+	h.seedJob(t, "w", 1)
+	owner := uuid.New()
+	worker, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: "volunteer", Capabilities: []string{"w"},
+		OwnerID: &owner, TrustLevel: domain.WorkerUntrusted,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Volunteers are no longer quarantined — they may claim; their results are
+	// gated by quorum at completion, not by withholding work.
+	claimed, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{WorkerID: worker.ID.String()})
+	if err != nil || claimed == nil {
+		t.Fatalf("untrusted claim = (%v, %v), want a task", claimed, err)
+	}
+}
+
+// registerUntrusted registers a volunteer worker under a fresh owner.
+func (h *harness) registerUntrusted(t *testing.T, name, workload string) (*domain.Worker, uuid.UUID) {
+	t.Helper()
+	owner := uuid.New()
+	w, err := h.register.Execute(ctx, usecase.RegisterWorkerInput{
+		Name: name, Capabilities: []string{workload},
+		OwnerID: &owner, TrustLevel: domain.WorkerUntrusted,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w, owner
+}
+
+func TestUntrustedResultNeedsQuorum(t *testing.T) {
+	h := newHarness()
+	jobID := h.seedJob(t, "w", 1)
+	if err := h.jobs.UpdateStatus(ctx, jobID, domain.JobRunning, nil); err != nil {
+		t.Fatal(err)
+	}
+	w1, _ := h.registerUntrusted(t, "v1", "w")
+	w2, _ := h.registerUntrusted(t, "v2", "w")
+
+	// First volunteer computes and submits — one vote, not yet quorum (2).
+	taskID, attempt := h.leaseOne(t, w1.ID.String(), "w")
+	art1 := h.uploadResult(t, taskID, w1.ID.String(), attempt)
+	if _, err := h.complete.Execute(ctx, usecase.CompleteTaskInput{TaskID: taskID, WorkerID: w1.ID.String(), Attempt: attempt, ResultArtifactID: art1}); err != nil {
+		t.Fatalf("first vote: %v", err)
+	}
+	if tk, _ := h.tasks.Get(ctx, taskID); tk.Status != domain.TaskPending {
+		t.Fatalf("after one vote status = %s, want pending", tk.Status)
+	}
+
+	// Second volunteer (distinct owner) computes the same bytes -> quorum -> done.
+	taskID2, attempt2 := h.leaseOne(t, w2.ID.String(), "w")
+	art2 := h.uploadResult(t, taskID2, w2.ID.String(), attempt2)
+	if _, err := h.complete.Execute(ctx, usecase.CompleteTaskInput{TaskID: taskID2, WorkerID: w2.ID.String(), Attempt: attempt2, ResultArtifactID: art2}); err != nil {
+		t.Fatalf("second vote: %v", err)
+	}
+	if tk, _ := h.tasks.Get(ctx, taskID); tk.Status != domain.TaskCompleted {
+		t.Fatalf("after quorum status = %s, want completed", tk.Status)
+	}
+}
+
+func TestTrustedResultCompletesDirectly(t *testing.T) {
+	h := newHarness()
+	jobID := h.seedJob(t, "w", 1)
+	if err := h.jobs.UpdateStatus(ctx, jobID, domain.JobRunning, nil); err != nil {
+		t.Fatal(err)
+	}
+	// A trusted (default) worker's single result completes the task immediately.
+	worker, _ := h.register.Execute(ctx, usecase.RegisterWorkerInput{Name: "lab", Capabilities: []string{"w"}})
+	taskID, attempt := h.leaseOne(t, worker.ID.String(), "w")
+	art := h.uploadResult(t, taskID, worker.ID.String(), attempt)
+	if _, err := h.complete.Execute(ctx, usecase.CompleteTaskInput{TaskID: taskID, WorkerID: worker.ID.String(), Attempt: attempt, ResultArtifactID: art}); err != nil {
+		t.Fatal(err)
+	}
+	if tk, _ := h.tasks.Get(ctx, taskID); tk.Status != domain.TaskCompleted {
+		t.Fatalf("trusted result status = %s, want completed", tk.Status)
+	}
+}
+
 func TestClaimRequiresWorkerID(t *testing.T) {
 	h := newHarness()
 	if _, err := h.claim.Execute(ctx, usecase.ClaimTaskInput{}); !errors.Is(err, domain.ErrInvalidInput) {
@@ -400,7 +581,7 @@ func TestUploadRejectsLeaseThatExpiresDuringStreaming(t *testing.T) {
 	h.seedJob(t, "w", 1)
 	taskID, attempt := h.leaseOne(t, "w1", "w")
 	h.uploadArt = usecase.NewUploadArtifact(
-		h.tasks, h.arts, expiringBlobStore{BlobStore: h.blobs, clock: h.clk}, memstore.Tx{}, h.clk,
+		h.tasks, h.work, h.arts, expiringBlobStore{BlobStore: h.blobs, clock: h.clk}, memstore.Tx{}, h.clk,
 	)
 
 	_, err := h.uploadArt.Execute(ctx, usecase.UploadArtifactInput{

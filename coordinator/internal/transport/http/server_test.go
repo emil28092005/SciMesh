@@ -50,13 +50,13 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 		SubmitDataset:    usecase.NewSubmitDataset(blobs, arts, jobs, tasks, tx, clk, 3),
 		ClaimTask:        usecase.NewClaimTask(tasks, jobs, work, tx, clk, lease),
 		RenewLease:       usecase.NewRenewLease(tasks, work, tx, clk, lease),
-		CompleteTask:     usecase.NewCompleteTask(tasks, jobs, arts, tx, clk),
+		CompleteTask:     usecase.NewCompleteTask(tasks, jobs, arts, work, memstore.NewTaskResultRepo(), tx, clk, 2),
 		ReduceJob:        usecase.NewReduceJob(jobs, tasks, arts, blobs, tx, clk),
-		FailTask:         usecase.NewFailTask(tasks, jobs, tx, clk),
+		FailTask:         usecase.NewFailTask(tasks, jobs, work, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobs, tasks),
 		GetJobResult:     usecase.NewGetJobResult(jobs, downloadArtifact),
 		CancelJob:        usecase.NewCancelJob(jobs, tasks, tx, clk),
-		UploadArtifact:   usecase.NewUploadArtifact(tasks, arts, blobs, tx, clk),
+		UploadArtifact:   usecase.NewUploadArtifact(tasks, work, arts, blobs, tx, clk),
 		DownloadArtifact: downloadArtifact,
 		GetTaskInput:     usecase.NewGetTaskInput(tasks, arts, blobs),
 		Dashboard:        usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, work, arts)),
@@ -68,7 +68,7 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 	if err != nil {
 		t.Fatalf("register test worker: %v", err)
 	}
-	srv := coordhttp.NewServer(uc, slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second, 15*time.Second, 1<<30, ready)
+	srv := coordhttp.NewServer(uc, slog.New(slog.NewTextHandler(io.Discard, nil)), 5*time.Second, 15*time.Second, 1<<30, "", "", nil, ready)
 	ts := httptest.NewServer(srv.Handler(token, configuredUIToken))
 	t.Cleanup(ts.Close)
 	return &env{ts: ts, blobs: blobs, workerID: worker.ID.String()}

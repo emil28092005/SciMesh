@@ -126,6 +126,9 @@ func (uc *GetJobResult) Execute(ctx context.Context, jobID uuid.UUID) (*domain.A
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := authorizeJobAccess(ctx, job); err != nil {
+		return nil, nil, err
+	}
 	if job.Status != domain.JobCompleted || job.ResultArtifactID == nil {
 		return nil, nil, domain.ErrArtifactNotFound
 	}

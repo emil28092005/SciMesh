@@ -26,6 +26,17 @@ type Config struct {
 	Token string
 	// Local operator UI credential. Empty disables the embedded UI entirely.
 	UIToken string
+	// Shared HS256 secret used to verify userservice-issued JWTs. When set, a
+	// submitter may authenticate with a JWT (in addition to workers using the
+	// shared token) and their jobs are stamped with owner_id. Empty disables
+	// user-JWT auth entirely — the pre-userservice behaviour. Must match the
+	// userservice's JWT_SECRET.
+	JWTSecret string
+	// Base URL of the userservice, e.g. http://userservice:8081. When set
+	// together with JWTSecret, the operator UI authenticates via userservice
+	// login/registration (cookie session) instead of the static UI_AUTH_TOKEN
+	// basic auth. Empty keeps the basic-auth UI.
+	UserserviceURL string
 
 	// Minimum log level: debug, info, warn, error.
 	LogLevel string
@@ -50,6 +61,9 @@ type Config struct {
 	LeaseDuration time.Duration
 	// Default attempt ceiling for newly created tasks.
 	DefaultMaxAttempts int
+	// How many distinct owners must agree on an untrusted result before it is
+	// accepted (trusted workers are accepted directly).
+	QuorumSize int
 	// How often the background lease-reaper runs.
 	ReaperInterval time.Duration
 	// A worker silent for longer than this is marked offline by the reaper.
@@ -80,6 +94,8 @@ func LoadConfig() (Config, error) {
 		// former name, still honoured so existing .env files keep working.
 		Token:              getEnv("COORDINATOR_TOKEN", os.Getenv("WORKER_AUTH_TOKEN")),
 		UIToken:            os.Getenv("UI_AUTH_TOKEN"),
+		JWTSecret:          os.Getenv("JWT_SECRET"),
+		UserserviceURL:     os.Getenv("USERSERVICE_URL"),
 		LogLevel:           getEnv("LOG_LEVEL", "info"),
 		LogFile:            os.Getenv("LOG_FILE"),
 		StorageDir:         getEnv("COORDINATOR_STORAGE_DIR", "./data"),
@@ -90,6 +106,7 @@ func LoadConfig() (Config, error) {
 		HeartbeatInterval:  15 * time.Second,
 		LeaseDuration:      2 * time.Minute,
 		DefaultMaxAttempts: 3,
+		QuorumSize:         2,
 		ReaperInterval:     30 * time.Second,
 		WorkerOfflineAfter: 1 * time.Minute,
 	}
@@ -99,6 +116,11 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.UIToken != "" && cfg.Token != "" && cfg.UIToken == cfg.Token {
 		return Config{}, fmt.Errorf("UI_AUTH_TOKEN must differ from the worker auth token")
+	}
+	// A short secret makes the HMAC brute-forceable; refuse a weak one rather
+	// than verify tokens against it.
+	if cfg.JWTSecret != "" && len(cfg.JWTSecret) < 32 {
+		return Config{}, fmt.Errorf("JWT_SECRET must be at least 32 bytes")
 	}
 
 	var err error
@@ -128,6 +150,12 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.DefaultMaxAttempts, err = getEnvInt("DEFAULT_MAX_ATTEMPTS", cfg.DefaultMaxAttempts); err != nil {
 		return Config{}, err
+	}
+	if cfg.QuorumSize, err = getEnvInt("QUORUM_SIZE", cfg.QuorumSize); err != nil {
+		return Config{}, err
+	}
+	if cfg.QuorumSize < 1 {
+		return Config{}, fmt.Errorf("QUORUM_SIZE must be positive")
 	}
 	if cfg.DefaultMaxAttempts < 1 {
 		return Config{}, fmt.Errorf("DEFAULT_MAX_ATTEMPTS must be positive")

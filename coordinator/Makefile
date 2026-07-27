@@ -35,7 +35,7 @@ help:
 	  '  make demo-down               Stop the demo services and workers.' \
 	  '  make test / make vet         Run Go verification.' \
 	  '' \
-	  'Demo UI: http://localhost:18080/ui (operator / demo-ui-secret).'
+	  'Demo UI: http://localhost:18080/ui (login page; admin root@scimesh.local / rootpassword).'
 
 demo-ui:
 	@DEMO_PROJECT="$(DEMO_PROJECT)" \

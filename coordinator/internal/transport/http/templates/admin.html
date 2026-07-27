@@ -1,0 +1,46 @@
+{{define "admin.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin · SciMesh</title>
+  <style>
+    :root{color:#e5efff;background:#08111f;font:16px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% -8%,#183f77 0,transparent 32rem),#08111f}.page{max-width:820px;margin:auto;padding:28px 22px 64px}a{color:#94bdff}.top{display:flex;justify-content:space-between;align-items:center;gap:12px}.eyebrow{margin:0;color:#7baaff;font-size:.78rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase}h1{margin:6px 0 0;color:#f4f8ff;font-size:clamp(1.8rem,4vw,2.6rem);letter-spacing:-.04em}.lead{max-width:640px;margin:10px 0 0;color:#aabed9}.card{margin-top:24px;border:1px solid #294662;border-radius:15px;background:#0d1a2cdd;box-shadow:0 20px 45px #00000021;padding:22px}.card h2{margin:0 0 4px;color:#f1f6ff;font-size:1.1rem}.card p{margin:0;color:#9fb3cf;font-size:.92rem}label{display:block;margin:16px 0 5px;color:#eaf2ff;font-weight:750}input{width:100%;border:1px solid #42617f;border-radius:9px;padding:10px 11px;background:#0a1626;color:#e5efff;font:inherit}input:focus{outline:2px solid #5d97f5;outline-offset:1px}.actions{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}.btn{border:0;border-radius:9px;padding:10px 14px;font:inherit;font-weight:800;cursor:pointer}.btn-primary{background:#67e3b8;color:#062018}.btn-muted{background:#23344d;color:#dce8ff}.notice{margin-top:16px;border-radius:10px;padding:11px 13px;font-weight:700}.ok{background:#123f34;color:#76efb5}.err{background:#552334;color:#ff9bad}.muted{color:#8ba2c2}.hint{margin-top:4px;color:#92a9c6;font-size:.85rem}</style>
+</head>
+<body>
+  <main class="page">
+    <header class="top">
+      <div><p class="eyebrow">Admin panel</p><h1>User &amp; run control</h1></div>
+      <div style="display:flex;gap:10px;align-items:center"><a href="/ui">← Dashboard</a><a href="/ui/profile">Profile</a><form method="post" action="/ui/logout" style="margin:0"><button class="btn btn-muted" type="submit">Log out</button></form></div>
+    </header>
+    <p class="lead">Signed in as <strong>{{.Role}}</strong>. Promote or verify a user by their id, and control every job from the dashboard.</p>
+
+    {{if .Msg}}<div class="notice ok">{{.Msg}}</div>{{end}}
+    {{if .Error}}<div class="notice err">{{.Error}}</div>{{end}}
+
+    <section class="card">
+      <h2>Manage a user</h2>
+      <p>Paste the user id (the JWT <code>sub</code> / the value shown at registration). Actions are applied immediately.</p>
+      <form method="post" action="/ui/admin/user-action">
+        <label for="user_id">User id</label>
+        <input id="user_id" name="user_id" placeholder="00000000-0000-0000-0000-000000000000" autocomplete="off" required>
+        <p class="hint">Promote makes them an admin; Verify marks them a trusted contributor (their workers skip quorum).</p>
+        <div class="actions">
+          <button class="btn btn-primary" name="action" value="promote" type="submit">Make admin</button>
+          <button class="btn btn-muted" name="action" value="demote" type="submit">Remove admin</button>
+          <button class="btn btn-primary" name="action" value="verify" type="submit">Verify</button>
+          <button class="btn btn-muted" name="action" value="unverify" type="submit">Unverify</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Jobs &amp; tasks</h2>
+      <p>As an admin you already see <strong>every user's jobs</strong> on the dashboard, with per-task status and job cancellation. A regular user sees only their own.</p>
+      <div class="actions"><a class="btn btn-muted" href="/ui" style="text-decoration:none">Open the dashboard →</a></div>
+    </section>
+  </main>
+</body>
+</html>
+{{end}}

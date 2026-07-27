@@ -19,7 +19,11 @@ const (
 
 // Job is one user submission that fans out into one or more tasks.
 type Job struct {
-	ID               uuid.UUID
+	ID uuid.UUID
+	// OwnerID is the userservice user who submitted the job (JWT `sub`). nil
+	// when the job was created without user authentication. Not a foreign key:
+	// users live in a separate service/database.
+	OwnerID          *uuid.UUID
 	Workload         string
 	InputURI         string     // external input URI; empty for uploaded datasets
 	InputArtifactID  *uuid.UUID // uploaded input artifact; nil for URI submissions

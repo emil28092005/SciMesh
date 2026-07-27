@@ -144,7 +144,7 @@ func TestUIReadRepoListsReducerFields(t *testing.T) {
 	if claimed, err := jobs.ClaimReduction(ctx, job.ID, time.Now().UTC()); err != nil || !claimed {
 		t.Fatalf("claim reduction = (%v, %v)", claimed, err)
 	}
-	listed, err := NewUIReadRepo(pool).ListJobs(ctx, 20)
+	listed, err := NewUIReadRepo(pool).ListJobs(ctx, nil, 20)
 	if err != nil {
 		t.Fatalf("list UI jobs: %v", err)
 	}
@@ -406,8 +406,9 @@ func TestCompleteTaskReplayIsIdempotent(t *testing.T) {
 	job, _ := seedJob(t, pool, 1)
 
 	tasks, jobs, artifacts, tx := NewTaskRepo(pool), NewJobRepo(pool), NewArtifactRepo(pool), NewTxManager(pool)
+	workers, results := NewWorkerRepo(pool), NewTaskResultRepo(pool)
 	clk := fixedClock{now: time.Now().UTC()}
-	uc := usecase.NewCompleteTask(tasks, jobs, artifacts, tx, clk)
+	uc := usecase.NewCompleteTask(tasks, jobs, artifacts, workers, results, tx, clk, 2)
 
 	claimed, err := tasks.ClaimNext(ctx, usecase.ClaimFilter{
 		Owner: "worker-1", Now: clk.now, LeaseUntil: clk.now.Add(time.Minute),

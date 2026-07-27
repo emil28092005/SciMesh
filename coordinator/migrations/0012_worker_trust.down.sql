@@ -1,0 +1,8 @@
+BEGIN;
+
+DROP INDEX IF EXISTS ix_workers_owner;
+ALTER TABLE workers DROP COLUMN IF EXISTS trust_level;
+ALTER TABLE workers DROP COLUMN IF EXISTS owner_id;
+DROP TYPE IF EXISTS worker_trust;
+
+COMMIT;

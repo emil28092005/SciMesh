@@ -1,0 +1,6 @@
+/userservice
+/bin/
+.env
+*.out
+/logs/
+/data/

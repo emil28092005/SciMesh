@@ -4,6 +4,8 @@ import (
 	"io"
 
 	"github.com/google/uuid"
+
+	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 )
 
 // Use-case boundary types. Adapters map their wire formats onto these, so the
@@ -28,6 +30,11 @@ type ChunkInput struct {
 type RegisterWorkerInput struct {
 	Name         string
 	Capabilities []string
+	// OwnerID is the userservice user registering this worker; nil for a
+	// shared-token registration. TrustLevel is resolved by the transport layer
+	// from how the caller authenticated.
+	OwnerID    *uuid.UUID
+	TrustLevel domain.WorkerTrust
 }
 
 type ClaimTaskInput struct {

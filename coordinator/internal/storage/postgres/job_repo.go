@@ -28,14 +28,15 @@ var _ usecase.JobRepository = (*JobRepo)(nil)
 var jobColumns = []string{
 	"id", "workload", "input_uri", "parameters", "status", "created_at", "completed_at",
 	"input_artifact_id", "result_artifact_id", "error_code", "error_message", "reducer_started_at",
+	"owner_id",
 }
 
 // Insert runs inside the caller's transaction, alongside the job's tasks — that
 // is what makes "all tasks or none" hold.
 func (r *JobRepo) Insert(ctx context.Context, j *domain.Job) error {
 	sql, args, err := psql.Insert("jobs").
-		Columns("id", "workload", "input_uri", "parameters", "status", "created_at").
-		Values(j.ID, j.Workload, j.InputURI, jsonbOrEmpty(j.Parameters), string(j.Status), j.CreatedAt).
+		Columns("id", "workload", "input_uri", "parameters", "status", "created_at", "owner_id").
+		Values(j.ID, j.Workload, j.InputURI, jsonbOrEmpty(j.Parameters), string(j.Status), j.CreatedAt, j.OwnerID).
 		ToSql()
 	if err != nil {
 		return err
@@ -59,7 +60,8 @@ func (r *JobRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Job, error) {
 	)
 	err = conn(ctx, r.pool).QueryRow(ctx, sql, args...).Scan(
 		&j.ID, &j.Workload, &j.InputURI, &j.Parameters, &status, &j.CreatedAt, &j.CompletedAt,
-		&j.InputArtifactID, &j.ResultArtifactID, &j.ErrorCode, &j.ErrorMessage, &j.ReducerStartedAt)
+		&j.InputArtifactID, &j.ResultArtifactID, &j.ErrorCode, &j.ErrorMessage, &j.ReducerStartedAt,
+		&j.OwnerID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrJobNotFound
 	}

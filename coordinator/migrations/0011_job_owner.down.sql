@@ -1,0 +1,6 @@
+BEGIN;
+
+DROP INDEX IF EXISTS ix_jobs_owner;
+ALTER TABLE jobs DROP COLUMN IF EXISTS owner_id;
+
+COMMIT;

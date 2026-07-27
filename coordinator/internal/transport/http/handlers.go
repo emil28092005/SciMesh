@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
 )
@@ -56,10 +57,24 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	worker, err := s.uc.RegisterWorker.Execute(ctx, usecase.RegisterWorkerInput{
+	// Resolve the worker's trust tier from how the caller authenticated:
+	//   - shared service token (no requester) -> trusted lab worker
+	//   - verified/admin user JWT             -> trusted volunteer
+	//   - plain user JWT                      -> untrusted (quarantined)
+	in := usecase.RegisterWorkerInput{
 		Name:         req.Name,
 		Capabilities: req.Capabilities,
-	})
+		TrustLevel:   domain.WorkerTrusted,
+	}
+	if requester, ok := authctx.From(ctx); ok {
+		id := requester.UserID
+		in.OwnerID = &id
+		if !requester.IsTrusted() {
+			in.TrustLevel = domain.WorkerUntrusted
+		}
+	}
+
+	worker, err := s.uc.RegisterWorker.Execute(ctx, in)
 	if err != nil {
 		s.writeError(w, r, err)
 		return

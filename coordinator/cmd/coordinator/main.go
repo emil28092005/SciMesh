@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/infra"
+	"github.com/emil28092005/SciMesh/coordinator/internal/metrics"
 	"github.com/emil28092005/SciMesh/coordinator/internal/storage/blob"
 	"github.com/emil28092005/SciMesh/coordinator/internal/storage/postgres"
 	httptransport "github.com/emil28092005/SciMesh/coordinator/internal/transport/http"
@@ -59,13 +60,14 @@ func run() error {
 	}
 
 	var (
-		clk          = infra.NewClock()
-		tx           = postgres.NewTxManager(pool)
-		taskRepo     = postgres.NewTaskRepo(pool)
-		jobRepo      = postgres.NewJobRepo(pool)
-		workerRepo   = postgres.NewWorkerRepo(pool)
-		artifactRepo = postgres.NewArtifactRepo(pool)
-		uiReadRepo   = postgres.NewUIReadRepo(pool)
+		clk            = infra.NewClock()
+		tx             = postgres.NewTxManager(pool)
+		taskRepo       = postgres.NewTaskRepo(pool)
+		jobRepo        = postgres.NewJobRepo(pool)
+		workerRepo     = postgres.NewWorkerRepo(pool)
+		artifactRepo   = postgres.NewArtifactRepo(pool)
+		uiReadRepo     = postgres.NewUIReadRepo(pool)
+		taskResultRepo = postgres.NewTaskResultRepo(pool)
 	)
 
 	useCases := httptransport.UseCases{
@@ -74,12 +76,12 @@ func run() error {
 		SubmitDataset:    usecase.NewSubmitDataset(blobStore, artifactRepo, jobRepo, taskRepo, tx, clk, cfg.DefaultMaxAttempts),
 		ClaimTask:        usecase.NewClaimTask(taskRepo, jobRepo, workerRepo, tx, clk, cfg.LeaseDuration),
 		RenewLease:       usecase.NewRenewLease(taskRepo, workerRepo, tx, clk, cfg.LeaseDuration),
-		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, tx, clk),
+		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, workerRepo, taskResultRepo, tx, clk, cfg.QuorumSize),
 		ReduceJob:        usecase.NewReduceJob(jobRepo, taskRepo, artifactRepo, blobStore, tx, clk),
-		FailTask:         usecase.NewFailTask(taskRepo, jobRepo, tx, clk),
+		FailTask:         usecase.NewFailTask(taskRepo, jobRepo, workerRepo, tx, clk),
 		GetJobStatus:     usecase.NewGetJobStatus(jobRepo, taskRepo),
 		CancelJob:        usecase.NewCancelJob(jobRepo, taskRepo, tx, clk),
-		UploadArtifact:   usecase.NewUploadArtifact(taskRepo, artifactRepo, blobStore, tx, clk),
+		UploadArtifact:   usecase.NewUploadArtifact(taskRepo, workerRepo, artifactRepo, blobStore, tx, clk),
 		DownloadArtifact: usecase.NewDownloadArtifact(artifactRepo, blobStore),
 		GetJobResult:     usecase.NewGetJobResult(jobRepo, usecase.NewDownloadArtifact(artifactRepo, blobStore)),
 		GetTaskInput:     usecase.NewGetTaskInput(taskRepo, artifactRepo, blobStore),
@@ -108,9 +110,18 @@ func run() error {
 		}(r.name, r.fn)
 	}
 
+	// Business metrics: gauges of tasks/jobs/workers by status, sampled from the
+	// database on every Prometheus scrape.
+	statsRepo := postgres.NewStatsRepo(pool)
+	m := metrics.New()
+	m.RegisterBusiness(func(ctx context.Context) (metrics.Stats, error) {
+		tasks, jobs, workers, err := statsRepo.Counts(ctx)
+		return metrics.Stats{Tasks: tasks, Jobs: jobs, Workers: workers}, err
+	})
+
 	// pool.Ping backs /health: readiness means the database answers, not just
 	// that the process is alive.
-	api := httptransport.NewServer(useCases, log, cfg.RequestTimeout, cfg.HeartbeatInterval, cfg.MaxUploadBytes, pool.Ping)
+	api := httptransport.NewServer(useCases, log, cfg.RequestTimeout, cfg.HeartbeatInterval, cfg.MaxUploadBytes, cfg.JWTSecret, cfg.UserserviceURL, m, pool.Ping)
 	err = infra.RunServer(ctx, log, cfg.Addr, api.Handler(cfg.Token, cfg.UIToken))
 
 	// Shutdown order matters, and defers alone cannot express it (they run

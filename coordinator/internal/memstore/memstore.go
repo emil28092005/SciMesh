@@ -417,3 +417,36 @@ func contains(ss []string, s string) bool {
 	}
 	return false
 }
+
+// TaskResultRepo is an in-memory usecase.TaskResultRepository: one vote per
+// (task, owner).
+type TaskResultRepo struct {
+	mu    sync.Mutex
+	votes map[uuid.UUID]map[uuid.UUID]string // taskID -> ownerID -> sha256
+}
+
+func NewTaskResultRepo() *TaskResultRepo {
+	return &TaskResultRepo{votes: make(map[uuid.UUID]map[uuid.UUID]string)}
+}
+
+func (r *TaskResultRepo) RecordVote(_ context.Context, taskID, ownerID uuid.UUID, sha256 string, _ uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.votes[taskID] == nil {
+		r.votes[taskID] = make(map[uuid.UUID]string)
+	}
+	r.votes[taskID][ownerID] = sha256
+	return nil
+}
+
+func (r *TaskResultRepo) CountAgreeing(_ context.Context, taskID uuid.UUID, sha256 string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n := 0
+	for _, s := range r.votes[taskID] {
+		if s == sha256 {
+			n++
+		}
+	}
+	return n, nil
+}

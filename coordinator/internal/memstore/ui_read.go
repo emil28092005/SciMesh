@@ -27,7 +27,7 @@ var _ usecase.UIReadRepository = (*UIReadRepo)(nil)
 func (r *UIReadRepo) GetJob(ctx context.Context, id uuid.UUID) (*domain.Job, error) {
 	return r.jobs.Get(ctx, id)
 }
-func (r *UIReadRepo) ListJobs(_ context.Context, limit int) ([]domain.Job, error) {
+func (r *UIReadRepo) ListJobs(_ context.Context, owner *uuid.UUID, limit int) ([]domain.Job, error) {
 	if limit < 1 || limit > 100 {
 		return nil, domain.ErrInvalidInput
 	}
@@ -35,6 +35,9 @@ func (r *UIReadRepo) ListJobs(_ context.Context, limit int) ([]domain.Job, error
 	defer r.jobs.mu.Unlock()
 	out := make([]domain.Job, 0, len(r.jobs.jobs))
 	for _, job := range r.jobs.jobs {
+		if owner != nil && (job.OwnerID == nil || *job.OwnerID != *owner) {
+			continue
+		}
 		out = append(out, *job)
 	}
 	sort.Slice(out, func(i, j int) bool {

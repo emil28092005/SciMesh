@@ -22,6 +22,13 @@ func (uc *RegisterWorker) Execute(ctx context.Context, in RegisterWorkerInput) (
 	if err != nil {
 		return nil, err
 	}
+	w.OwnerID = in.OwnerID
+	// The transport layer resolves trust from the caller's credentials; fall
+	// back to the domain default (trusted) only when it was left unset, so a
+	// zero-value input never silently downgrades a shared-token worker.
+	if in.TrustLevel != "" {
+		w.TrustLevel = in.TrustLevel
+	}
 	if err := uc.workers.Insert(ctx, w); err != nil {
 		return nil, err
 	}

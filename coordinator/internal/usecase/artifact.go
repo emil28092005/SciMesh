@@ -12,18 +12,22 @@ import (
 // UploadArtifact stores a worker's partial-result bytes and records the metadata.
 type UploadArtifact struct {
 	tasks     TaskRepository
+	workers   WorkerRepository
 	artifacts ArtifactRepository
 	blobs     BlobStore
 	tx        TxManager
 	clk       Clock
 }
 
-func NewUploadArtifact(tasks TaskRepository, artifacts ArtifactRepository,
+func NewUploadArtifact(tasks TaskRepository, workers WorkerRepository, artifacts ArtifactRepository,
 	blobs BlobStore, tx TxManager, clk Clock) *UploadArtifact {
-	return &UploadArtifact{tasks: tasks, artifacts: artifacts, blobs: blobs, tx: tx, clk: clk}
+	return &UploadArtifact{tasks: tasks, workers: workers, artifacts: artifacts, blobs: blobs, tx: tx, clk: clk}
 }
 
 func (uc *UploadArtifact) Execute(ctx context.Context, in UploadArtifactInput) (*domain.Artifact, error) {
+	if err := authorizeWorkerOwner(ctx, uc.workers, in.WorkerID); err != nil {
+		return nil, err
+	}
 	task, err := uc.tasks.Get(ctx, in.TaskID)
 	if err != nil {
 		return nil, err
