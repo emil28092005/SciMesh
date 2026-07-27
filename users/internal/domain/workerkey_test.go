@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestNewWorkerKeyDefaultsBlankName(t *testing.T) {
 
 func TestNewWorkerKeyRejectsLongName(t *testing.T) {
 	_, _, err := domain.NewWorkerKey(uuid.New(), strings.Repeat("x", 101), time.Now())
-	if err != domain.ErrWorkerKeyNameTooLong {
+	if !errors.Is(err, domain.ErrWorkerKeyNameTooLong) {
 		t.Errorf("got %v, want ErrWorkerKeyNameTooLong", err)
 	}
 }
