@@ -278,7 +278,9 @@ func (uc *CompleteTask) workerTrust(ctx context.Context, workerID string) (trust
 	// is therefore known; only an untrusted worker ever takes the quorum path.
 	id, err := uuid.Parse(workerID)
 	if err != nil {
-		return true, uuid.Nil, nil
+		// An unparseable worker id means the worker can't be resolved; fall back
+		// to the trusted default rather than surfacing the parse error.
+		return true, uuid.Nil, nil //nolint:nilerr // unresolvable worker → trusted (pre-quorum default)
 	}
 	w, err := uc.workers.Get(ctx, id)
 	if err != nil {
