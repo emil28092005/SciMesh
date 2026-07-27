@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -124,6 +125,17 @@ func (h *Handlers) handleCreateWorkerKey(w http.ResponseWriter, r *http.Request)
 	id, ok := userIDFrom(r.Context())
 	if !ok {
 		unauthorized(w, r)
+		return
+	}
+	// A signed JWT can outlive a demo reset or an account deletion. Check that
+	// its subject still exists before attempting the insert, otherwise the
+	// worker_keys foreign key would turn a stale session into an internal error.
+	if _, err := h.users.GetByID(r.Context(), id); err != nil {
+		if errors.Is(err, usecase.ErrUserNotFound) {
+			unauthorized(w, r)
+			return
+		}
+		writeError(w, r, h.log, err)
 		return
 	}
 	var req createWorkerKeyRequest
