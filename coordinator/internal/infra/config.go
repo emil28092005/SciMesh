@@ -37,6 +37,13 @@ type Config struct {
 	// login/registration (cookie session) instead of the static UI_AUTH_TOKEN
 	// basic auth. Empty keeps the basic-auth UI.
 	UserserviceURL string
+	// Browser-facing base URLs used to render the "add your machine" command on
+	// the UI. They must be reachable from a user's own machine, which is not
+	// necessarily the in-cluster address the coordinator uses for UserserviceURL.
+	// PublicCoordinatorURL empty lets the page fall back to its own origin;
+	// PublicUserserviceURL empty falls back to UserserviceURL.
+	PublicCoordinatorURL string
+	PublicUserserviceURL string
 
 	// Minimum log level: debug, info, warn, error.
 	LogLevel string
@@ -92,23 +99,25 @@ func LoadConfig() (Config, error) {
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		// COORDINATOR_TOKEN is the contract name; WORKER_AUTH_TOKEN is the
 		// former name, still honoured so existing .env files keep working.
-		Token:              getEnv("COORDINATOR_TOKEN", os.Getenv("WORKER_AUTH_TOKEN")),
-		UIToken:            os.Getenv("UI_AUTH_TOKEN"),
-		JWTSecret:          os.Getenv("JWT_SECRET"),
-		UserserviceURL:     os.Getenv("USERSERVICE_URL"),
-		LogLevel:           getEnv("LOG_LEVEL", "info"),
-		LogFile:            os.Getenv("LOG_FILE"),
-		StorageDir:         getEnv("COORDINATOR_STORAGE_DIR", "./data"),
-		MaxUploadBytes:     1 << 30, // 1 GiB
-		DBMaxConns:         10,
-		DBConnectTimeout:   30 * time.Second,
-		RequestTimeout:     15 * time.Second,
-		HeartbeatInterval:  15 * time.Second,
-		LeaseDuration:      2 * time.Minute,
-		DefaultMaxAttempts: 3,
-		QuorumSize:         2,
-		ReaperInterval:     30 * time.Second,
-		WorkerOfflineAfter: 1 * time.Minute,
+		Token:                getEnv("COORDINATOR_TOKEN", os.Getenv("WORKER_AUTH_TOKEN")),
+		UIToken:              os.Getenv("UI_AUTH_TOKEN"),
+		JWTSecret:            os.Getenv("JWT_SECRET"),
+		UserserviceURL:       os.Getenv("USERSERVICE_URL"),
+		PublicCoordinatorURL: os.Getenv("PUBLIC_COORDINATOR_URL"),
+		PublicUserserviceURL: getEnv("PUBLIC_USERSERVICE_URL", os.Getenv("USERSERVICE_URL")),
+		LogLevel:             getEnv("LOG_LEVEL", "info"),
+		LogFile:              os.Getenv("LOG_FILE"),
+		StorageDir:           getEnv("COORDINATOR_STORAGE_DIR", "./data"),
+		MaxUploadBytes:       1 << 30, // 1 GiB
+		DBMaxConns:           10,
+		DBConnectTimeout:     30 * time.Second,
+		RequestTimeout:       15 * time.Second,
+		HeartbeatInterval:    15 * time.Second,
+		LeaseDuration:        2 * time.Minute,
+		DefaultMaxAttempts:   3,
+		QuorumSize:           2,
+		ReaperInterval:       30 * time.Second,
+		WorkerOfflineAfter:   1 * time.Minute,
 	}
 
 	if cfg.DatabaseURL == "" {

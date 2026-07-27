@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke demo-ui demo-down demo-logs
+.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke demo-ui demo-down demo-reset demo-logs
 
 # `check` deliberately uses its own Compose project and host ports. This keeps
 # it from connecting to or replacing a developer's local PostgreSQL instance.
@@ -33,6 +33,7 @@ help:
 	  '  make demo-ui [WORKERS=3]     Start isolated UI demo services and local workers.' \
 	  '  make demo-logs               Follow coordinator logs for the UI demo.' \
 	  '  make demo-down               Stop the demo services and workers.' \
+	  '  make demo-reset              Stop the demo and wipe its data volumes.' \
 	  '  make test / make vet         Run Go verification.' \
 	  '' \
 	  'Demo UI: http://localhost:18080/ui (login page; admin root@scimesh.local / rootpassword).'
@@ -55,6 +56,15 @@ demo-down:
 	DEMO_WORKER_TOKEN="$(DEMO_WORKER_TOKEN)" \
 	DEMO_DIR="$(DEMO_DIR)" \
 	./scripts/demo-ui.sh stop
+
+demo-reset:
+	@DEMO_PROJECT="$(DEMO_PROJECT)" \
+	DEMO_POSTGRES_PORT="$(DEMO_POSTGRES_PORT)" \
+	DEMO_COORDINATOR_PORT="$(DEMO_COORDINATOR_PORT)" \
+	DEMO_UI_TOKEN="$(DEMO_UI_TOKEN)" \
+	DEMO_WORKER_TOKEN="$(DEMO_WORKER_TOKEN)" \
+	DEMO_DIR="$(DEMO_DIR)" \
+	./scripts/demo-ui.sh reset
 
 demo-logs:
 	@DEMO_PROJECT="$(DEMO_PROJECT)" \

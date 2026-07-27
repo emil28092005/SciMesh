@@ -33,14 +33,61 @@ Everything below fills in the details.
 
 ## 0. Auth
 
-Every request except `GET /health` carries a shared bearer token:
+Every request except `GET /health` carries a bearer token:
+
+```
+Authorization: Bearer <token>
+```
+
+There are two ways to obtain that token.
+
+### Shared coordinator token (lab / operator workers)
 
 ```
 Authorization: Bearer <COORDINATOR_TOKEN>
 ```
 
 The token is handed to you out of band (env var / secret) — the same string the
-coordinator was started with. Never log it, never send it in an error body.
+coordinator was started with. A worker using it registers **owner-less and
+trusted**: its results are accepted without quorum. Never log it, never send it
+in an error body.
+
+### Worker key (run a worker bound to your own account)
+
+Any signed-in user can turn their machine into a worker without the shared
+secret:
+
+1. In the web UI, open **“Add your machine”** (`/ui/workers/new`) and create a
+   **worker key** (`scimesh_wk_live_…`). It is shown once — copy it.
+2. Install and run the reference worker with the copied command:
+
+   ```
+   git clone https://github.com/emil28092005/SciMesh.git
+   cd SciMesh
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -e .
+
+   SCIMESH_COORDINATOR_URL=<coordinator> \
+   SCIMESH_USERSERVICE_URL=<userservice> \
+   SCIMESH_WORKER_KEY=scimesh_wk_live_xxx \
+   scimesh-worker --worker-name my-machine
+   ```
+
+   The worker ships in this repository, not on PyPI, so it is installed from a
+   clone (`pip install -e .`) rather than `pip install scimesh`.
+
+Under the hood the worker trades the key at `POST /worker-tokens/exchange` for a
+short-lived JWT and refreshes it automatically before it expires — so unlike a
+raw login token, a worker key keeps a long-running worker authenticated. Revoke
+the key in the UI to cut a machine off.
+
+**Trust and quorum.** A worker registered with a plain user's key is
+**untrusted**: its result is quarantined and only accepted once a second,
+independent worker (a different owner) computes the same answer — the quorum
+(default 2). If an admin marks your account **verified**, your workers become
+trusted and their results count immediately; re-register the worker after being
+verified so it picks up the upgraded trust.
 
 ## 1. Register (once, at startup)
 
@@ -191,7 +238,9 @@ Per the worker contract, at minimum:
 - `SCIMESH_COORDINATOR_URL` (e.g. `http://coordinator:8080`)
 - worker name (the coordinator returns its `worker_id` at registration;
   `SCIMESH_WORKER_ID` is only a legacy/test override)
-- the bearer token
+- the credential — either `SCIMESH_BEARER_TOKEN` (shared token or a raw JWT) or
+  `SCIMESH_WORKER_KEY` together with `SCIMESH_USERSERVICE_URL` (a worker key the
+  worker exchanges and refreshes; see §0)
 - poll interval and request timeout
 - a working directory for downloaded inputs and generated outputs
 

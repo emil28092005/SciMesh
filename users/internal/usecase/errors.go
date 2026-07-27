@@ -7,6 +7,14 @@ var (
 	ErrEmailExists  = errors.New("email already registered")
 	ErrUserNotFound = errors.New("user not found")
 
+	// ErrWorkerKeyNotFound is returned by WorkerKeyRepository when no live key
+	// matches (by id for revoke, by hash for exchange).
+	ErrWorkerKeyNotFound = errors.New("worker key not found")
+	// ErrInvalidWorkerKey is surfaced to the transport layer for a key that does
+	// not exchange (unknown, revoked, or owner gone). Deliberately opaque so a
+	// caller cannot distinguish the cases while probing.
+	ErrInvalidWorkerKey = errors.New("invalid worker key")
+
 	// Use-case errors surfaced to the transport layer.
 	//
 	// ErrInvalidCredentials is deliberately returned for both an unknown email

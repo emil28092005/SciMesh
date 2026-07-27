@@ -49,16 +49,21 @@ func run() error {
 
 	// Adapters implementing the usecase ports.
 	users := postgres.NewUserRepo(pool)
+	workerKeys := postgres.NewWorkerKeyRepo(pool)
 	hasher := auth.NewHasher(cfg.BcryptCost)
 	clock := infra.NewClock()
 	issuer := auth.NewIssuer(cfg.JWTSecret, cfg.TokenTTL, clock.Now)
 
 	uc := apihttp.UseCases{
-		Register:    usecase.NewRegister(users, hasher, clock),
-		Login:       usecase.NewLogin(users, hasher, issuer),
-		SetVerified: usecase.NewSetVerified(users),
-		SetRole:     usecase.NewSetRole(users),
-		Users:       users,
+		Register:          usecase.NewRegister(users, hasher, clock),
+		Login:             usecase.NewLogin(users, hasher, issuer),
+		SetVerified:       usecase.NewSetVerified(users),
+		SetRole:           usecase.NewSetRole(users),
+		CreateWorkerKey:   usecase.NewCreateWorkerKey(workerKeys, clock),
+		ListWorkerKeys:    usecase.NewListWorkerKeys(workerKeys),
+		RevokeWorkerKey:   usecase.NewRevokeWorkerKey(workerKeys),
+		ExchangeWorkerKey: usecase.NewExchangeWorkerKey(workerKeys, users, issuer, cfg.TokenTTL),
+		Users:             users,
 	}
 
 	// Seed the first admin, if configured. Idempotent: a no-op once it exists.

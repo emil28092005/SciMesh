@@ -21,6 +21,9 @@ type UIReadRepository interface {
 	ListTasksByJob(ctx context.Context, jobID uuid.UUID) ([]domain.Task, error)
 	ListTasksByJobs(ctx context.Context, jobIDs []uuid.UUID) (map[uuid.UUID][]domain.Task, error)
 	ListWorkers(ctx context.Context, limit int) ([]domain.Worker, error)
+	// ListWorkersByOwner returns the most recent workers registered by one user,
+	// for the "my machines" section of the dashboard.
+	ListWorkersByOwner(ctx context.Context, owner uuid.UUID, limit int) ([]domain.Worker, error)
 	ListArtifactsByJob(ctx context.Context, jobID uuid.UUID) ([]domain.Artifact, error)
 }
 
@@ -83,8 +86,11 @@ type WorkerCard struct {
 }
 
 type DashboardView struct {
-	Jobs          []JobCard    `json:"jobs"`
-	Workers       []WorkerCard `json:"workers"`
+	Jobs    []JobCard    `json:"jobs"`
+	Workers []WorkerCard `json:"workers"`
+	// MyWorkers is the signed-in user's own registered workers. Empty for an
+	// admin or a basic-auth operator, who instead see the whole fleet in Workers.
+	MyWorkers     []WorkerCard `json:"my_workers"`
 	ActiveJobs    int          `json:"active_jobs"`
 	FinishedJobs  int          `json:"finished_jobs"`
 	OnlineWorkers int          `json:"online_workers"`
@@ -152,13 +158,35 @@ func (d *Dashboard) Overview(ctx context.Context, limit int) (DashboardView, err
 		}
 	}
 	for _, worker := range workers {
-		out.Workers = append(out.Workers, WorkerCard{ID: worker.ID.String(), Name: worker.Name, Status: string(worker.Status), Capabilities: worker.Capabilities, LastHeartbeatAt: worker.LastHeartbeatAt})
+		out.Workers = append(out.Workers, workerCard(worker))
 		if worker.Status == domain.WorkerOnline || worker.Status == domain.WorkerBusy {
 			out.OnlineWorkers++
 		}
 	}
+	// A plain user also gets a dedicated "my machines" list scoped to their own
+	// registrations; an admin/operator sees only the fleet above.
+	if owner := uiOwnerFilter(ctx); owner != nil {
+		mine, err := d.read.ListWorkersByOwner(ctx, *owner, limit)
+		if err != nil {
+			return DashboardView{}, err
+		}
+		out.MyWorkers = make([]WorkerCard, 0, len(mine))
+		for _, worker := range mine {
+			out.MyWorkers = append(out.MyWorkers, workerCard(worker))
+		}
+	}
 	out.Session = sessionViewFrom(ctx)
 	return out, nil
+}
+
+func workerCard(w domain.Worker) WorkerCard {
+	return WorkerCard{
+		ID:              w.ID.String(),
+		Name:            w.Name,
+		Status:          string(w.Status),
+		Capabilities:    w.Capabilities,
+		LastHeartbeatAt: w.LastHeartbeatAt,
+	}
 }
 
 func (d *Dashboard) JobDetail(ctx context.Context, jobID uuid.UUID) (JobDetailView, error) {

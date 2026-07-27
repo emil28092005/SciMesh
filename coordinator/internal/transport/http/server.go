@@ -49,6 +49,11 @@ type Server struct {
 	// userserviceURL is the base URL the UI proxies login/registration to. Empty
 	// keeps the static basic-auth UI.
 	userserviceURL string
+	// publicCoordinatorURL / publicUserserviceURL are the browser-facing URLs
+	// rendered into the worker-enrollment command. Either may be empty; the
+	// template falls back (own origin / userserviceURL respectively).
+	publicCoordinatorURL string
+	publicUserserviceURL string
 	// httpClient makes the login/register calls to the userservice.
 	httpClient *http.Client
 	// metrics holds the Prometheus registry and HTTP instrumentation.
@@ -59,21 +64,33 @@ type Server struct {
 }
 
 func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval time.Duration,
-	maxUploadBytes int64, jwtSecret, userserviceURL string, m *metrics.Metrics, ready func(context.Context) error) *Server {
+	maxUploadBytes int64, jwtSecret, userserviceURL string, m *metrics.Metrics, ready func(context.Context) error,
+	publicURLs ...string) *Server {
 	if m == nil {
 		m = metrics.New()
 	}
+	// publicURLs is variadic so existing callers/tests need no change: [0] is the
+	// public coordinator URL, [1] the public userservice URL; both optional.
+	var publicCoordinatorURL, publicUserserviceURL string
+	if len(publicURLs) > 0 {
+		publicCoordinatorURL = strings.TrimRight(publicURLs[0], "/")
+	}
+	if len(publicURLs) > 1 {
+		publicUserserviceURL = strings.TrimRight(publicURLs[1], "/")
+	}
 	return &Server{
-		uc:                uc,
-		log:               log,
-		requestTimeout:    requestTimeout,
-		heartbeatInterval: heartbeatInterval,
-		maxUploadBytes:    maxUploadBytes,
-		verifier:          tokenpkg.NewVerifier(jwtSecret),
-		userserviceURL:    strings.TrimRight(userserviceURL, "/"),
-		httpClient:        &http.Client{Timeout: 10 * time.Second},
-		metrics:           m,
-		ready:             ready,
+		uc:                   uc,
+		log:                  log,
+		requestTimeout:       requestTimeout,
+		heartbeatInterval:    heartbeatInterval,
+		maxUploadBytes:       maxUploadBytes,
+		verifier:             tokenpkg.NewVerifier(jwtSecret),
+		userserviceURL:       strings.TrimRight(userserviceURL, "/"),
+		publicCoordinatorURL: publicCoordinatorURL,
+		publicUserserviceURL: publicUserserviceURL,
+		httpClient:           &http.Client{Timeout: 10 * time.Second},
+		metrics:              m,
+		ready:                ready,
 	}
 }
 
@@ -139,6 +156,14 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 				ui.Handle(rt.pattern, gate(rt.handler))
 			}
 			ui.Handle("GET /ui/profile", gate(http.HandlerFunc(s.handleUIProfile)))
+			// Worker enrollment: a user creates/lists/revokes their own worker keys
+			// and copies a ready-to-run command. Session-only — it proxies to the
+			// userservice with the caller's token, so it has no meaning under basic
+			// auth (which has no userservice).
+			ui.Handle("GET /ui/workers/new", gate(http.HandlerFunc(s.handleUIAddWorker)))
+			ui.Handle("GET /ui/api/worker-keys", gate(http.HandlerFunc(s.handleUIWorkerKeysList)))
+			ui.Handle("POST /ui/api/worker-keys", gate(http.HandlerFunc(s.handleUIWorkerKeyCreate)))
+			ui.Handle("POST /ui/api/worker-keys/{id}/revoke", gate(http.HandlerFunc(s.handleUIWorkerKeyRevoke)))
 			// Admin panel: session + admin role.
 			ui.Handle("GET /ui/admin", chain(http.HandlerFunc(s.handleUIAdmin), gate, requireAdmin))
 			ui.Handle("POST /ui/admin/user-action", chain(http.HandlerFunc(s.handleUIAdminUserAction), gate, requireAdmin))
