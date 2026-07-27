@@ -177,12 +177,19 @@ case "$action" in
     compose down
     echo "SciMesh manual demo stopped."
     ;;
+  reset)
+    # Like stop, but also drops the data volumes so the next start is pristine
+    # (empty Postgres, no leftover workers/jobs/tasks, no cached artifacts).
+    stop_workers
+    compose down -v
+    echo "SciMesh manual demo stopped and data volumes removed."
+    ;;
   logs)
     echo "Worker logs: $logs_dir"
     compose logs -f coordinator
     ;;
   *)
-    echo "Usage: $0 {start|stop|logs}" >&2
+    echo "Usage: $0 {start|stop|reset|logs}" >&2
     exit 2
     ;;
 esac
