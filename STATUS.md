@@ -23,8 +23,10 @@ are reduced once into a checksum-protected final CSV, which is downloadable
 through the coordinator. The full Go checks (including a fresh migration and
 real PostgreSQL smoke test) passed on 2026-07-24.
 
-A User Service is being developed on a separate programmer branch. It is not
-yet merged, reviewed, or integrated with the coordinator/worker contract.
+The User Service is merged into `main`. It owns user accounts, authentication,
+roles, and verified-contributor status; the coordinator scopes user jobs and
+worker operations to the authenticated owner. Its documented v1 contract is in
+[`docs/user-service-api-contract.md`](docs/user-service-api-contract.md).
 
 ## Milestone tracker
 
@@ -43,7 +45,7 @@ yet merged, reviewed, or integrated with the coordinator/worker contract.
 | CTX-10 Distributed similarity-graph | Not started | Local reference exists. |
 | CTX-11 Dashboard/operator view | Implemented | Protected live control room: recent-run/worker overview, real pipeline-stage visualization, shard attempts and safe failures, validated similarity-search upload, coordinator artifacts, final-result download, and bounded polling. |
 | CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
-| CTX-15 User Service and access control | In progress (separate branch) | Proposed implementation is under development; API, security review, tests, and integration are pending. |
+| CTX-15 User Service and access control | Implemented | Go unit/race checks, Docker/PostgreSQL integration, and coordinator ownership regression checks pass locally. |
 
 ## Next recommended assignment
 
