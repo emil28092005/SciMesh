@@ -50,6 +50,7 @@ the complete result-artifact SHA-256 before a task is accepted.
 | CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
 | CTX-15 User Service and access control | Implemented | User/owner scoping, verified contributors, worker keys, self-service enrollment, and quorum-backed untrusted workers are merged; local Go/Python and Docker/PostgreSQL checks passed. |
 | CTX-16 Workload SDK foundation | Implemented | `scimesh.sdk` provides strict immutable manifests/plans/artifacts, digest/trust-pinned tasks, typed DAGs, compatibility negotiation, verifier primitives with owner/binding-safe quorum inputs, resource eligibility/local allocation, measured package discovery, a trusted local core-batch conformance harness, and a tested legacy similarity-search adapter. Enforcing coordinator/Worker profiles remain fail-closed. |
+| SDK roadmap step 3: `descriptor-batch` | Implemented | The first SDK-native reference workload (`descriptor-batch@1.0.0` in `scimesh/sdk/descriptors/`): pinned 81-name RDKit 2D descriptor set, canonical one-row-per-input CSV, deterministic row-bounded shards, shard-index concatenation with one header, byte-identical local/distributed output, and a two-worker `untrusted_quorum` verifier test. Entry point declared in `pyproject.toml`; manifest declares `trusted` + `untrusted_quorum` with the exact-artifact verifier. |
 
 ## Next recommended assignment
 

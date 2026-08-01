@@ -94,6 +94,73 @@ harness uses the same legacy scientific planner, shard runner, and reducer as
 the distributed `similarity-search`, and its parity is covered by automated
 tests.
 
+## The descriptor-batch reference workload
+
+`descriptor-batch@1.0.0` is the first SDK-native reference workload: it is
+built directly on the manifest/planner/runner/reducer contracts instead of the
+legacy adapter, and it is the intended first `untrusted_quorum` candidate
+(`byte_exact` plus `exact-artifact@1`). Its scientific contract is pinned:
+
+- one output CSV row per valid input molecule, in input order, with RDKit
+  canonical SMILES recomputed by RDKit;
+- an explicit 81-name pinned RDKit 2D descriptor set (see
+  `scimesh/sdk/descriptors/core.py`), validated against the installed RDKit at
+  definition build time;
+- `%.6f` float formatting, `utf-8` CSV with one header, and row-bounded
+  deterministic shards;
+- `skip_invalid` is the only parameter (default `true`): invalid SMILES rows
+  are counted and skipped, or fail the run when `false`;
+- the reducer concatenates shard partials by shard index with exactly one
+  header, so the distributed output is byte-identical to the single-process
+  reference for the same input rows.
+
+```python
+from pathlib import Path
+
+from scimesh.sdk import (
+    ArtifactCollection,
+    JobRequest,
+    LocalArtifactStore,
+    LocalCoreBatchExecutor,
+    WorkloadRegistry,
+    default_sdk_runtime,
+)
+from scimesh.sdk.descriptors import descriptor_batch_sdk_definition
+
+root = Path("descriptor-run")
+store = LocalArtifactStore(root / "artifacts")
+workload = descriptor_batch_sdk_definition(shard_rows=1_000)
+
+dataset = store.import_file(
+    Path("chembl_37_chemreps.txt"),
+    declaration=workload.manifest.inputs["input"].schema,
+)
+request = JobRequest(
+    workload=workload.manifest.workload,
+    parameters={"skip_invalid": True},
+    inputs={"input": ArtifactCollection.single(dataset)},
+)
+registry = WorkloadRegistry()
+registry.register(workload.definition(), enabled=True)
+
+result = LocalCoreBatchExecutor(
+    registry,
+    default_sdk_runtime(),
+    store,
+    root / "attempts",
+).execute(request, workload.manifest.package.digest)
+
+result_ref = result.outputs["result"].items[0].artifact
+print(store.materialize(result_ref))
+```
+
+The descriptor-batch entry point `descriptor-batch@1.0.0` is declared in
+`pyproject.toml`; discovery loads it only when an administrator supplies a
+matching `AllowedPackage` allowlist entry. Its manifest declares both
+`trusted` and `untrusted_quorum` trust modes and the exact-artifact verifier,
+so the same definition can later run under coordinator quorum once protocol-v2
+leases exist.
+
 ## Package shape and registration
 
 An SDK distribution provides one explicit entry point per workload version:
@@ -211,7 +278,8 @@ pytest tests/test_sdk_models.py \
        tests/test_sdk_resources.py \
        tests/test_sdk_verification.py \
        tests/test_sdk_compatibility.py \
-       tests/test_sdk_registry.py
+       tests/test_sdk_registry.py \
+       tests/test_sdk_descriptors.py
 ```
 
 Run `pytest` for the full legacy, Worker, local-science, and SDK regression

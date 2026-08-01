@@ -36,16 +36,19 @@ implements the `core-batch-v1` profile:
 
 ## What remains, in delivery order
 
-1. **`descriptor-batch` reference workload** (roadmap step 3 — the recommended
-   next task; it is pure Python and needs no coordinator changes). Pinned RDKit
-   2D descriptors, canonical one-row-per-input CSV, shard-index concatenation
-   with one header, byte-identical local/distributed output, two-worker quorum.
-   Build it as an SDK-native package (manifest + planner/runner/reducer/
-   verifier handlers), not through the legacy adapter; reuse the
-   `similarity-search` adapter (`scimesh/sdk/compat/distributed_v1.py`) and
-   `builtins.py` as the structural template, and the
-   `tests/test_sdk_compatibility.py` fixtures as the test template. This is the
-   intended first `untrusted_quorum` candidate (byte_exact + exact-artifact@1).
+1. ~~**`descriptor-batch` reference workload**~~ — **done** (2026-08-01):
+   `scimesh/sdk/descriptors/` (`core.py` + `definition.py`) is the first
+   SDK-native workload. Pinned 81-name RDKit 2D descriptor set (validated at
+   definition build time), canonical one-row-per-input CSV with `%.6f` floats,
+   deterministic row-bounded shards, shard-index concatenation with one header,
+   byte-identical local/distributed output, `skip_invalid` explicit policy, and
+   `untrusted_quorum` + exact-artifact@1 declared in the manifest. Entry point
+   `descriptor-batch@1.0.0` is in `pyproject.toml`; `default_sdk_runtime` now
+   advertises the `descriptor-batch` capability. Tests:
+   `tests/test_sdk_descriptors.py` (8 tests: manifest/negotiation, local-vs-
+   reference byte parity, deterministic path-free planning, explicit invalid-
+   row policy, strict parameter schema, two-owner quorum accept, conflicting-
+   quorum reject, allowlist discovery). Total suite: 233 passing.
 2. **Distributed `similarity-graph`** (CTX-10, roadmap step 1). The coordinator
    currently rejects `similarity-graph` uploads; it needs cross-shard block-pair
    planning and duplicate-safe reduction. STATUS.md names this the next

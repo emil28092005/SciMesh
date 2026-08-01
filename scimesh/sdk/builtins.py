@@ -48,7 +48,9 @@ def current_environment_digest() -> str:
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def similarity_search_sdk_adapter(*, shard_rows: int = 10_000) -> LegacyDistributedWorkloadAdapter:
+def similarity_search_sdk_adapter(
+    *, shard_rows: int = 10_000
+) -> LegacyDistributedWorkloadAdapter:
     dataset_schema = ArtifactSchema(
         SchemaRef("molecule-table", 1),
         "text/tab-separated-values",
@@ -119,7 +121,9 @@ def similarity_search_sdk_adapter(*, shard_rows: int = 10_000) -> LegacyDistribu
 
 def default_sdk_registry(*, shard_rows: int = 10_000) -> WorkloadRegistry:
     registry = WorkloadRegistry()
-    registry.register(similarity_search_sdk_adapter(shard_rows=shard_rows).definition(), enabled=True)
+    registry.register(
+        similarity_search_sdk_adapter(shard_rows=shard_rows).definition(), enabled=True
+    )
     return registry
 
 
@@ -135,7 +139,7 @@ def default_sdk_runtime() -> RuntimeCapabilities:
         protocol_version="1.0.0",
         profiles=("core-batch-v1",),
         features={"artifact-collections": "1.0.0", "exact-verifier": "1.0.0"},
-        workload_capabilities=("similarity-search",),
+        workload_capabilities=("similarity-search", "descriptor-batch"),
         inventory=ResourceInventory(
             cpu_cores=max(os.cpu_count() or 1, 1),
             memory_mb=4096,
