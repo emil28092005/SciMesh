@@ -27,9 +27,20 @@ __all__ = [
 ]
 
 
-def default_sdk_registry(*, shard_rows: int = 10_000) -> WorkloadRegistry:
-    """Registry of every built-in SDK-built workload, all enabled."""
+def default_sdk_registry(
+    *,
+    shard_rows: int = 10_000,
+    allowlist: tuple[AllowedPackage, ...] | None = None,
+) -> WorkloadRegistry:
+    """Registry of every built-in SDK-built workload, all enabled.
+
+    When ``allowlist`` is provided, installed workloads are discovered through
+    the ``scimesh.workloads`` entry points instead of the built-ins.
+    """
     registry = WorkloadRegistry()
+    if allowlist:
+        registry.discover_installed(allowlist)
+        return registry
     registry.register(
         similarity_search_sdk_definition(shard_rows=shard_rows).definition(),
         enabled=True,
@@ -45,8 +56,17 @@ def default_sdk_registry(*, shard_rows: int = 10_000) -> WorkloadRegistry:
     return registry
 
 
-def default_sdk_runtime() -> RuntimeCapabilities:
-    """Runtime advertising the built-in workloads' capabilities and inventory."""
+def default_sdk_runtime(
+    *,
+    workload_capabilities: tuple[str, ...] | None = None,
+    environment_digests: tuple[str, ...] | None = None,
+) -> RuntimeCapabilities:
+    """Runtime advertising the built-in workloads' capabilities and inventory.
+
+    ``workload_capabilities`` and ``environment_digests`` override the built-in
+    defaults, for example when a registry was populated from an allowlist of
+    installed user workloads instead of the built-ins.
+    """
     architecture = platform.machine().lower() or "unknown"
     return RuntimeCapabilities(
         sdk_api_version=SDK_API_VERSION,
@@ -54,15 +74,14 @@ def default_sdk_runtime() -> RuntimeCapabilities:
         profiles=("core-batch-v1",),
         features={"artifact-collections": "1.0.0", "exact-verifier": "1.0.0"},
         workload_capabilities=(
-            "similarity-search",
-            "similarity-graph",
-            "descriptor-batch",
+            workload_capabilities
+            or ("similarity-search", "similarity-graph", "descriptor-batch")
         ),
         inventory=ResourceInventory(
             cpu_cores=max(os.cpu_count() or 1, 1),
             memory_mb=4096,
             scratch_mb=4096,
             architecture=architecture,
-            environment_digests=(current_environment_digest(),),
+            environment_digests=environment_digests or (current_environment_digest(),),
         ),
     )

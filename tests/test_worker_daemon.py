@@ -10,7 +10,7 @@ from urllib.request import Request
 
 import pytest
 
-from scimesh.worker.config import WorkerConfig
+from scimesh.worker.config import WorkerConfig, _workload_allowlist
 from scimesh.worker import cli as worker_cli
 from scimesh.worker.cli import build_parser
 from scimesh.worker.coordinator import CoordinatorTransientError
@@ -579,7 +579,7 @@ def test_runner_executes_search_through_the_sdk_and_rejects_graph(
     )
 
 
-def test_runner_resolves_query_id_from_the_shard_and_rejects_plan_time_options(
+def test_runner_resolves_query_id_from_the_shard_and_rejects_plan_time_parameters(
     tmp_path: Path,
 ) -> None:
     task_dir = tmp_path / "search"
@@ -607,7 +607,7 @@ def test_runner_resolves_query_id_from_the_shard_and_rejects_plan_time_options(
         InputArtifact("https://example/input", "a" * 64),
         {"query_smiles": "CCO", "max_rows": 1},
     )
-    with pytest.raises(ValueError, match="unsupported runner parameters"):
+    with pytest.raises(ValueError, match="outside the stage projection"):
         SciMeshRunner().run(with_max_rows, task_dir)
 
 
@@ -732,3 +732,111 @@ def test_worker_registration_sets_returned_identity(tmp_path: Path) -> None:
     worker._register_worker()
     assert worker.worker_id == "11111111-1111-4111-8111-111111111111"
     assert worker.config.heartbeat_interval == 15
+
+
+def test_runner_executes_an_arbitrary_sdk_workload(tmp_path: Path) -> None:
+    from scimesh.workloads.descriptors import descriptor_batch_sdk_definition
+
+    content = b"chembl_id\tcanonical_smiles\nA\tCCO\nB\tCCCC\n"
+    task = ClaimedTask(
+        "task-1",
+        1,
+        (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat(),
+        "descriptor-batch",
+        InputArtifact("https://example.test/input", hashlib.sha256(content).hexdigest()),
+        {"skip_invalid": True},
+    )
+    task_dir = tmp_path / "task-1" / "1"
+    task_dir.mkdir(parents=True)
+    (task_dir / "input").write_bytes(content)
+    runner = SciMeshRunner(
+        definitions={
+            "descriptor-batch": descriptor_batch_sdk_definition().definition()
+        }
+    )
+
+    result = runner.run(task, task_dir)
+    header = result.artifacts[0].path.read_text(encoding="utf-8").splitlines()[0]
+    assert header.startswith("chembl_id,canonical_smiles,ExactMolWt")
+    assert result.metrics["rows_emitted"] == 2
+
+
+def test_runner_rejects_workloads_outside_the_v1_single_input_contract(
+    tmp_path: Path,
+) -> None:
+    from scimesh.workloads.graph import similarity_graph_sdk_definition
+
+    content = b"chembl_id\tcanonical_smiles\nA\tCCO\nB\tCCCC\n"
+    task = ClaimedTask(
+        "graph-task",
+        1,
+        (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat(),
+        "similarity-graph",
+        InputArtifact("https://example.test/input", hashlib.sha256(content).hexdigest()),
+        {"threshold": 0.5},
+    )
+    task_dir = tmp_path / "graph"
+    task_dir.mkdir(parents=True)
+    (task_dir / "input").write_bytes(content)
+    runner = SciMeshRunner(
+        definitions={
+            "similarity-graph": similarity_graph_sdk_definition().definition()
+        }
+    )
+
+    with pytest.raises(ValueError, match="v1 single-input contract"):
+        runner.run(task, task_dir)
+
+
+def test_runner_for_worker_discovers_allowlisted_installed_workloads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from scimesh.sdk.registry import WorkloadRegistry
+    from scimesh.workloads.search import similarity_search_sdk_definition
+
+    definition = similarity_search_sdk_definition().definition()
+
+    def fake_discover(self: WorkloadRegistry, allowlist) -> None:
+        assert len(allowlist) == 1
+        self.register(definition, enabled=True)
+
+    monkeypatch.setattr(WorkloadRegistry, "discover_installed", fake_discover)
+    allowlist = _workload_allowlist(
+        '[{"distribution": "scimesh", "name": "similarity-search", '
+        '"version": "1.0.0", "digest": "sha256:' + "a" * 64 + '"}]'
+    )
+    config = WorkerConfig(
+        "https://example.test", "worker-1", tmp_path / "work",
+        capabilities=("similarity-search",),
+        workload_allowlist=allowlist,
+    )
+    runner = SciMeshRunner.for_worker(config)
+    assert set(runner._definitions) == {"similarity-search"}
+
+
+def test_worker_config_parses_capabilities_and_workload_allowlist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("SCIMESH_CAPABILITIES", "similarity-search,descriptor-batch")
+    config = WorkerConfig.from_environment(
+        {"coordinator_url": "https://example.test", "work_dir": tmp_path}
+    )
+    assert config.capabilities == ("similarity-search", "descriptor-batch")
+    assert config.workload_allowlist == ()
+
+    monkeypatch.setenv(
+        "SCIMESH_WORKLOAD_ALLOWLIST",
+        '[{"distribution": "scimesh", "name": "descriptor-batch", '
+        '"version": "1.0.0", "digest": "sha256:' + "b" * 64 + '"}]',
+    )
+    config = WorkerConfig.from_environment(
+        {"coordinator_url": "https://example.test", "work_dir": tmp_path}
+    )
+    assert len(config.workload_allowlist) == 1
+    assert config.workload_allowlist[0].workload.name == "descriptor-batch"
+
+    monkeypatch.setenv("SCIMESH_WORKLOAD_ALLOWLIST", "not-json")
+    with pytest.raises(ValueError, match="valid JSON"):
+        WorkerConfig.from_environment(
+            {"coordinator_url": "https://example.test", "work_dir": tmp_path}
+        )

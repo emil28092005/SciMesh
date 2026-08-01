@@ -145,7 +145,9 @@ workload code. Workloads are user scripts built on the SDK: the built-in
 composed by `scimesh/workloads/library.py` and registered through
 `scimesh.workloads` entry points. The Worker Agent executes those SDK-built
 workloads directly (see `scimesh/worker/runners.py`), so the same scientific
-handlers run locally, in conformance, and on claimed coordinator tasks. See the
+handlers run locally, in conformance, and on claimed coordinator tasks.
+`scimesh workload list` and `scimesh workload run` run any SDK workload from
+the command line. See the
 [SDK author guide](docs/workload-sdk.md), [contract](docs/scimesh-sdk-contract.md),
 and [delivery roadmap](docs/scimesh-sdk-roadmap.md).
 

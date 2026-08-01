@@ -24,6 +24,24 @@ partial writer moved to `scimesh/workloads/search/core.py`; the partial
 format is unchanged, so the Go reducer and UI keep working. The runner
 resolves `query_id` per task and rejects plan-time `max_rows`.
 
+**Authoring scaffold (2026-08-01):** `scimesh/sdk/batch.py` adds
+`MapReduceWorkload` — the primary authoring surface for `core-batch-v1`. A
+subclass declares identity/parameters/ports and three scientific hooks
+(`partition_input`, `compute_shard`, `reduce_partials`); the SDK assembles the
+manifest, map/reduce stages, workflow, digest-pinned handlers, and the
+exact-artifact verifier. Overridable hooks: `domain_validate`,
+`resolved_parameters`, `resolved_parameters_for_plan`, `plan_tasks`,
+`parse_partial_key`/`validate_partial_keys`, `map_stage_inputs` (multi-input
+map stages share the external input schema). All three built-in workloads are
+refactored onto it. Generic `scimesh workload list|run` CLI added (no
+workload-specific logic). The worker loads workloads generically:
+`SCIMESH_WORKLOAD_ALLOWLIST` (JSON `{distribution, name, version, digest}`,
+discovery via entry points) or built-in fallback; `SCIMESH_CAPABILITIES`
+overrides advertised capabilities; workloads with multi-input map stages are
+rejected by the v1 bridge. `query_id` resolution moved into the search
+workload's `run_search_shard`; the worker passes task parameters through and
+the workload validates them.
+
 CTX-16 "Workload SDK foundation" is complete and tested. `scimesh/sdk/`
 implements the `core-batch-v1` profile:
 

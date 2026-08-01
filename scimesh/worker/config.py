@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from math import isfinite
 from pathlib import Path
@@ -9,6 +10,8 @@ import os
 import socket
 from typing import Mapping
 from urllib.parse import urlsplit
+
+from scimesh.sdk.registry import AllowedPackage, workload_allowlist_from_json
 
 
 def _clean_url(value: object | None) -> str | None:
@@ -29,6 +32,24 @@ def _positive_number(value: object, name: str, *, allow_zero: bool = False) -> N
     ):
         qualifier = "non-negative" if allow_zero else "positive"
         raise ValueError(f"{name} must be {qualifier}")
+
+
+def _capabilities(value: object) -> tuple[str, ...]:
+    """Parse a comma-separated capability list into unique non-empty names."""
+    if value is None:
+        return ("similarity-search", "similarity_search")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("capabilities must be a comma-separated list")
+    names = tuple(
+        dict.fromkeys(item.strip() for item in value.split(",") if item.strip())
+    )
+    if not names:
+        raise ValueError("capabilities cannot be empty")
+    return names
+
+
+def _workload_allowlist(value: object) -> tuple[AllowedPackage, ...]:
+    return workload_allowlist_from_json(value)
 
 
 @dataclass(frozen=True)
@@ -60,6 +81,11 @@ class WorkerConfig:
         "similarity-search",
         "similarity_search",
     )
+    # Optional allowlist of installed SDK workload packages to execute. When
+    # empty, the worker runs the built-in similarity-search only. Entries are
+    # ``{distribution, name, version, digest}`` JSON objects matching the
+    # installed ``scimesh.workloads`` entry points.
+    workload_allowlist: tuple[AllowedPackage, ...] = ()
 
     def __post_init__(self) -> None:
         parsed = urlsplit(self.coordinator_url)
@@ -72,8 +98,14 @@ class WorkerConfig:
             if us.scheme not in {"http", "https"} or not us.hostname:
                 raise ValueError("userservice_url must be an absolute HTTP(S) URL")
         if self.worker_key is not None and not self.userservice_url:
-            raise ValueError("worker_key requires userservice_url (SCIMESH_USERSERVICE_URL)")
-        if isinstance(self.cpu_count, bool) or not isinstance(self.cpu_count, int) or self.cpu_count < 1:
+            raise ValueError(
+                "worker_key requires userservice_url (SCIMESH_USERSERVICE_URL)"
+            )
+        if (
+            isinstance(self.cpu_count, bool)
+            or not isinstance(self.cpu_count, int)
+            or self.cpu_count < 1
+        ):
             raise ValueError("cpu_count must be positive")
         if self.worker_id is not None and not isinstance(self.worker_id, str):
             raise ValueError("worker_id must be a string when set")
@@ -87,7 +119,9 @@ class WorkerConfig:
         _positive_number(self.request_timeout, "request_timeout")
         _positive_number(self.heartbeat_interval, "heartbeat_interval")
         if self.cleanup_after_seconds is not None:
-            _positive_number(self.cleanup_after_seconds, "cleanup_after_seconds", allow_zero=True)
+            _positive_number(
+                self.cleanup_after_seconds, "cleanup_after_seconds", allow_zero=True
+            )
         if self.max_tasks is not None:
             if (
                 isinstance(self.max_tasks, bool)
@@ -99,6 +133,18 @@ class WorkerConfig:
             raise ValueError("exit_when_idle must be a boolean")
         if not self.capabilities:
             raise ValueError("capabilities cannot be empty")
+        if any(
+            not isinstance(capability, str) or not capability.strip()
+            for capability in self.capabilities
+        ):
+            raise ValueError("capabilities must contain non-empty names")
+        if len(self.capabilities) != len(set(self.capabilities)):
+            raise ValueError("capabilities must be unique")
+        if any(
+            not isinstance(package, AllowedPackage)
+            for package in self.workload_allowlist
+        ):
+            raise ValueError("workload_allowlist must contain AllowedPackage values")
         # Runner subprocesses use a task directory as their cwd. Keep the
         # configured root absolute so input/output paths remain valid there
         # even when the CLI received a convenient relative --work-dir value.
@@ -111,7 +157,9 @@ class WorkerConfig:
         """Build config from environment, allowing typed CLI values to override it."""
         values = overrides or {}
 
-        def value(name: str, environment: str, default: object | None = None) -> object | None:
+        def value(
+            name: str, environment: str, default: object | None = None
+        ) -> object | None:
             override = values.get(name)
             return override if override is not None else os.getenv(environment, default)
 
@@ -122,20 +170,37 @@ class WorkerConfig:
         cpu_count = value("cpu_count", "SCIMESH_CPU_COUNT", os.cpu_count() or 1)
         memory_mb = value("memory_mb", "SCIMESH_MEMORY_MB")
         max_tasks = value("max_tasks", "SCIMESH_MAX_TASKS")
+        capabilities = value("capabilities", "SCIMESH_CAPABILITIES")
+        allowlist = value("workload_allowlist", "SCIMESH_WORKLOAD_ALLOWLIST")
+        worker_id = value("worker_id", "SCIMESH_WORKER_ID")
+        work_dir = value("work_dir", "SCIMESH_WORK_DIR", "./scimesh-worker-data")
+        worker_name = value("worker_name", "SCIMESH_WORKER_NAME", socket.gethostname())
+        poll_interval = value("poll_interval", "SCIMESH_POLL_INTERVAL", "2")
+        request_timeout = value("request_timeout", "SCIMESH_REQUEST_TIMEOUT", "30")
+        heartbeat_interval = value(
+            "heartbeat_interval", "SCIMESH_HEARTBEAT_INTERVAL", "15"
+        )
+        bearer_token = value("bearer_token", "SCIMESH_BEARER_TOKEN")
+        worker_key = value("worker_key", "SCIMESH_WORKER_KEY")
+        userservice_url = _clean_url(
+            value("userservice_url", "SCIMESH_USERSERVICE_URL")
+        )
         return cls(
             coordinator_url=url.rstrip("/"),
-            worker_id=value("worker_id", "SCIMESH_WORKER_ID"),
-            work_dir=Path(value("work_dir", "SCIMESH_WORK_DIR", "./scimesh-worker-data")),
-            worker_name=str(value("worker_name", "SCIMESH_WORKER_NAME", socket.gethostname())),
+            worker_id=str(worker_id) if worker_id is not None else None,
+            work_dir=Path(str(work_dir)),
+            worker_name=str(worker_name),
             cpu_count=int(cpu_count),
             memory_mb=int(memory_mb) if memory_mb is not None else None,
-            poll_interval=float(value("poll_interval", "SCIMESH_POLL_INTERVAL", "2")),
-            request_timeout=float(value("request_timeout", "SCIMESH_REQUEST_TIMEOUT", "30")),
-            heartbeat_interval=float(value("heartbeat_interval", "SCIMESH_HEARTBEAT_INTERVAL", "15")),
-            bearer_token=value("bearer_token", "SCIMESH_BEARER_TOKEN"),
-            worker_key=value("worker_key", "SCIMESH_WORKER_KEY"),
-            userservice_url=_clean_url(value("userservice_url", "SCIMESH_USERSERVICE_URL")),
+            poll_interval=float(poll_interval),
+            request_timeout=float(request_timeout),
+            heartbeat_interval=float(heartbeat_interval),
+            bearer_token=str(bearer_token) if bearer_token is not None else None,
+            worker_key=str(worker_key) if worker_key is not None else None,
+            userservice_url=userservice_url,
             cleanup_after_seconds=float(cleanup) if cleanup else None,
             max_tasks=int(max_tasks) if max_tasks is not None else None,
             exit_when_idle=bool(values.get("exit_when_idle", False)),
+            capabilities=_capabilities(capabilities),
+            workload_allowlist=_workload_allowlist(allowlist),
         )

@@ -3,13 +3,20 @@
 The runner is a v1-wire bridge: the coordinator still claims flat tasks and
 the worker still uploads one partial CSV, but execution goes through the
 SDK-built workload's own Runner handler with a real ``TaskSpec``,
-provenance, resource reservation, and a content-addressed local store. No
-legacy distributed-protocol code is involved.
+provenance, resource reservation, and a content-addressed local store.
+
+The runner is workload-generic: it loads definitions by name (from an
+explicit mapping, built-in defaults, or installed-package discovery through
+an administrator allowlist) and executes any workload whose map stage has a
+single ``input`` port and a single ``partial`` output. Anything else fails
+closed with a clear message, so adding a workload never requires touching
+worker code.
 """
 
 from __future__ import annotations
 
 import hashlib
+import platform
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Protocol
@@ -28,27 +35,20 @@ from scimesh.sdk.conformance import (
     ScopedArtifactSink,
 )
 from scimesh.sdk._validation import canonical_json
+from scimesh.sdk.identity import SDK_API_VERSION
 from scimesh.sdk.manifest import TrustMode
 from scimesh.sdk.plans import TaskSpec
-from scimesh.sdk.registry import WorkloadDefinition
-from scimesh.sdk.resources import ResourceAllocation, ResourcePool
+from scimesh.sdk.registry import WorkloadDefinition, WorkloadRegistry
+from scimesh.sdk.resources import ResourceAllocation, ResourceInventory, ResourcePool
 from scimesh.sdk.runtime import (
     NegotiatedWorkload,
     RuntimeCapabilities,
     negotiate_manifest,
 )
 from scimesh.sdk.workflow import StageKind
-from scimesh.workloads.library import default_sdk_runtime
-from scimesh.workloads.search import similarity_search_sdk_definition
 
+from .config import WorkerConfig
 from .models import ClaimedTask, ProducedArtifact, RunResult
-
-#: Parameters the worker may hand to a map task. ``max_rows`` is a plan-time
-#: option applied before sharding and is intentionally rejected here.
-_RUNNER_PARAMETERS = frozenset(
-    {"query_smiles", "top_k", "threshold", "threshold_direction", "progress_every"}
-)
-
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -58,21 +58,92 @@ class Runner(Protocol):
     def run(self, task: ClaimedTask, task_dir: Path) -> RunResult: ...
 
 
+def _inventory_for(
+    definitions: Mapping[str, WorkloadDefinition],
+    *,
+    cpu_cores: int,
+    memory_mb: int,
+) -> ResourceInventory:
+    return ResourceInventory(
+        cpu_cores=cpu_cores,
+        memory_mb=memory_mb,
+        scratch_mb=memory_mb,
+        architecture=platform.machine().lower() or "unknown",
+        environment_digests=tuple(
+            dict.fromkeys(
+                definition.manifest.environment.digest
+                for definition in definitions.values()
+            )
+        ),
+    )
+
+
+def _runtime_for(
+    definitions: Mapping[str, WorkloadDefinition], inventory: ResourceInventory
+) -> RuntimeCapabilities:
+    return RuntimeCapabilities(
+        sdk_api_version=SDK_API_VERSION,
+        protocol_version="1.0.0",
+        profiles=("core-batch-v1",),
+        features={"artifact-collections": "1.0.0", "exact-verifier": "1.0.0"},
+        workload_capabilities=tuple(sorted(definitions)),
+        inventory=inventory,
+    )
+
+
 class SciMeshRunner:
-    """Execute claimed coordinator tasks through the SDK-built workloads."""
+    """Execute claimed coordinator tasks through SDK-built workloads."""
 
     def __init__(
         self,
         definitions: Mapping[str, WorkloadDefinition] | None = None,
+        *,
+        inventory: ResourceInventory | None = None,
         runtime: RuntimeCapabilities | None = None,
     ) -> None:
         self._definitions = dict(definitions or {})
         if "similarity-search" not in self._definitions:
+            from scimesh.workloads.search import similarity_search_sdk_definition
+
             self._definitions["similarity-search"] = (
                 similarity_search_sdk_definition().definition()
             )
-        self._runtime = runtime or default_sdk_runtime()
+        self._inventory = inventory or _inventory_for(
+            self._definitions,
+            cpu_cores=1,
+            memory_mb=1024,
+        )
+        self._runtime = runtime or _runtime_for(self._definitions, self._inventory)
         self._pool = ResourcePool(self._runtime.inventory, max_concurrency=1)
+
+    @classmethod
+    def for_worker(cls, config: WorkerConfig) -> "SciMeshRunner":
+        """Build a runner for one worker: discover allowlisted workloads or use built-ins."""
+        definitions: dict[str, WorkloadDefinition] = {}
+        if config.workload_allowlist:
+            registry = WorkloadRegistry()
+            registry.discover_installed(config.workload_allowlist)
+            for description in registry.descriptions():
+                definition, _ = registry.require(
+                    description.workload.name,
+                    description.workload.version,
+                    description.package_digest,
+                )
+                definitions[description.workload.name] = definition
+            if not definitions:
+                raise ValueError("workload_allowlist discovered no workloads")
+        else:
+            from scimesh.workloads.search import similarity_search_sdk_definition
+
+            definitions["similarity-search"] = (
+                similarity_search_sdk_definition().definition()
+            )
+        inventory = _inventory_for(
+            definitions,
+            cpu_cores=config.cpu_count,
+            memory_mb=config.memory_mb or 1024,
+        )
+        return cls(definitions=definitions, inventory=inventory)
 
     def run(self, task: ClaimedTask, task_dir: Path) -> RunResult:
         task_dir = task_dir.resolve()
@@ -85,11 +156,14 @@ class SciMeshRunner:
         map_stage = next(
             stage for stage in manifest.workflow.stages if stage.kind is StageKind.MAP
         )
+        if set(map_stage.inputs) != {"input"} or len(map_stage.outputs) != 1:
+            raise ValueError(
+                f"workload {workload} is not executable through the v1 single-input contract"
+            )
         assert map_stage.verifier is not None
         input_path = task_dir / "input"
         if not input_path.is_file():
             raise ValueError("claimed task input is missing")
-        parameters = self._resolve_parameters(task, input_path)
         store = LocalArtifactStore(task_dir / "sdk-store")
         input_ref = store.import_file(
             input_path,
@@ -110,7 +184,7 @@ class SciMeshRunner:
             optional_fallbacks=negotiated.optional_fallbacks,
             task_key="map/00000000",
             stage_id=map_stage.stage_id,
-            parameters=parameters,
+            parameters=task.parameters,
             inputs={"input": ArtifactCollection.single(input_ref)},
             expected_outputs=map_stage.outputs,
             resources=map_stage.resources,
@@ -148,28 +222,6 @@ class SciMeshRunner:
             )
         finally:
             self._pool.release(allocation.allocation_id)
-
-    @staticmethod
-    def _resolve_parameters(task: ClaimedTask, input_path: Path) -> dict[str, object]:
-        """Resolve ``query_id`` once per task and reject plan-time options."""
-        parameters = dict(task.parameters)
-        query_id = parameters.get("query_id")
-        query_smiles = parameters.get("query_smiles")
-        if isinstance(query_id, str) and not isinstance(query_smiles, str):
-            from scimesh.chemistry.dataset import find_molecule_by_id
-            from rdkit import Chem
-
-            record = find_molecule_by_id(input_path, query_id)
-            parameters["query_smiles"] = Chem.MolToSmiles(
-                record.molecule, canonical=True
-            )
-            del parameters["query_id"]
-        unknown = set(parameters) - _RUNNER_PARAMETERS
-        if unknown:
-            raise ValueError(
-                "unsupported runner parameters: " + ", ".join(sorted(unknown))
-            )
-        return parameters
 
     def _provenance(
         self,
@@ -240,14 +292,6 @@ class SciMeshRunner:
         output.validate_against(
             spec.expected_outputs,
             max_output_bytes=max_output_bytes,
-        )
-        if output.provenance != provenance:
-            raise ValueError(
-                "SDK workload output provenance does not match its context"
-            )
-        output.validate_against(
-            spec.expected_outputs,
-            max_output_bytes=spec.resources.max_duration_seconds,  # replaced below
         )
         sink = context.sink
         if not isinstance(sink, ScopedArtifactSink):

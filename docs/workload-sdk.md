@@ -55,7 +55,12 @@ The stable authoring surface is exported from `scimesh.sdk`:
   protocols;
 - `OutputManifest` and `Provenance` describe sealed durable results;
 - `WorkloadRegistry` resolves an exact name, version, package digest, runtime,
-  environment, and feature set. It never selects an implicit latest version.
+  environment, and feature set. It never selects an implicit latest version;
+- `MapReduceWorkload` is the primary authoring scaffold for `core-batch-v1`:
+  a subclass declares its identity, parameter schema, artifact ports, and
+  three scientific hooks (partition, compute, merge), and the SDK assembles
+  the manifest, map/reduce stages, workflow, digest-pinned handlers, and the
+  exact-artifact verifier. See "Authoring a workload" below.
 
 Persisted manifests, requests, plans, tasks, expansions, outputs, candidates,
 decisions, and failures are frozen, recursively immutable, JSON-safe,
@@ -202,11 +207,126 @@ the local scientific cores from `scimesh/workloads/similarity_search.py` and
   compared exactly once, no duplicates) before emitting the same
   deterministically sorted edge list as the local brute-force reference, for
   either threshold direction and any block size;
-- the v1 worker executes the SDK-built `similarity-search` runner directly:
-  `scimesh/worker/runners.py` is a small wire bridge that builds a `TaskSpec`
-  with the workload's own pins, reserves resources, seals the partial through
-  a content-addressed store, and uploads the resulting CSV over the unchanged
-  coordinator contract.
+- the v1 worker executes SDK-built workloads directly:
+  `scimesh/worker/runners.py` is a workload-generic wire bridge that builds a
+  `TaskSpec` with the workload's own pins, negotiates against a runtime
+  derived from the loaded definitions, reserves resources, seals the partial
+  through a content-addressed store, and uploads the resulting CSV over the
+  unchanged coordinator contract. The worker loads workloads from
+  `SCIMESH_WORKLOAD_ALLOWLIST` (a JSON array of
+  `{distribution, name, version, digest}` entries matched against installed
+  `scimesh.workloads` entry points) or falls back to the built-in
+  `similarity-search`; advertised capabilities come from
+  `SCIMESH_CAPABILITIES`. Workloads whose map stage needs more than one input
+  port are rejected with a clear message until the coordinator contract
+  supports them.
+
+## Authoring a workload
+
+A workload is a user script that imports the SDK. For the standard
+`core-batch-v1` shape (one input dataset, shards, partials, one merged result)
+subclass `MapReduceWorkload` and implement the three scientific hooks; the
+framework provides everything else:
+
+```python
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from scimesh.sdk import (
+    ArtifactSchema,
+    ComponentRef,
+    MapReduceWorkload,
+    PortSpec,
+    SchemaRef,
+    WorkloadId,
+)
+
+class CountRowsWorkload(MapReduceWorkload):
+    workload_id = WorkloadId("count-rows", "1.0.0")
+    description = "Count TSV data rows per shard and concatenate the counts."
+    parameters_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"prefix": {"type": "string", "minLength": 1, "maxLength": 50}},
+    }
+    input_port = PortSpec(ArtifactSchema(
+        SchemaRef("molecule-table", 1), "text/tab-separated-values", "utf-8",
+        max_bytes=10**9, validator=ComponentRef("delimited-table", 1),
+        validator_configuration={"required_columns": ["canonical_smiles", "chembl_id"]},
+    ))
+    partial_port = output_port = PortSpec(ArtifactSchema(
+        SchemaRef("count-table", 1), "text/csv", "utf-8",
+        max_bytes=10**9, validator=ComponentRef("delimited-table", 1),
+        validator_configuration={"columns": ["id", "rows"]},
+    ))
+    map_parameter_names = ("prefix",)
+
+    def partition_input(self, input_path, parameters, workspace):  # -> list[Path]
+        ...  # deterministic shard files, one per map task
+
+    def compute_shard(self, inputs, parameters, output_path):  # -> Mapping[str, int|float]
+        ...  # one map task; inputs maps each map port to a materialized file
+
+    def reduce_partials(self, partial_paths, parameters, output_path):  # -> Mapping[str, int|float]
+        ...  # deterministic merge of the accepted partials
+```
+
+The base class then provides `validate`, `plan`, `run`, `reduce`, and
+`definition()`; the registry, negotiation, resource reservation, verification,
+and the local conformance executor treat the result like any other workload:
+
+```python
+from scimesh.sdk import (
+    ArtifactCollection,
+    JobRequest,
+    LocalArtifactStore,
+    LocalCoreBatchExecutor,
+    WorkloadRegistry,
+)
+from scimesh.workloads.library import default_sdk_runtime
+
+workload = CountRowsWorkload(package_digest=..., environment_digest=...)
+registry = WorkloadRegistry()
+registry.register(workload.definition(), enabled=True)
+
+store = LocalArtifactStore(Path("artifacts"))
+artifact = store.import_file(Path("tiny.tsv"), declaration=workload.manifest.inputs["input"].schema)
+request = JobRequest(workload=workload.manifest.workload, parameters={"prefix": "x"},
+                     inputs={"input": ArtifactCollection.single(artifact)})
+result = LocalCoreBatchExecutor(registry, default_sdk_runtime(), store, Path("work")) \
+    .execute(request, workload.manifest.package.digest)
+```
+
+Hooks you can override beyond the three scientific ones:
+
+- `domain_validate(parameters)` — extra job-parameter validation (the JSON
+  schema already ran);
+- `resolved_parameters(request)` / `resolved_parameters_for_plan(job, input_path, resolved)`
+  — values persisted into the plan (for example one-time query resolution);
+- `plan_tasks(...)` — custom task construction (the graph workload uses this
+  to plan one task per block pair with two block inputs);
+- `parse_partial_key(key)` / `validate_partial_keys(parsed)` — partial-key
+  policy (default: `map.<eight-digit-index>`, contiguous; the graph workload
+  parses `map.<i>x<j>` and enforces the pair-coverage invariant);
+- `map_stage_inputs` — a map stage with more than one input port (each extra
+  port must share the external input schema).
+
+Anything outside this model uses the lower-level SDK value objects directly.
+Authoring rules: keep the scientific core callable without a coordinator,
+inline a strict JSON parameter schema, declare artifact schemas with bounds,
+return only sink-sealed artifacts, and select a verifier compatible with
+determinism and trust.
+
+To run a workload from the command line without writing any program code:
+
+```bash
+scimesh workload list
+scimesh workload run count-rows --input tiny.tsv --params '{"prefix": "x"}' -o result.csv
+```
+
+`scimesh workload` is a generic SDK tool; it contains no workload-specific
+logic, so new workloads do not require changes to the CLI or any other part of
+the program.
 
 ## Package shape and registration
 

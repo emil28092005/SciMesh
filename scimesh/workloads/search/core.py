@@ -57,14 +57,12 @@ def run_search_shard(
 ) -> dict[str, int]:
     """Run one planned shard with the local reference implementation.
 
-    This is the worker entry used by the SDK-built runner. It deliberately
-    accepts only resolved ``query_smiles``: resolving an identifier
-    independently in each shard would make the distributed search
-    scientifically invalid, so identifier resolution happens once in the
-    planner (or at the worker bridge for v1-wire tasks that still carry
-    ``query_id``).
+    Accepts either a resolved ``query_smiles`` or a raw ``query_id`` that is
+    resolved against the shard (worker tasks on the v1 wire may still carry
+    the identifier; the SDK planner always resolves it once at plan time).
     """
     allowed = {
+        "query_id",
         "query_smiles",
         "top_k",
         "threshold",
@@ -77,6 +75,14 @@ def run_search_shard(
             f"unsupported similarity-search parameters: {', '.join(sorted(unknown))}"
         )
     query_smiles = parameters.get("query_smiles")
+    query_id = parameters.get("query_id")
+    if isinstance(query_id, str) and not isinstance(query_smiles, str):
+        from rdkit import Chem
+
+        from scimesh.chemistry.dataset import find_molecule_by_id
+
+        record = find_molecule_by_id(input_path, query_id)
+        query_smiles = Chem.MolToSmiles(record.molecule, canonical=True)
     if not isinstance(query_smiles, str) or not query_smiles.strip():
         raise ValueError("query_smiles is required for a distributed shard")
     molecule = parse_smiles(query_smiles)

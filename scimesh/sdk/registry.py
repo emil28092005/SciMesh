@@ -24,8 +24,20 @@ from .identity import ComponentRef, WorkloadId
 from .integrity import installed_distribution_digest
 from .manifest import WorkloadManifest
 from .plans import JobRequest, ValidatedJob, WorkflowPlan
-from .protocols import Planner, PlanningContext, PlanningResources, Reducer, Runner, Verifier
-from .runtime import CompatibilityError, NegotiatedWorkload, RuntimeCapabilities, negotiate_manifest
+from .protocols import (
+    Planner,
+    PlanningContext,
+    PlanningResources,
+    Reducer,
+    Runner,
+    Verifier,
+)
+from .runtime import (
+    CompatibilityError,
+    NegotiatedWorkload,
+    RuntimeCapabilities,
+    negotiate_manifest,
+)
 from .schema import validate_parameter_instance
 from .workflow import StageKind
 
@@ -51,11 +63,11 @@ def _validate_entry_point_ownership(entry_point: metadata.EntryPoint) -> None:
         raise ValueError("workload entry point has an invalid module path")
 
     raw_top_level = distribution.read_text("top_level.txt")
-    declared = {
-        line.strip()
-        for line in raw_top_level.splitlines()
-        if line.strip()
-    } if raw_top_level is not None else set()
+    declared = (
+        {line.strip() for line in raw_top_level.splitlines() if line.strip()}
+        if raw_top_level is not None
+        else set()
+    )
     root_name = parts[0]
     if root_name not in declared:
         raise ValueError("workload entry point module is outside its distribution")
@@ -81,9 +93,18 @@ def _validate_entry_point_ownership(entry_point: metadata.EntryPoint) -> None:
         ownership_root = package_root.resolve()
         candidates = [
             *(Path(str(module_base) + suffix) for suffix in machinery.SOURCE_SUFFIXES),
-            *(Path(str(module_base) + suffix) for suffix in machinery.EXTENSION_SUFFIXES),
-            *(module_base / ("__init__" + suffix) for suffix in machinery.SOURCE_SUFFIXES),
-            *(module_base / ("__init__" + suffix) for suffix in machinery.EXTENSION_SUFFIXES),
+            *(
+                Path(str(module_base) + suffix)
+                for suffix in machinery.EXTENSION_SUFFIXES
+            ),
+            *(
+                module_base / ("__init__" + suffix)
+                for suffix in machinery.SOURCE_SUFFIXES
+            ),
+            *(
+                module_base / ("__init__" + suffix)
+                for suffix in machinery.EXTENSION_SUFFIXES
+            ),
         ]
     else:
         if len(parts) != 1:
@@ -92,7 +113,10 @@ def _validate_entry_point_ownership(entry_point: metadata.EntryPoint) -> None:
         module_base = Path(distribution.locate_file(root_name))
         candidates = [
             *(Path(str(module_base) + suffix) for suffix in machinery.SOURCE_SUFFIXES),
-            *(Path(str(module_base) + suffix) for suffix in machinery.EXTENSION_SUFFIXES),
+            *(
+                Path(str(module_base) + suffix)
+                for suffix in machinery.EXTENSION_SUFFIXES
+            ),
         ]
     existing = tuple(candidate for candidate in candidates if candidate.is_file())
     if len(existing) != 1 or not existing[0].resolve().is_relative_to(ownership_root):
@@ -126,7 +150,9 @@ class WorkloadDefinition:
             for name, handler in values.items():
                 canonical = require_string(name, f"{field} entry point", max_length=256)
                 if not callable(getattr(handler, method, None)):
-                    raise ValueError(f"definition {field} handler must implement {method}")
+                    raise ValueError(
+                        f"definition {field} handler must implement {method}"
+                    )
                 copied[canonical] = handler
             object.__setattr__(self, field, MappingProxyType(copied))
         for stage in self.manifest.workflow.stages:
@@ -149,23 +175,39 @@ class WorkloadDefinition:
                 )
         verifier_key = self.manifest.verifier.verifier.canonical
         if verifier_key not in self.verifiers:
-            raise ValueError(f"definition has no installed manifest verifier: {verifier_key}")
+            raise ValueError(
+                f"definition has no installed manifest verifier: {verifier_key}"
+            )
         for key, verifier in self.verifiers.items():
             try:
                 declared_identity = ComponentRef.from_dict(key)
             except ValueError as error:
-                raise ValueError("definition verifier keys must be component identities") from error
-            if declared_identity.canonical != key or getattr(verifier, "identity", None) != declared_identity:
-                raise ValueError("definition verifier handler identity does not match its key")
+                raise ValueError(
+                    "definition verifier keys must be component identities"
+                ) from error
+            if (
+                declared_identity.canonical != key
+                or getattr(verifier, "identity", None) != declared_identity
+            ):
+                raise ValueError(
+                    "definition verifier handler identity does not match its key"
+                )
         manifest_verifier = self.verifiers[verifier_key]
         handler_configuration = getattr(manifest_verifier, "configuration", None)
         if handler_configuration is None:
             if self.manifest.verifier.configuration:
-                raise ValueError("manifest verifier configuration is not bound by its handler")
+                raise ValueError(
+                    "manifest verifier configuration is not bound by its handler"
+                )
         elif dict(handler_configuration) != dict(self.manifest.verifier.configuration):
-            raise ValueError("manifest verifier configuration does not match its handler")
+            raise ValueError(
+                "manifest verifier configuration does not match its handler"
+            )
         for stage in self.manifest.workflow.stages:
-            if stage.verifier is not None and stage.verifier.canonical not in self.verifiers:
+            if (
+                stage.verifier is not None
+                and stage.verifier.canonical not in self.verifiers
+            ):
                 raise ValueError(
                     f"definition has no installed stage verifier: {stage.verifier.canonical}"
                 )
@@ -178,13 +220,54 @@ class AllowedPackage:
     digest: str
 
     def __post_init__(self) -> None:
-        distribution = require_string(self.distribution, "distribution", max_length=128).lower()
+        distribution = require_string(
+            self.distribution, "distribution", max_length=128
+        ).lower()
         if not re.fullmatch(r"[a-z0-9]+(?:[-_.][a-z0-9]+)*", distribution):
-            raise ValueError("distribution must be a canonical Python distribution name")
+            raise ValueError(
+                "distribution must be a canonical Python distribution name"
+            )
         object.__setattr__(self, "distribution", distribution.replace("_", "-"))
         if not isinstance(self.workload, WorkloadId):
             raise ValueError("allowed workload must be a WorkloadId")
-        object.__setattr__(self, "digest", require_sha256(self.digest, "allowed digest", prefixed=True))
+        object.__setattr__(
+            self, "digest", require_sha256(self.digest, "allowed digest", prefixed=True)
+        )
+
+
+def workload_allowlist_from_json(value: object) -> tuple[AllowedPackage, ...]:
+    """Parse a JSON array of ``{distribution, name, version, digest}`` allowlist entries."""
+    import json
+
+    if value is None or value == "":
+        return ()
+    if not isinstance(value, str):
+        raise ValueError("workload allowlist must be a JSON array")
+    try:
+        decoded = json.loads(value)
+    except (TypeError, json.JSONDecodeError, RecursionError) as error:
+        raise ValueError("workload allowlist must be valid JSON") from error
+    if not isinstance(decoded, list):
+        raise ValueError("workload allowlist must be a JSON array")
+    entries: list[AllowedPackage] = []
+    for item in decoded:
+        if not isinstance(item, dict) or not {
+            "distribution",
+            "name",
+            "version",
+            "digest",
+        }.issubset(item):
+            raise ValueError(
+                "workload allowlist entries need distribution, name, version, and digest"
+            )
+        entries.append(
+            AllowedPackage(
+                str(item["distribution"]),
+                WorkloadId(str(item["name"]), str(item["version"])),
+                str(item["digest"]),
+            )
+        )
+    return tuple(entries)
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,14 +306,18 @@ class WorkloadRegistry:
         self._enabled: set[tuple[str, str, str]] = set()
         self._lock = RLock()
 
-    def register(self, definition: WorkloadDefinition, *, enabled: bool = False) -> None:
+    def register(
+        self, definition: WorkloadDefinition, *, enabled: bool = False
+    ) -> None:
         if not isinstance(definition, WorkloadDefinition):
             raise ValueError("definition must be a WorkloadDefinition")
         workload = definition.manifest.workload
         key = (workload.name, workload.version)
         with self._lock:
             if key in self._definitions:
-                raise ValueError(f"workload version already registered: {workload.name}@{workload.version}")
+                raise ValueError(
+                    f"workload version already registered: {workload.name}@{workload.version}"
+                )
             self._definitions[key] = definition
             if enabled:
                 self._enabled.add((*key, definition.manifest.package.digest))
@@ -240,7 +327,9 @@ class WorkloadRegistry:
         with self._lock:
             definition = self._registered(name, version)
             if digest != definition.manifest.package.digest:
-                raise ValueError("package digest does not match the registered manifest")
+                raise ValueError(
+                    "package digest does not match the registered manifest"
+                )
             self._enabled.add((definition.manifest.workload.name, version, digest))
 
     def disable(self, name: str, version: str, package_digest: str) -> None:
@@ -257,7 +346,9 @@ class WorkloadRegistry:
             try:
                 return self._definitions[(canonical, version)]
             except KeyError as error:
-                raise ValueError(f"unknown workload version: {canonical}@{version}") from error
+                raise ValueError(
+                    f"unknown workload version: {canonical}@{version}"
+                ) from error
 
     def require(
         self,
@@ -270,10 +361,21 @@ class WorkloadRegistry:
         digest = require_sha256(package_digest, "package_digest", prefixed=True)
         with self._lock:
             definition = self._registered(name, version)
-            identity = (definition.manifest.workload.name, definition.manifest.workload.version, digest)
-            if digest != definition.manifest.package.digest or identity not in self._enabled:
+            identity = (
+                definition.manifest.workload.name,
+                definition.manifest.workload.version,
+                digest,
+            )
+            if (
+                digest != definition.manifest.package.digest
+                or identity not in self._enabled
+            ):
                 raise ValueError("workload package digest is not enabled")
-        negotiated = negotiate_manifest(definition.manifest, runtime) if runtime is not None else None
+        negotiated = (
+            negotiate_manifest(definition.manifest, runtime)
+            if runtime is not None
+            else None
+        )
         return definition, negotiated
 
     def plan(
@@ -293,31 +395,41 @@ class WorkloadRegistry:
             runtime=runtime,
         )
         assert negotiated is not None
-        self._validate_request_compatibility(request, definition.manifest, runtime, negotiated)
+        self._validate_request_compatibility(
+            request, definition.manifest, runtime, negotiated
+        )
         self._validate_request_shape(request, definition.manifest)
         validated = definition.planner.validate(request)
         if not isinstance(validated, ValidatedJob) or validated.request != request:
-            raise ValueError("planner.validate must return a ValidatedJob for the same request")
+            raise ValueError(
+                "planner.validate must return a ValidatedJob for the same request"
+            )
         plan = definition.planner.plan(
             validated,
             _NegotiatedPlanningContext(context, negotiated),
         )
         if not isinstance(plan, WorkflowPlan) or plan.workload != request.workload:
-            raise ValueError("planner.plan must return a WorkflowPlan for the requested workload")
+            raise ValueError(
+                "planner.plan must return a WorkflowPlan for the requested workload"
+            )
         if (
             plan.package_digest != definition.manifest.package.digest
             or plan.manifest_digest != definition.manifest.digest
             or plan.trust_mode is not request.trust_mode
             or plan.sdk_api_version != runtime.sdk_api_version
             or plan.protocol_version != runtime.protocol_version
-            or plan.manifest_schema_version != definition.manifest.manifest_schema_version
-            or plan.workflow_schema_version != definition.manifest.workflow.schema_version
+            or plan.manifest_schema_version
+            != definition.manifest.manifest_schema_version
+            or plan.workflow_schema_version
+            != definition.manifest.workflow.schema_version
             or plan.environment_digest != definition.manifest.environment.digest
             or plan.verifier != definition.manifest.verifier.verifier
             or plan.selected_features != negotiated.selected_features
             or plan.optional_fallbacks != negotiated.optional_fallbacks
         ):
-            raise ValueError("planner plan does not carry the selected immutable workload pin")
+            raise ValueError(
+                "planner plan does not carry the selected immutable workload pin"
+            )
         plan.validate_workflow(definition.manifest.workflow)
         self._validate_plan_limits(request, plan, definition.manifest)
         return WorkflowPlan.from_json(plan.to_json())
@@ -369,7 +481,9 @@ class WorkloadRegistry:
                 )
 
     @staticmethod
-    def _validate_request_shape(request: JobRequest, manifest: WorkloadManifest) -> None:
+    def _validate_request_shape(
+        request: JobRequest, manifest: WorkloadManifest
+    ) -> None:
         if set(request.inputs) != set(manifest.inputs):
             raise ValueError("job input ports do not match the manifest")
         total_bytes = 0
@@ -380,7 +494,9 @@ class WorkloadRegistry:
             for item in request.inputs[name].items:
                 existing = artifact_references.get(item.artifact.artifact_id)
                 if existing is not None and existing != item.artifact:
-                    raise ValueError("job reuses an artifact ID with conflicting metadata")
+                    raise ValueError(
+                        "job reuses an artifact ID with conflicting metadata"
+                    )
                 artifact_references[item.artifact.artifact_id] = item.artifact
         if total_bytes > manifest.limits.max_input_bytes:
             raise ValueError("job inputs exceed the manifest byte limit")
@@ -388,7 +504,15 @@ class WorkloadRegistry:
             raise ValueError("job inputs exceed the manifest artifact limit")
         import json
         from ._validation import thaw_json
-        if len(json.dumps(thaw_json(request.parameters), allow_nan=False).encode("utf-8")) > manifest.limits.max_parameter_bytes:
+
+        if (
+            len(
+                json.dumps(thaw_json(request.parameters), allow_nan=False).encode(
+                    "utf-8"
+                )
+            )
+            > manifest.limits.max_parameter_bytes
+        ):
             raise ValueError("job parameters exceed the manifest byte limit")
         validate_parameter_instance(request.parameters, manifest.parameters_schema)
 
@@ -408,13 +532,23 @@ class WorkloadRegistry:
                 for item in collection.items:
                     existing = references.get(item.artifact.artifact_id)
                     if existing is not None and existing != item.artifact:
-                        raise ValueError("workflow plan reuses an artifact ID with conflicting metadata")
+                        raise ValueError(
+                            "workflow plan reuses an artifact ID with conflicting metadata"
+                        )
                     references[item.artifact.artifact_id] = item.artifact
-            if len(canonical_json(task.parameters).encode("utf-8")) > manifest.limits.max_parameter_bytes:
-                raise ValueError("planned task parameters exceed the manifest byte limit")
+            if (
+                len(canonical_json(task.parameters).encode("utf-8"))
+                > manifest.limits.max_parameter_bytes
+            ):
+                raise ValueError(
+                    "planned task parameters exceed the manifest byte limit"
+                )
         if len(references) > manifest.limits.max_artifacts:
             raise ValueError("workflow plan exceeds the manifest artifact limit")
-        if len(canonical_json(plan.resolved_parameters).encode("utf-8")) > manifest.limits.max_parameter_bytes:
+        if (
+            len(canonical_json(plan.resolved_parameters).encode("utf-8"))
+            > manifest.limits.max_parameter_bytes
+        ):
             raise ValueError("resolved parameters exceed the manifest byte limit")
 
     def descriptions(self) -> tuple[WorkloadDescription, ...]:
@@ -455,7 +589,10 @@ class WorkloadRegistry:
             for key, approval in allowed.items():
                 if _normalized_distribution_name(key[0]) != distribution:
                     continue
-                if entry_point.name != f"{approval.workload.name}@{approval.workload.version}":
+                if (
+                    entry_point.name
+                    != f"{approval.workload.name}@{approval.workload.version}"
+                ):
                     continue
                 _validate_entry_point_ownership(entry_point)
                 # Import policy is process-global, so installed discovery is
@@ -463,9 +600,12 @@ class WorkloadRegistry:
                 # cache prefix prevents pre-existing package pyc files from
                 # being consumed, while dont_write_bytecode keeps the
                 # measured source tree unchanged during both load and factory.
-                with _DISCOVERY_IMPORT_LOCK, TemporaryDirectory(
-                    prefix="scimesh-discovery-cache-"
-                ) as cache_prefix:
+                with (
+                    _DISCOVERY_IMPORT_LOCK,
+                    TemporaryDirectory(
+                        prefix="scimesh-discovery-cache-"
+                    ) as cache_prefix,
+                ):
                     measured_before = installed_distribution_digest(entry_point.dist)
                     if measured_before != approval.digest:
                         raise ValueError(
@@ -479,44 +619,64 @@ class WorkloadRegistry:
                         loaded = entry_point.load()
                         definition = (
                             loaded()
-                            if callable(loaded) and not isinstance(loaded, WorkloadDefinition)
+                            if callable(loaded)
+                            and not isinstance(loaded, WorkloadDefinition)
                             else loaded
                         )
                     finally:
                         sys.pycache_prefix = previous_cache_prefix
                         sys.dont_write_bytecode = previous_bytecode_policy
-                    if installed_distribution_digest(entry_point.dist) != measured_before:
+                    if (
+                        installed_distribution_digest(entry_point.dist)
+                        != measured_before
+                    ):
                         raise ValueError(
                             "installed package content changed while loading its entry point"
                         )
                 if not isinstance(definition, WorkloadDefinition):
-                    raise ValueError("workload entry point must provide a WorkloadDefinition")
+                    raise ValueError(
+                        "workload entry point must provide a WorkloadDefinition"
+                    )
                 if definition.manifest.workload != approval.workload:
-                    raise ValueError("discovered workload identity does not match its allowlist entry")
+                    raise ValueError(
+                        "discovered workload identity does not match its allowlist entry"
+                    )
                 if definition.manifest.package.distribution != approval.distribution:
-                    raise ValueError("discovered package identity does not match its allowlist entry")
+                    raise ValueError(
+                        "discovered package identity does not match its allowlist entry"
+                    )
                 if definition.manifest.package.digest != approval.digest:
-                    raise ValueError("discovered package digest does not match its allowlist entry")
+                    raise ValueError(
+                        "discovered package digest does not match its allowlist entry"
+                    )
                 if key in discovered:
-                    raise ValueError("multiple installed entry points match one allowlist entry")
+                    raise ValueError(
+                        "multiple installed entry points match one allowlist entry"
+                    )
                 pending.append(definition)
                 discovered.add(key)
                 break
         missing = sorted(set(allowed) - discovered)
         if missing:
             identities = ", ".join(f"{name}@{version}" for _, name, version in missing)
-            raise ValueError("allowlisted workload entry points were not installed: " + identities)
+            raise ValueError(
+                "allowlisted workload entry points were not installed: " + identities
+            )
         pending_keys = [
             (definition.manifest.workload.name, definition.manifest.workload.version)
             for definition in pending
         ]
         if len(pending_keys) != len(set(pending_keys)):
-            raise ValueError("multiple allowlisted distributions provide one workload version")
+            raise ValueError(
+                "multiple allowlisted distributions provide one workload version"
+            )
         with self._lock:
             conflicts = [key for key in pending_keys if key in self._definitions]
             if conflicts:
                 name, version = conflicts[0]
-                raise ValueError(f"workload version already registered: {name}@{version}")
+                raise ValueError(
+                    f"workload version already registered: {name}@{version}"
+                )
             definitions = dict(self._definitions)
             enabled = set(self._enabled)
             for key, definition in zip(pending_keys, pending):

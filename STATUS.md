@@ -51,7 +51,8 @@ the complete result-artifact SHA-256 before a task is accepted.
 | CTX-15 User Service and access control | Implemented | User/owner scoping, verified contributors, worker keys, self-service enrollment, and quorum-backed untrusted workers are merged; local Go/Python and Docker/PostgreSQL checks passed. |
 | CTX-16 Workload SDK foundation | Implemented | `scimesh.sdk` provides strict immutable manifests/plans/artifacts, digest/trust-pinned tasks, typed DAGs, compatibility negotiation, verifier primitives with owner/binding-safe quorum inputs, resource eligibility/local allocation, measured package discovery, a trusted local core-batch conformance harness, and strict package discovery. Enforcing coordinator/Worker profiles remain fail-closed. |
 | SDK roadmap step 3: `descriptor-batch` | Implemented | The first SDK-built reference workload (`scimesh/workloads/descriptors/`): pinned 81-name RDKit 2D descriptor set, canonical one-row-per-input CSV, deterministic row-bounded shards, shard-index concatenation with one header, byte-identical local/distributed output, and a two-worker `untrusted_quorum` verifier test. |
-| SDK-built `similarity-search` and `similarity-graph` | Implemented | Both workloads are now SDK-built packages (`scimesh/workloads/search/`, `scimesh/workloads/graph/`) with their own manifests/planners/runners/reducers on the `core-batch-v1` profile; they reuse the local scientific cores and are byte-identical to the single-process references (search; graph for both threshold directions and any block size). The graph reducer enforces the CTX-10 pair-coverage invariant. `scimesh/workloads/library.py` composes the built-in registry/runtime. |
+| SDK-built `similarity-search` and `similarity-graph` | Implemented | Both workloads are SDK-built packages (`scimesh/workloads/search/`, `scimesh/workloads/graph/`) built on the `MapReduceWorkload` authoring scaffold (`scimesh/sdk/batch.py`); they reuse the local scientific cores and are byte-identical to the single-process references (search; graph for both threshold directions and any block size). The graph reducer enforces the CTX-10 pair-coverage invariant. `scimesh/workloads/library.py` composes the built-in registry/runtime. |
+| SDK authoring scaffold | Implemented | `MapReduceWorkload` (exported from `scimesh.sdk`) assembles manifest, map/reduce stages, workflow, and digest-pinned handlers from three scientific hooks (partition/compute/merge), with overridable hooks for domain validation, plan-time resolution, custom task planning, and partial-key policy. The generic `scimesh workload list|run` CLI and the worker's allowlist-driven loading (`SCIMESH_WORKLOAD_ALLOWLIST`, `SCIMESH_CAPABILITIES`) let new workloads run without touching other code. |
 
 ## Next recommended assignment
 
@@ -63,9 +64,10 @@ block-pair planning and reduction for `similarity-graph`.
 - The worker/coordinator flow accepts both underscore API workload names and
   hyphenated names at the runner boundary; the runner normalizes them.
 - The worker executes SDK-built workloads through `scimesh/worker/runners.py`
-  (a v1-wire bridge over `TaskSpec`/`LocalTaskContext`); the CTX-07
-  `DistributedWorkload` protocol module and the SDK compatibility adapter were
-  removed. `max_rows` is a plan-time option and is rejected per task.
+  (a workload-generic v1-wire bridge over `TaskSpec`/`LocalTaskContext`);
+  `query_id` resolution and parameter validation live in the workload itself.
+  `max_rows` is a plan-time option and is rejected per task by the stage
+  projection.
 - A real-stack worker test uses a small `query_smiles` shard. The Python
   planner resolves `query_id` once and shares `query_smiles`; the upload UI
   currently accepts `query_smiles` only.

@@ -77,7 +77,9 @@ def main(argv: list[str] | None = None) -> int:
         config = WorkerConfig.from_environment(overrides)
     except (TypeError, ValueError) as error:
         parser.error(str(error))
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
     # One shared token strategy backs both clients: a worker key (exchanged and
     # refreshed) or a static bearer token, decided by what the config carries.
     tokens = provider_from_config(
@@ -95,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         HttpArtifactClient(
             config.coordinator_url, config.request_timeout, token_provider=tokens
         ),
-        SciMeshRunner(),
+        SciMeshRunner.for_worker(config),
     ).run_forever()
     return 0 if completed_without_interruption else 130
 

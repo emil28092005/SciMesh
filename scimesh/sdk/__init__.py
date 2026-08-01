@@ -19,6 +19,7 @@ from .artifacts import (
     PortSpec,
     Provenance,
 )
+from .batch import MapReduceWorkload
 from .conformance import (
     CancellationFlag,
     LocalArtifactStore,
@@ -77,6 +78,7 @@ from .registry import (
     WorkloadDefinition,
     WorkloadDescription,
     WorkloadRegistry,
+    workload_allowlist_from_json,
 )
 from .resources import (
     AcceleratorDevice,
@@ -155,6 +157,7 @@ __all__ = [
     "LocalTaskContext",
     "LoopSpec",
     "MANIFEST_SCHEMA_VERSION",
+    "MapReduceWorkload",
     "NegotiatedWorkload",
     "NetworkPolicy",
     "NumericTolerance",
@@ -207,6 +210,7 @@ __all__ = [
     "WorkloadLimits",
     "WorkloadManifest",
     "WorkloadRegistry",
+    "workload_allowlist_from_json",
     "assert_manifest_round_trip",
     "installed_distribution_digest",
     "negotiate_manifest",
