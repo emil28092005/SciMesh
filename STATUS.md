@@ -1,7 +1,7 @@
 # SciMesh Status
 
-**Updated:** 2026-07-27
-**Branch baseline:** `main` at `f5ead0a` (team and scaling-roadmap documentation)
+**Updated:** 2026-08-01
+**Branch baseline:** `main` at `b9a975b` (self-service worker enrollment)
 
 ## Current state
 
@@ -27,6 +27,9 @@ The User Service is merged into `main`. It owns user accounts, authentication,
 roles, and verified-contributor status; the coordinator scopes user jobs and
 worker operations to the authenticated owner. Its documented v1 contract is in
 [`docs/user-service-api-contract.md`](docs/user-service-api-contract.md).
+Users can create and revoke worker keys for self-service Worker Agent
+enrollment. Untrusted workers require quorum agreement from distinct owners on
+the complete result-artifact SHA-256 before a task is accepted.
 
 ## Milestone tracker
 
@@ -45,7 +48,7 @@ worker operations to the authenticated owner. Its documented v1 contract is in
 | CTX-10 Distributed similarity-graph | Not started | Local reference exists. |
 | CTX-11 Dashboard/operator view | Implemented | Protected live control room: recent-run/worker overview, real pipeline-stage visualization, shard attempts and safe failures, validated similarity-search upload, coordinator artifacts, final-result download, and bounded polling. |
 | CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
-| CTX-15 User Service and access control | Implemented | Go unit/race checks, Docker/PostgreSQL integration, and coordinator ownership regression checks pass locally. |
+| CTX-15 User Service and access control | Implemented | User/owner scoping, verified contributors, worker keys, self-service enrollment, and quorum-backed untrusted workers are merged; local Go/Python and Docker/PostgreSQL checks passed. |
 
 ## Next recommended assignment
 

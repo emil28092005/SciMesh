@@ -5,11 +5,13 @@
 > platform. It is intentionally detailed enough to split into independent task
 > briefs for developers or coding agents.
 >
-> **Planning baseline.** This branch starts from `Workers`: the Python package
-> has local `similarity-search` and `similarity-graph` workloads plus a Worker
-> Daemon client. The coordinator and PostgreSQL implementation do not yet
-> exist. The Worker contract and the Go/PostgreSQL design briefs in `docs/` are
-> part of this plan.
+> **Current planning baseline (2026-08-01).** The Go/PostgreSQL coordinator,
+> Python Worker Agent, versioned distributed-workload protocol, artifact-backed
+> task lifecycle, reducer orchestration, operator UI, User Service, and
+> distributed `similarity-search` are implemented on `main`. The evidence-based
+> completion tracker is [`STATUS.md`](STATUS.md); this document defines the
+> remaining direction and dependencies. Earlier descriptions of a missing
+> coordinator are historical context, not current work.
 
 ---
 
@@ -51,7 +53,7 @@ Coordinator reducer -> final artifact -> download/status API
 
 ### 2.1 In scope
 
-- Go 1.22+ coordinator service with PostgreSQL 15+;
+- Go 1.25+ coordinator service with PostgreSQL 15+;
 - Python Worker Daemon running existing SciMesh workloads locally;
 - durable job, task, worker, and artifact metadata;
 - local coordinator-managed artifact storage for the first deployment;
@@ -66,8 +68,8 @@ Coordinator reducer -> final artifact -> download/status API
 
 - cloud object storage, Kubernetes, autoscaling, and multi-region operation;
 - arbitrary shell commands sent by coordinator to workers;
-- user accounts, multi-tenancy, billing, or sophisticated authorization
-  (planned after the first release in CTX-15);
+- billing and sophisticated multi-tenant administration beyond the implemented
+  User Service and owner scoping;
 - GPU scheduling and multiprocessing inside a worker;
 - Docker as a required runtime dependency;
 - video/CV processing implementation;
@@ -491,14 +493,82 @@ brute-force graph for both `greater` and `less` threshold directions.
 
 ### 7.3 Future workload policy
 
-A new workload is accepted only when it supplies:
+A workload is more than a runner. It must define validation, planner and
+reducer behavior, worker allowlist/capabilities, input and output artifacts,
+UI/API parameters, reproducible execution environment, result verification,
+golden cross-worker fixtures, and applicable resource limits. The future public
+contract is described in [`docs/scimesh-sdk-roadmap.md`](docs/scimesh-sdk-roadmap.md).
 
-- an input/parameter validator;
-- an explicit sharding strategy;
-- bounded-memory task execution;
-- deterministic reduction semantics;
-- fixture-based local and distributed correctness tests;
-- a `describe()` payload for UI/API discovery.
+Every workload declaration must classify its task decomposition and input/output
+artifact shapes, determinism, reduction semantics, verifier mode, supported
+trust modes, CPU/memory/accelerator needs, and maximum output growth. The
+initial profiles are:
+
+| Profile | Current acceptance policy |
+| --- | --- |
+| Byte-exact deterministic | Supported for untrusted quorum when whole artifacts have identical SHA-256. |
+| Canonical-exact deterministic | Deferred until the parser, schema, ordering, encoding, and serializer are versioned. |
+| Numeric deterministic with tolerance | Deferred until structured numeric comparison exists. |
+| Stochastic/search-based | Requires domain-specific evidence, repeated runs, or trusted execution. |
+| Trusted-only or domain-verified | May be planned only with an explicit trust policy and verifier. |
+
+The current untrusted quorum records one vote per owner and accepts a task only
+when distinct owners upload artifacts with the same complete-file SHA-256. It
+therefore supports only the byte-exact profile (or a workload that first makes
+its output byte-identical through a specified canonicalization step). Reducers
+must fail safely rather than silently merge inconsistent partial results.
+
+Before a workload is admitted to untrusted execution it needs a reproducibility
+gate: pinned environment/container digest and dependency versions; fixed locale,
+timezone, UTF-8/newline/CSV settings; explicit invalid-row and algorithm
+options; canonical representation and ordering; deterministic filenames/archive
+metadata; golden fixtures from two independently provisioned workers; local vs
+distributed parity; and retry/out-of-order completion tests. A loose dependency
+constraint is insufficient for byte-exact quorum.
+
+Near-term critical path:
+
+```text
+distributed similarity-graph
+  -> reliability, security, and cross-language CI
+    -> stable first release
+      -> SDK foundation and descriptor-batch
+        -> additional deterministic workloads
+```
+
+Initial deterministic-workload backlog: `descriptor-batch` (the first SDK
+reference workload), molecule standardization, SMARTS screening, fingerprint
+export, fixed-template SMIRKS enumeration with strict caps, and reaction
+validation/descriptors. `similarity-graph` remains ahead of this backlog.
+Bounded combinatorial libraries and seeded conformers need specialized controls.
+ML, retrosynthesis, docking, QM, molecular dynamics, and GPU workloads are
+deferred until verifier/trust and reproducibility requirements are met.
+
+### 7.4 Future verification, concurrency, and accelerators
+
+Verification is a future versioned workload capability, not permanent
+whole-file-SHA logic. Planned modes are `ExactArtifactVerifier`,
+`CanonicalRecordVerifier`, `NumericToleranceVerifier`, `DomainSpecificVerifier`,
+and `TrustedWorkerPolicy`. Exact SHA-256 remains the first and safest mode;
+canonical and numeric modes must compare bounded structured data and publish
+sanitized evidence and failure reasons.
+
+Worker concurrency remains **1** until implemented and tested. Its target model
+is one physical machine running one Worker Agent with `N` execution slots and
+one isolated subprocess per active Task, rather than one registered worker per
+CPU core. `max_concurrency` must be separate from `cpu_count`; each task keeps
+its own heartbeat, attempt directory, lease lifecycle, resource request, and
+graceful-drain behavior. CPU-bound scientific code should use processes and
+avoid nested oversubscription.
+
+Accelerator support is also deferred. The coordinator matches generic resource
+requirements; the Worker Agent discovers and isolates devices (including
+`CUDA_VISIBLE_DEVICES`) and owns process/accounting lifecycle; the Python
+workload owns batching, memory strategy, deterministic output, and scientific
+validation; reducers/verifiers define CPU/GPU-independent semantics. CUDA and
+scientific kernels do not belong in the Go coordinator. GPU work follows stable
+CPU slices, generic resource requirements, pinned worker images, and tested
+CPU/GPU or domain-valid equivalence.
 
 ---
 
