@@ -27,6 +27,10 @@ import the SDK and live outside it. The built-in SciMesh workloads are under
 - `scimesh/workloads/search/` — SDK-built `similarity-search@1.0.0`;
 - `scimesh/workloads/graph/` — SDK-built `similarity-graph@1.0.0`;
 - `scimesh/workloads/descriptors/` — SDK-built `descriptor-batch@1.0.0`;
+- `scimesh/workloads/molwt_filter/` — SDK-built `molwt-filter@1.0.0`, the
+  minimal authoring example: it only declares identity, parameters, ports,
+  and the `compute_shard` hook, using the scaffold's default sharding and
+  concatenation;
 - `scimesh/workloads/library.py` — the built-in library wiring: a default
   registry containing all three definitions and a runtime advertising their
   capabilities;
@@ -272,8 +276,13 @@ class CountRowsWorkload(MapReduceWorkload):
 ```
 
 The base class then provides `validate`, `plan`, `run`, `reduce`, and
-`definition()`; the registry, negotiation, resource reservation, verification,
-and the local conformance executor treat the result like any other workload:
+`definition()`. For workloads whose map output is a simple filtered or
+transformed table, the scaffold's defaults already cover partitioning
+(row-bounded shards that keep the header) and reduction (concatenation with
+one header), so only `compute_shard` has to be written — that is exactly what
+the built-in `molwt-filter` workload does. The registry, negotiation, resource
+reservation, verification, and the local conformance executor treat the
+result like any other workload:
 
 ```python
 from scimesh.sdk import (

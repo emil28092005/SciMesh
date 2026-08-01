@@ -21,6 +21,7 @@ scimesh-worker = "scimesh.worker.cli:main"
 "similarity-search@1.0.0" = "scimesh.workloads.search:workload_definition"
 "similarity-graph@1.0.0" = "scimesh.workloads.graph:workload_definition"
 "descriptor-batch@1.0.0" = "scimesh.workloads.descriptors:workload_definition"
+"molwt-filter@1.0.0" = "scimesh.workloads.molwt_filter:workload_definition"
 
 [tool.setuptools.packages.find]
 include = ["scimesh*"]

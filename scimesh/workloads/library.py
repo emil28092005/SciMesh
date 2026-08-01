@@ -19,6 +19,7 @@ from scimesh.sdk.runtime import RuntimeCapabilities
 from .descriptors import descriptor_batch_sdk_definition
 from .environment import current_environment_digest
 from .graph import similarity_graph_sdk_definition
+from .molwt_filter import molwt_filter_sdk_definition
 from .search import similarity_search_sdk_definition
 
 __all__ = [
@@ -53,6 +54,10 @@ def default_sdk_registry(
         descriptor_batch_sdk_definition(shard_rows=shard_rows).definition(),
         enabled=True,
     )
+    registry.register(
+        molwt_filter_sdk_definition(shard_rows=shard_rows).definition(),
+        enabled=True,
+    )
     return registry
 
 
@@ -75,7 +80,7 @@ def default_sdk_runtime(
         features={"artifact-collections": "1.0.0", "exact-verifier": "1.0.0"},
         workload_capabilities=(
             workload_capabilities
-            or ("similarity-search", "similarity-graph", "descriptor-batch")
+            or ("similarity-search", "similarity-graph", "descriptor-batch", "molwt-filter")
         ),
         inventory=ResourceInventory(
             cpu_cores=max(os.cpu_count() or 1, 1),

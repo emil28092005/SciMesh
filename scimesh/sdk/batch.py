@@ -71,6 +71,37 @@ def _default_entry_point(module: str, kind: str) -> str:
     return f"{module}:{kind}@v1"
 
 
+def concatenate_partial_tables(
+    partial_paths: Sequence[Path],
+    output_path: Path,
+) -> dict[str, int]:
+    """Concatenate partial CSV/TSV tables with exactly one shared header.
+
+    Every partial must start with the same header line; the first partial is
+    copied verbatim and later partials contribute only their data rows, so the
+    merged file is byte-identical to a single-process run over the same rows.
+    """
+    if not partial_paths:
+        raise ValueError("reducer requires at least one partial")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    header: str | None = None
+    rows_emitted = 0
+    with output_path.open("w", encoding="utf-8", newline="") as destination:
+        for index, partial in enumerate(partial_paths):
+            with partial.open("r", encoding="utf-8", newline="") as source:
+                for line_index, line in enumerate(source):
+                    if line_index == 0:
+                        if header is None:
+                            header = line
+                            destination.write(line)
+                        elif line != header:
+                            raise ValueError("partial tables have inconsistent headers")
+                        continue
+                    destination.write(line)
+                    rows_emitted += 1
+    return {"partial_count": len(partial_paths), "rows_emitted": rows_emitted}
+
+
 class MapReduceWorkload:
     """Base class for static byte-exact map/reduce workloads.
 
@@ -87,7 +118,9 @@ class MapReduceWorkload:
     - ``domain_validate(parameters)``: extra job-parameter validation;
     - ``resolved_parameters(request)``: values carried into the plan;
     - ``partition_input(input_path, parameters, workspace)``: deterministic
-      shard splitting; returns one TSV/CSV file per map task;
+      shard splitting; returns one TSV/CSV file per map task. The default
+      splits a delimited table into ``shard_rows``-bounded shards that keep
+      the header, using the input schema's media type to pick the delimiter;
     - ``plan_tasks(shard_paths, resolved, job, negotiated, map_stage, context)``:
       task construction (default: one task per shard, ``map/<index>``);
     - ``compute_shard(inputs, parameters, output_path)``: one map task;
@@ -95,12 +128,14 @@ class MapReduceWorkload:
     - ``parse_partial_key(key)`` and ``validate_partial_keys(parsed)``:
       partial-key policy for the reducer;
     - ``reduce_partials(partial_paths, parameters, output_path)``: the
-      deterministic merge.
+      deterministic merge. The default concatenates partial tables with one
+      header and counts the emitted data rows.
 
     Optional class attributes: ``map_stage_inputs`` (default one ``input``
     port), ``map_parameter_names``, ``reduce_parameter_names``, ``capabilities``,
     ``trust_modes``, ``workflow_id``, ``limits``, ``resources``, ``execution``,
-    ``map_entry_point``, ``reduce_entry_point``.
+    ``map_entry_point``, ``reduce_entry_point``, ``shard_rows`` (default 1000,
+    used only by the default ``partition_input``).
     """
 
     workload_id: WorkloadId
@@ -121,6 +156,7 @@ class MapReduceWorkload:
     execution: ExecutionProfile | None = None
     map_entry_point: str | None = None
     reduce_entry_point: str | None = None
+    shard_rows: int = 1_000
 
     def __init__(
         self,
@@ -296,8 +332,62 @@ class MapReduceWorkload:
         parameters: Mapping[str, Any],
         workspace: Path,
     ) -> list[Path]:
-        """Split the materialized input into deterministic shard files."""
-        raise NotImplementedError("partition_input must be implemented")
+        """Split the materialized input into deterministic shard files.
+
+        The default implementation shards a delimited table by rows: every
+        shard keeps the header and holds at most ``self.shard_rows`` data
+        rows, in input order. The delimiter follows the input schema's media
+        type. Workloads that partition differently (block pairs, sampling)
+        override this hook.
+        """
+        import csv
+
+        if isinstance(self.shard_rows, bool) or not isinstance(self.shard_rows, int) or self.shard_rows < 1:
+            raise ValueError("shard_rows must be a positive integer")
+        media_type = self.input_port.schema.media_type
+        if media_type == "text/tab-separated-values":
+            delimiter = "\t"
+        elif media_type == "text/csv":
+            delimiter = ","
+        else:
+            raise ValueError(
+                "default sharding requires a delimited input media type: " + media_type
+            )
+        workspace.mkdir(parents=True, exist_ok=True)
+        paths: list[Path] = []
+        destination = None
+        writer = None
+        rows_in_shard = 0
+        try:
+            with input_path.open("r", encoding="utf-8", newline="") as source:
+                reader = csv.DictReader(source, delimiter=delimiter)
+                fieldnames = tuple(reader.fieldnames or ())
+                if not fieldnames:
+                    raise ValueError("dataset has no header row")
+                for row in reader:
+                    if destination is None or rows_in_shard == self.shard_rows:
+                        if destination is not None:
+                            destination.close()
+                        current = workspace / f"shard-{len(paths)}.tsv"
+                        destination = current.open("w", encoding="utf-8", newline="")
+                        writer = csv.DictWriter(
+                            destination,
+                            fieldnames=list(fieldnames),
+                            delimiter=delimiter,
+                            lineterminator="\n",
+                        )
+                        writer.writeheader()
+                        paths.append(current)
+                        rows_in_shard = 0
+                    assert writer is not None
+                    writer.writerow(row)
+                    rows_in_shard += 1
+        finally:
+            if destination is not None:
+                destination.close()
+        if not paths:
+            raise ValueError("dataset has no data rows")
+        return paths
 
     def plan_tasks(
         self,
@@ -367,8 +457,14 @@ class MapReduceWorkload:
         parameters: Mapping[str, Any],
         output_path: Path,
     ) -> Mapping[str, int | float]:
-        """Merge materialized partials into one deterministic final CSV."""
-        raise NotImplementedError("reduce_partials must be implemented")
+        """Merge materialized partials into one deterministic final CSV.
+
+        The default implementation concatenates partial tables in key order
+        with exactly one header: the first partial is copied verbatim and
+        every later partial contributes only its data rows. Workloads that
+        merge (top-k, edge sets) override this hook.
+        """
+        return concatenate_partial_tables(partial_paths, output_path)
 
     # ------------------------------------------------------------------
     # Framework handlers

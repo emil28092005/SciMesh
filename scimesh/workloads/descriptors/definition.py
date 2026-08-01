@@ -9,8 +9,7 @@ partition, compute, and merge.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 from scimesh.sdk.artifacts import ArtifactSchema, ComponentRef, PortSpec
 from scimesh.sdk.batch import MapReduceWorkload
@@ -21,9 +20,7 @@ from ..environment import current_environment_digest, current_scimesh_package_di
 from .core import (
     DESCRIPTOR_COLUMNS,
     compute_descriptor_batch,
-    concatenate_descriptor_shards,
     validate_descriptor_names,
-    write_descriptor_shards,
 )
 
 MAP_ENTRY_POINT = "scimesh.workloads.descriptors.definition:map_descriptors@v1"
@@ -116,14 +113,6 @@ class DescriptorBatchWorkload(MapReduceWorkload):
         if not isinstance(value, bool):
             raise ValueError("skip_invalid must be a boolean")
 
-    def partition_input(
-        self,
-        input_path: Path,
-        parameters: Mapping[str, Any],
-        workspace: Path,
-    ) -> list[Path]:
-        return write_descriptor_shards(input_path, workspace, self.shard_rows)
-
     def compute_shard(
         self,
         inputs: Mapping[str, Path],
@@ -142,15 +131,6 @@ class DescriptorBatchWorkload(MapReduceWorkload):
         if not isinstance(value, bool):
             raise ValueError("skip_invalid must be a boolean")
         return value
-
-    def reduce_partials(
-        self,
-        partial_paths: Sequence[Path],
-        parameters: Mapping[str, Any],
-        output_path: Path,
-    ) -> Mapping[str, int | float]:
-        return concatenate_descriptor_shards(partial_paths, output_path)
-
 
 def descriptor_batch_sdk_definition(
     *,

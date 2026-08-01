@@ -24,6 +24,8 @@ partial writer moved to `scimesh/workloads/search/core.py`; the partial
 format is unchanged, so the Go reducer and UI keep working. The runner
 resolves `query_id` per task and rejects plan-time `max_rows`.
 
+**Default hooks + molwt-filter (2026-08-01):** `MapReduceWorkload` now provides default `partition_input` (row-bounded, header-preserving sharding for delimited inputs, `shard_rows` class attr) and default `reduce_partials` (`concatenate_partial_tables`, one header, byte-identical). A new built-in `molwt-filter@1.0.0` (`scimesh/workloads/molwt_filter/`) demonstrates the minimal authoring surface: only `compute_shard` is workload code. descriptor-batch dropped its now-redundant partition/reduce overrides.
+
 **Authoring scaffold (2026-08-01):** `scimesh/sdk/batch.py` adds
 `MapReduceWorkload` — the primary authoring surface for `core-batch-v1`. A
 subclass declares identity/parameters/ports and three scientific hooks

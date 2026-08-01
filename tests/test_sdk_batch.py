@@ -229,7 +229,7 @@ def test_map_reduce_scaffold_derives_pinned_plans_and_parameters(
     assert all(task.trust_mode is TrustMode.TRUSTED for task in plan.tasks)
 
 
-def test_map_reduce_scaffold_requires_scientific_hooks() -> None:
+def test_map_reduce_scaffold_requires_compute_hook_only() -> None:
     class MissingHooksWorkload(MapReduceWorkload):
         workload_id = WorkloadId("missing-hooks", "1.0.0")
         description = "A workload that forgets its scientific hooks."
@@ -246,12 +246,59 @@ def test_map_reduce_scaffold_requires_scientific_hooks() -> None:
         package_digest=current_scimesh_package_digest(),
         environment_digest=current_environment_digest(),
     )
-    with pytest.raises(NotImplementedError, match="partition_input"):
-        workload.partition_input(Path("input"), {}, Path("workspace"))
     with pytest.raises(NotImplementedError, match="compute_shard"):
         workload.compute_shard({}, {}, Path("output"))
-    with pytest.raises(NotImplementedError, match="reduce_partials"):
-        workload.reduce_partials([], {}, Path("output"))
+    # reduce has a scaffold default: header-preserving concatenation that
+    # fails closed on an empty partial set.
+    with pytest.raises(ValueError, match="at least one partial"):
+        workload.reduce_partials([], {}, Path("merged"))
+
+
+def test_scaffold_default_sharding_is_row_bounded_and_header_preserving(
+    tmp_path: Path,
+) -> None:
+    import csv
+
+    class DefaultShardingWorkload(MapReduceWorkload):
+        workload_id = WorkloadId("default-sharding", "1.0.0")
+        description = "Uses only the scaffold defaults."
+        parameters_schema = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {},
+        }
+        input_port = _molecule_port()
+        partial_port = _count_port()
+        output_port = _count_port()
+
+        def compute_shard(self, inputs, parameters, output_path):
+            raise AssertionError("not exercised")
+
+    dataset = tmp_path / "input.tsv"
+    dataset.write_text(
+        "chembl_id\tcanonical_smiles\nA\tCCO\nB\tCCCC\nC\tCCN\nD\tCCCCCC\n",
+        encoding="utf-8",
+    )
+    workload = DefaultShardingWorkload(
+        package_digest=current_scimesh_package_digest(),
+        environment_digest=current_environment_digest(),
+    )
+    workload.shard_rows = 2
+    workspace = tmp_path / "shards"
+    shards = workload.partition_input(dataset, {}, workspace)
+
+    assert [path.name for path in shards] == ["shard-0.tsv", "shard-1.tsv"]
+    for path in shards:
+        with path.open(encoding="utf-8", newline="") as source:
+            rows = list(csv.DictReader(source, delimiter="\t"))
+            assert rows[0]["chembl_id"] in {"A", "C"}
+            assert len(rows) <= 2
+    other = tmp_path / "other.tsv"
+    other.write_text("different_header\nX\tY\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="inconsistent headers"):
+        workload.reduce_partials(
+            [dataset, other], {}, tmp_path / "merged.csv"
+        )
 
 
 def test_map_reduce_scaffold_default_partial_keys_are_contiguous() -> None:
