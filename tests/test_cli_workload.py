@@ -227,3 +227,41 @@ def test_workload_cli_runs_an_allowlisted_custom_workload(
         == 0
     )
     assert output.read_text(encoding="utf-8") == "id,rows\nshard,1\nshard,1\n"
+
+
+def test_workload_cli_exports_the_library_as_json(tmp_path: Path) -> None:
+    import json
+
+    output = tmp_path / "workloads.json"
+    assert main(["workload", "export", "-o", str(output)]) == 0
+    payload = json.loads(output.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 1
+    names = [item["name"] for item in payload["workloads"]]
+    assert names == sorted(
+        ["descriptor-batch", "molwt-filter", "similarity-graph", "similarity-search"]
+    )
+    for item in payload["workloads"]:
+        assert item["version"] == "1.0.0"
+        assert item["enabled"] is True
+        assert item["determinism"] == "byte_exact"
+        assert item["verifier"] == "exact-artifact@1"
+        assert "input" in item["inputs"]
+        assert "result" in item["outputs"]
+    molwt = next(item for item in payload["workloads"] if item["name"] == "molwt-filter")
+    assert molwt["parameters_schema"]["properties"] == {
+        "min_molwt": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Keep molecules with MolWt >= this value",
+        },
+        "max_molwt": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Keep molecules with MolWt <= this value",
+        },
+        "skip_invalid": {
+            "type": "boolean",
+            "default": True,
+            "description": "Skip rows with invalid SMILES instead of failing",
+        },
+    }

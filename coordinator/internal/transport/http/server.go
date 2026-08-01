@@ -135,6 +135,7 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 		}{
 			{"GET /ui", s.handleUIHome},
 			{"GET /ui/jobs/new", s.handleUINewJob},
+			{"GET /ui/workloads", s.handleUIWorkloads},
 			{"GET /ui/jobs/{job_id}", s.handleUIJob},
 			{"GET /ui/api/overview", s.handleUIOverviewJSON},
 			{"GET /ui/api/jobs/{job_id}", s.handleUIJobJSON},

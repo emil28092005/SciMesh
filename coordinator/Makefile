@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke demo-ui demo-down demo-reset demo-logs
+.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke workloads-export demo-ui demo-down demo-reset demo-logs
 
 # `check` deliberately uses its own Compose project and host ports. This keeps
 # it from connecting to or replacing a developer's local PostgreSQL instance.
@@ -26,6 +26,14 @@ DEMO_WORKERS ?= 2
 WORKERS ?= $(DEMO_WORKERS)
 DEMO_DIR ?= .demo
 
+# workloads.json is the UI workload catalog, generated from the Python SDK
+# workload library. It is checked in so the binary embeds it; regenerate it
+# whenever workloads or their manifests change (requires the Python venv).
+WORKLOADS_JSON := internal/transport/http/workloads.json
+
+workloads-export:
+	cd .. && .venv/bin/scimesh workload export -o coordinator/$(WORKLOADS_JSON)
+
 help:
 	@printf '%s\n' \
 	  'SciMesh coordinator commands:' \
@@ -34,6 +42,7 @@ help:
 	  '  make demo-logs               Follow coordinator logs for the UI demo.' \
 	  '  make demo-down               Stop the demo services and workers.' \
 	  '  make demo-reset              Stop the demo and wipe its data volumes.' \
+	  '  make workloads-export        Regenerate the embedded UI workload catalog.' \
 	  '  make test / make vet         Run Go verification.' \
 	  '' \
 	  'Demo UI: http://localhost:18080/ui (login page; admin root@scimesh.local / rootpassword).'

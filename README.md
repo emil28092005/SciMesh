@@ -60,8 +60,12 @@ Open `http://localhost:18080/ui` and sign in with username `operator` and
 password `demo-ui-secret`. The command starts PostgreSQL, the coordinator, and
 two local reference workers. Upload a small ChEMBL TSV, then use the job page
 to follow shard progress, inspect bounded **Preview CSV** results, and see a
-live processing-speed chart in shards per minute. To change the worker count,
-run `make demo-ui WORKERS=3`; stop everything with `make demo-down`.
+live processing-speed chart in shards per minute. The **Workloads** page shows
+the installed SDK workload library (descriptions, parameters, and artifact
+schemas) from the embedded catalog; regenerate it with
+`make workloads-export` (or `scimesh workload export`) whenever workloads
+change. To change the worker count, run `make demo-ui WORKERS=3`; stop
+everything with `make demo-down`.
 
 Run `make help` to display these commands in the terminal.
 

@@ -28,7 +28,7 @@ class WorkloadCLI:
     """Inspect and run SDK-built workloads from the command line."""
 
     name = "workload"
-    help = "List and run SDK-built workloads locally."
+    help = "List, run, and export SDK-built workloads."
 
     def configure_parser(self, parser: argparse.ArgumentParser) -> None:
         subparsers = parser.add_subparsers(dest="workload_command", required=True)
@@ -37,6 +37,18 @@ class WorkloadCLI:
             "list", help="List installed and enabled SDK workloads."
         )
         list_parser.set_defaults(workload_handler=self.list_workloads)
+
+        export_parser = subparsers.add_parser(
+            "export", help="Write the workload library as JSON for the coordinator UI."
+        )
+        export_parser.add_argument(
+            "-o",
+            "--output",
+            type=Path,
+            default=Path("workloads.json"),
+            help="Output JSON path (default: workloads.json)",
+        )
+        export_parser.set_defaults(workload_handler=self.export_workloads)
 
         run_parser = subparsers.add_parser(
             "run", help="Run one SDK workload locally against an input file."
@@ -105,6 +117,56 @@ class WorkloadCLI:
                 f"{item.workload.name:<{width}}  {item.workload.version}  "
                 f"{item.description}  [{state} {digest}]"
             )
+        return 0
+
+    def export_workloads(self, args: argparse.Namespace) -> int:
+        """Write the workload library as a JSON catalog for the coordinator UI."""
+        import json
+
+        from scimesh.sdk._validation import thaw_json
+
+        registry = self._registry(args)
+        workloads: list[dict[str, object]] = []
+        for item in sorted(
+            registry.descriptions(), key=lambda value: value.workload.name
+        ):
+            definition, _ = registry.require(
+                item.workload.name,
+                item.workload.version,
+                item.package_digest,
+            )
+            manifest = definition.manifest
+            workloads.append(
+                {
+                    "name": manifest.workload.name,
+                    "version": manifest.workload.version,
+                    "description": manifest.description,
+                    "capabilities": list(manifest.capabilities),
+                    "trust_modes": [mode.value for mode in manifest.trust_modes],
+                    "determinism": manifest.determinism.value,
+                    "verifier": manifest.verifier.verifier.canonical,
+                    "enabled": item.enabled,
+                    "parameters_schema": thaw_json(manifest.parameters_schema),
+                    "inputs": {
+                        name: port.schema.to_dict()
+                        for name, port in manifest.inputs.items()
+                    },
+                    "outputs": {
+                        name: port.schema.to_dict()
+                        for name, port in manifest.outputs.items()
+                    },
+                }
+            )
+        payload: dict[str, object] = {
+            "schema_version": 1,
+            "generated_by": "scimesh workload export",
+            "workloads": workloads,
+        }
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with args.output.open("w", encoding="utf-8") as destination:
+            json.dump(payload, destination, indent=2, sort_keys=True)
+            destination.write("\n")
+        print(f"Exported {len(workloads)} workloads to {args.output}")
         return 0
 
     def run_workload(self, args: argparse.Namespace) -> int:
