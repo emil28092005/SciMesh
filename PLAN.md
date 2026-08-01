@@ -498,6 +498,8 @@ reducer behavior, worker allowlist/capabilities, input and output artifacts,
 UI/API parameters, reproducible execution environment, result verification,
 golden cross-worker fixtures, and applicable resource limits. The future public
 contract is described in [`docs/scimesh-sdk-roadmap.md`](docs/scimesh-sdk-roadmap.md).
+Its normative future interfaces and execution semantics are defined in the
+design-draft [`docs/scimesh-sdk-contract.md`](docs/scimesh-sdk-contract.md).
 
 Every workload declaration must classify its task decomposition and input/output
 artifact shapes, determinism, reduction semantics, verifier mode, supported
