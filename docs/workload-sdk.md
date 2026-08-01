@@ -16,6 +16,29 @@ declarations, but the current coordinator/Worker runtime does not advertise
 their features. Compatibility negotiation therefore rejects those workflows
 before planner code runs.
 
+## SDK versus workloads
+
+`scimesh.sdk` is the framework only: strict manifests, plans, artifacts,
+registry, verifiers, and the local conformance executor. It contains no
+scientific workload code. Workloads are user Python scripts and packages that
+import the SDK and live outside it. The built-in SciMesh workloads are under
+`scimesh/workloads/`:
+
+- `scimesh/workloads/search/` — SDK-built `similarity-search@1.0.0`;
+- `scimesh/workloads/graph/` — SDK-built `similarity-graph@1.0.0`;
+- `scimesh/workloads/descriptors/` — SDK-built `descriptor-batch@1.0.0`;
+- `scimesh/workloads/library.py` — the built-in library wiring: a default
+  registry containing all three definitions and a runtime advertising their
+  capabilities;
+- the plain `scimesh/workloads/*.py` modules remain the local CLI scientific
+  cores and their `Workload` registry.
+
+Each SDK-built workload is a small package with `core.py` (scientific code)
+and `definition.py` (manifest plus planner/runner/reducer handlers). A future
+external workload library can follow the same shape: its own distribution, one
+`scimesh.workloads` entry point per workload version, and an administrator
+allowlist.
+
 ## What authors import
 
 The stable authoring surface is exported from `scimesh.sdk`:
@@ -41,10 +64,10 @@ contracts carry schema versions.
 Artifact identities contain a coordinator-owned UUID, schema, checksum, media
 type, and bounds; a scientific handler never persists a filesystem path.
 
-## Try the built-in SDK workload
+## Try the built-in SDK workloads
 
-This example executes the current distributed `similarity-search` through the
-SDK without starting PostgreSQL or the coordinator:
+This example runs the SDK-built `similarity-search` without starting
+PostgreSQL or the coordinator:
 
 ```python
 from pathlib import Path
@@ -54,21 +77,23 @@ from scimesh.sdk import (
     JobRequest,
     LocalArtifactStore,
     LocalCoreBatchExecutor,
+)
+from scimesh.workloads.library import (
     default_sdk_registry,
     default_sdk_runtime,
-    similarity_search_sdk_adapter,
+    similarity_search_sdk_definition,
 )
 
 root = Path("sdk-run")
 store = LocalArtifactStore(root / "artifacts")
-adapter = similarity_search_sdk_adapter(shard_rows=1_000)
+workload = similarity_search_sdk_definition(shard_rows=1_000)
 
 dataset = store.import_file(
     Path("chembl_37_chemreps.txt"),
-    declaration=adapter.input_port.schema,
+    declaration=workload.manifest.inputs["input"].schema,
 )
 request = JobRequest(
-    workload=adapter.manifest.workload,
+    workload=workload.manifest.workload,
     parameters={"query_smiles": "CCO", "top_k": 20},
     inputs={"input": ArtifactCollection.single(dataset)},
 )
@@ -78,7 +103,7 @@ result = LocalCoreBatchExecutor(
     default_sdk_runtime(),
     store,
     root / "attempts",
-).execute(request, adapter.manifest.package.digest)
+).execute(request, workload.manifest.package.digest)
 
 result_ref = result.outputs["result"].items[0].artifact
 print(store.materialize(result_ref))
@@ -90,21 +115,20 @@ for coordinator leases or multi-machine scheduling. It accepts only
 map/reduce stages without secrets, checkpoints, retries, gangs, or
 accelerators. It does not claim network, timeout, process, or credential
 isolation. Unsupported declarations are rejected before a handler runs. The
-harness uses the same legacy scientific planner, shard runner, and reducer as
-the distributed `similarity-search`, and its parity is covered by automated
-tests.
+harness runs the SDK-built workload handlers themselves, and their parity
+against the single-process references is covered by automated tests.
 
 ## The descriptor-batch reference workload
 
 `descriptor-batch@1.0.0` is the first SDK-native reference workload: it is
-built directly on the manifest/planner/runner/reducer contracts instead of the
-legacy adapter, and it is the intended first `untrusted_quorum` candidate
+built directly on the manifest/planner/runner/reducer contracts, and it is
+the intended first `untrusted_quorum` candidate
 (`byte_exact` plus `exact-artifact@1`). Its scientific contract is pinned:
 
 - one output CSV row per valid input molecule, in input order, with RDKit
   canonical SMILES recomputed by RDKit;
 - an explicit 81-name pinned RDKit 2D descriptor set (see
-  `scimesh/sdk/descriptors/core.py`), validated against the installed RDKit at
+  `scimesh/workloads/descriptors/core.py`), validated against the installed RDKit at
   definition build time;
 - `%.6f` float formatting, `utf-8` CSV with one header, and row-bounded
   deterministic shards;
@@ -123,9 +147,9 @@ from scimesh.sdk import (
     LocalArtifactStore,
     LocalCoreBatchExecutor,
     WorkloadRegistry,
-    default_sdk_runtime,
 )
-from scimesh.sdk.descriptors import descriptor_batch_sdk_definition
+from scimesh.workloads.descriptors import descriptor_batch_sdk_definition
+from scimesh.workloads.library import default_sdk_runtime
 
 root = Path("descriptor-run")
 store = LocalArtifactStore(root / "artifacts")
@@ -161,13 +185,39 @@ matching `AllowedPackage` allowlist entry. Its manifest declares both
 so the same definition can later run under coordinator quorum once protocol-v2
 leases exist.
 
+## The SDK-built similarity workloads
+
+`similarity-search@1.0.0` and `similarity-graph@1.0.0` are SDK-built workloads
+under `scimesh/workloads/search/` and `scimesh/workloads/graph/`; both reuse
+the local scientific cores from `scimesh/workloads/similarity_search.py` and
+`similarity_graph.py` and declare `byte_exact` + `exact-artifact@1`:
+
+- the search workload resolves `query_id` exactly once at plan time, shards
+  the input deterministically, computes a local top-k per shard with the
+  reference heap, and merges the sorted partials with the same tie-breakers,
+  so the final CSV is byte-identical to the single-process CLI output;
+- the graph workload parses molecules once into deterministic row-ordered
+  blocks, plans one map task per block pair `(i, j)` with `i <= j`, and its
+  reducer enforces the pair-coverage invariant (every unordered molecule pair
+  compared exactly once, no duplicates) before emitting the same
+  deterministically sorted edge list as the local brute-force reference, for
+  either threshold direction and any block size;
+- the v1 worker executes the SDK-built `similarity-search` runner directly:
+  `scimesh/worker/runners.py` is a small wire bridge that builds a `TaskSpec`
+  with the workload's own pins, reserves resources, seals the partial through
+  a content-addressed store, and uploads the resulting CSV over the unchanged
+  coordinator contract.
+
 ## Package shape and registration
 
-An SDK distribution provides one explicit entry point per workload version:
+A workload distribution provides one explicit entry point per workload
+version. The built-in workloads are part of the `scimesh` distribution:
 
 ```toml
 [project.entry-points."scimesh.workloads"]
-"descriptor-batch@1.0.0" = "scimesh_descriptors.sdk:workload_definition"
+"similarity-search@1.0.0" = "scimesh.workloads.search:workload_definition"
+"similarity-graph@1.0.0" = "scimesh.workloads.graph:workload_definition"
+"descriptor-batch@1.0.0" = "scimesh.workloads.descriptors:workload_definition"
 ```
 
 The factory returns a `WorkloadDefinition` containing its manifest and handler
@@ -279,10 +329,11 @@ pytest tests/test_sdk_models.py \
        tests/test_sdk_verification.py \
        tests/test_sdk_compatibility.py \
        tests/test_sdk_registry.py \
-       tests/test_sdk_descriptors.py
+       tests/test_sdk_descriptors.py \
+       tests/test_sdk_search.py \
+       tests/test_sdk_graph.py
 ```
 
-Run `pytest` for the full legacy, Worker, local-science, and SDK regression
-suite. Package authors can reuse `LocalArtifactStore`,
+Run `pytest` for the full Worker, local-science, and SDK regression suite. Package authors can reuse `LocalArtifactStore`,
 `LocalCoreBatchExecutor`, and `assert_manifest_round_trip` in their own golden
 tests.

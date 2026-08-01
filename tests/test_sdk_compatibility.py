@@ -36,10 +36,9 @@ from scimesh.sdk import (
     WorkloadDefinition,
     WorkloadRegistry,
     assert_manifest_round_trip,
-    default_sdk_registry,
-    default_sdk_runtime,
-    similarity_search_sdk_adapter,
 )
+from scimesh.workloads.library import default_sdk_registry, default_sdk_runtime
+from scimesh.workloads.search import similarity_search_sdk_definition
 from scimesh.workloads.similarity_search import search_similar, write_search_results
 
 
@@ -60,8 +59,10 @@ def _registered_similarity_search(shard_rows: int = 2):
     registry = default_sdk_registry(shard_rows=shard_rows)
     runtime = default_sdk_runtime()
     descriptions = registry.descriptions()
-    assert len(descriptions) == 1
-    description = descriptions[0]
+    assert len(descriptions) == 3
+    description = next(
+        item for item in descriptions if item.workload.name == "similarity-search"
+    )
     definition, negotiated = registry.require(
         description.workload.name,
         description.workload.version,
@@ -128,7 +129,10 @@ def test_local_sdk_executor_matches_similarity_search_reference(tmp_path: Path) 
     reference = search_similar(dataset, query, top_k=3, progress_every=0)
     write_search_results(reference_path, reference.matches)
 
-    assert artifact_store.materialize(result_artifact).read_bytes() == reference_path.read_bytes()
+    assert (
+        artifact_store.materialize(result_artifact).read_bytes()
+        == reference_path.read_bytes()
+    )
     assert result.task_key == "reduce/final"
     assert result.metrics == {"matches_emitted": 3, "partial_count": 3}
 
@@ -187,7 +191,9 @@ def test_legacy_adapter_planning_is_deterministic_ordered_and_path_free(
     shard_ids: list[list[str]] = []
     for task in first.tasks:
         artifact = task.inputs["input"].items[0].artifact
-        with artifact_store.materialize(artifact).open(encoding="utf-8", newline="") as source:
+        with artifact_store.materialize(artifact).open(
+            encoding="utf-8", newline=""
+        ) as source:
             shard_ids.append(
                 [row["chembl_id"] for row in csv.DictReader(source, delimiter="\t")]
             )
@@ -250,7 +256,12 @@ def test_local_store_rejects_malformed_content_before_publishing(
 
     with pytest.raises(ValueError, match="not a valid bounded document"):
         store.import_file(malformed, declaration=declaration)
-    assert tuple(path for path in store.root.iterdir() if not path.name.startswith(".seal-")) == ()
+    assert (
+        tuple(
+            path for path in store.root.iterdir() if not path.name.startswith(".seal-")
+        )
+        == ()
+    )
 
 
 def test_delimited_validator_rejects_headerless_data_and_enforces_record_limit(
@@ -334,7 +345,11 @@ def test_local_executor_rejects_handler_forged_outputs(
     dataset = tmp_path / "molecules.tsv"
     _write_tiny_dataset(dataset)
     _, runtime, description, original, _ = _registered_similarity_search()
-    map_stage = next(stage for stage in original.manifest.workflow.stages if stage.kind is StageKind.MAP)
+    map_stage = next(
+        stage
+        for stage in original.manifest.workflow.stages
+        if stage.kind is StageKind.MAP
+    )
     inner = original.runners[map_stage.entry_point]
 
     class ForgingRunner:
@@ -372,7 +387,9 @@ def test_local_executor_rejects_handler_forged_outputs(
         )
 
 
-def test_local_executor_rejects_profiles_that_claim_network_isolation(tmp_path: Path) -> None:
+def test_local_executor_rejects_profiles_that_claim_network_isolation(
+    tmp_path: Path,
+) -> None:
     dataset = tmp_path / "molecules.tsv"
     _write_tiny_dataset(dataset)
     _, runtime, description, original, _ = _registered_similarity_search()
@@ -409,7 +426,9 @@ def test_local_executor_rejects_aliased_terminal_outputs_before_planning(
     _write_tiny_dataset(dataset)
     _, runtime, description, original, _ = _registered_similarity_search()
     reducer = next(
-        stage for stage in original.manifest.workflow.stages if stage.kind is StageKind.REDUCE
+        stage
+        for stage in original.manifest.workflow.stages
+        if stage.kind is StageKind.REDUCE
     )
     internal_name = next(iter(reducer.outputs))
     workflow = replace(
@@ -515,8 +534,7 @@ def _advanced_execution_manifest(
     elif case == "retries":
         features = ("retries",)
         changed = tuple(
-            replace(stage, retry=RetryPolicy(max_attempts=2))
-            for stage in stages
+            replace(stage, retry=RetryPolicy(max_attempts=2)) for stage in stages
         )
     elif case == "secrets":
         features = ("secret-injection",)
@@ -604,7 +622,9 @@ def test_local_executor_rejects_profiles_it_cannot_enforce(
         )
 
 
-def test_local_executor_fails_when_the_declared_verifier_rejects(tmp_path: Path) -> None:
+def test_local_executor_fails_when_the_declared_verifier_rejects(
+    tmp_path: Path,
+) -> None:
     dataset = tmp_path / "molecules.tsv"
     _write_tiny_dataset(dataset)
     _, runtime, _, original, _ = _registered_similarity_search()
@@ -639,19 +659,21 @@ def test_local_executor_fails_when_the_declared_verifier_rejects(tmp_path: Path)
         )
 
 
-def test_local_executor_enforces_the_declared_output_byte_budget(tmp_path: Path) -> None:
+def test_local_executor_enforces_the_declared_output_byte_budget(
+    tmp_path: Path,
+) -> None:
     dataset = tmp_path / "molecules.tsv"
     _write_tiny_dataset(dataset)
     runtime = default_sdk_runtime()
-    adapter = similarity_search_sdk_adapter(shard_rows=2)
+    workload = similarity_search_sdk_definition(shard_rows=2)
     # The planner pins its own manifest into every task, so the budget cut must
-    # be applied to the adapter's manifest for plan and definition to agree.
-    adapter.manifest = replace(
-        adapter.manifest,
-        workflow=replace(adapter.manifest.workflow, max_output_bytes=256),
-        limits=replace(adapter.manifest.limits, max_output_bytes=256),
+    # be applied to the workload's manifest for plan and definition to agree.
+    workload.manifest = replace(
+        workload.manifest,
+        workflow=replace(workload.manifest.workflow, max_output_bytes=256),
+        limits=replace(workload.manifest.limits, max_output_bytes=256),
     )
-    definition = adapter.definition()
+    definition = workload.definition()
     registry = WorkloadRegistry()
     registry.register(definition, enabled=True)
     store = LocalArtifactStore(tmp_path / "artifacts")

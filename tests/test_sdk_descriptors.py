@@ -25,13 +25,13 @@ from scimesh.sdk import (
     VerifyContext,
     WorkloadRegistry,
     assert_manifest_round_trip,
-    default_sdk_runtime,
 )
-from scimesh.sdk.descriptors import (
+from scimesh.workloads.descriptors import (
     DESCRIPTOR_COLUMNS,
     descriptor_batch_sdk_definition,
     compute_descriptor_batch,
 )
+from scimesh.workloads.library import default_sdk_runtime
 
 
 def _write_tiny_dataset(path: Path) -> None:
@@ -428,7 +428,7 @@ def test_descriptor_batch_discovery_imports_an_allowlisted_installed_entry_point
     class EntryPoint:
         name = "descriptor-batch@1.0.0"
         dist = metadata.distribution("scimesh")
-        value = "scimesh.sdk.descriptors.definition:workload_definition"
+        value = "scimesh.workloads.descriptors:workload_definition"
 
         @property
         def module(self) -> str:

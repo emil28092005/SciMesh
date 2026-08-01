@@ -45,12 +45,13 @@ the complete result-artifact SHA-256 before a task is accepted.
 | CTX-07 Distributed workload protocol | Implemented | Versioned Python contract models, registry, strict plan validation, and deterministic reduction ordering are in `scimesh/distributed/`. |
 | CTX-08 Distributed similarity-search | Implemented | Python planner resolves `query_id` once, creates deterministic shard plans, worker adapter emits exact partial top-k CSVs/metrics, and reducer matches the local reference. |
 | CTX-09 Reducer and final-result API | Implemented | Atomic `reducing` claim, deterministic coordinator-side top-k reducer, sanitized reducer failure, final artifact persistence, `result_uri`, and final CSV download. |
-| CTX-10 Distributed similarity-graph | Not started | Local reference exists. |
+| CTX-10 Distributed similarity-graph | Not started | Local reference exists; the SDK-built local graph workload already enforces the pair-coverage invariant. |
 | CTX-11 Dashboard/operator view | Implemented | Protected live control room: recent-run/worker overview, real pipeline-stage visualization, shard attempts and safe failures, validated similarity-search upload, coordinator artifacts, final-result download, and bounded polling. |
 | CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
 | CTX-15 User Service and access control | Implemented | User/owner scoping, verified contributors, worker keys, self-service enrollment, and quorum-backed untrusted workers are merged; local Go/Python and Docker/PostgreSQL checks passed. |
-| CTX-16 Workload SDK foundation | Implemented | `scimesh.sdk` provides strict immutable manifests/plans/artifacts, digest/trust-pinned tasks, typed DAGs, compatibility negotiation, verifier primitives with owner/binding-safe quorum inputs, resource eligibility/local allocation, measured package discovery, a trusted local core-batch conformance harness, and a tested legacy similarity-search adapter. Enforcing coordinator/Worker profiles remain fail-closed. |
-| SDK roadmap step 3: `descriptor-batch` | Implemented | The first SDK-native reference workload (`descriptor-batch@1.0.0` in `scimesh/sdk/descriptors/`): pinned 81-name RDKit 2D descriptor set, canonical one-row-per-input CSV, deterministic row-bounded shards, shard-index concatenation with one header, byte-identical local/distributed output, and a two-worker `untrusted_quorum` verifier test. Entry point declared in `pyproject.toml`; manifest declares `trusted` + `untrusted_quorum` with the exact-artifact verifier. |
+| CTX-16 Workload SDK foundation | Implemented | `scimesh.sdk` provides strict immutable manifests/plans/artifacts, digest/trust-pinned tasks, typed DAGs, compatibility negotiation, verifier primitives with owner/binding-safe quorum inputs, resource eligibility/local allocation, measured package discovery, a trusted local core-batch conformance harness, and strict package discovery. Enforcing coordinator/Worker profiles remain fail-closed. |
+| SDK roadmap step 3: `descriptor-batch` | Implemented | The first SDK-built reference workload (`scimesh/workloads/descriptors/`): pinned 81-name RDKit 2D descriptor set, canonical one-row-per-input CSV, deterministic row-bounded shards, shard-index concatenation with one header, byte-identical local/distributed output, and a two-worker `untrusted_quorum` verifier test. |
+| SDK-built `similarity-search` and `similarity-graph` | Implemented | Both workloads are now SDK-built packages (`scimesh/workloads/search/`, `scimesh/workloads/graph/`) with their own manifests/planners/runners/reducers on the `core-batch-v1` profile; they reuse the local scientific cores and are byte-identical to the single-process references (search; graph for both threshold directions and any block size). The graph reducer enforces the CTX-10 pair-coverage invariant. `scimesh/workloads/library.py` composes the built-in registry/runtime. |
 
 ## Next recommended assignment
 
@@ -59,8 +60,12 @@ block-pair planning and reduction for `similarity-graph`.
 
 ## Known constraints
 
-- The worker/coordinator flow currently accepts both underscore API workload
-  names and hyphenated CLI names while the contract is consolidated.
+- The worker/coordinator flow accepts both underscore API workload names and
+  hyphenated names at the runner boundary; the runner normalizes them.
+- The worker executes SDK-built workloads through `scimesh/worker/runners.py`
+  (a v1-wire bridge over `TaskSpec`/`LocalTaskContext`); the CTX-07
+  `DistributedWorkload` protocol module and the SDK compatibility adapter were
+  removed. `max_rows` is a plan-time option and is rejected per task.
 - A real-stack worker test uses a small `query_smiles` shard. The Python
   planner resolves `query_id` once and shares `query_smiles`; the upload UI
   currently accepts `query_smiles` only.

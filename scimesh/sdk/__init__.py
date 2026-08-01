@@ -19,13 +19,6 @@ from .artifacts import (
     PortSpec,
     Provenance,
 )
-from .builtins import (
-    current_environment_digest,
-    current_scimesh_package_digest,
-    default_sdk_registry,
-    default_sdk_runtime,
-    similarity_search_sdk_adapter,
-)
 from .conformance import (
     CancellationFlag,
     LocalArtifactStore,
@@ -215,11 +208,6 @@ __all__ = [
     "WorkloadManifest",
     "WorkloadRegistry",
     "assert_manifest_round_trip",
-    "current_environment_digest",
-    "current_scimesh_package_digest",
-    "default_sdk_registry",
-    "default_sdk_runtime",
     "installed_distribution_digest",
     "negotiate_manifest",
-    "similarity_search_sdk_adapter",
 ]

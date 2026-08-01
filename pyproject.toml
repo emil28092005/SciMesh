@@ -18,8 +18,9 @@ scimesh = "scimesh.cli:main"
 scimesh-worker = "scimesh.worker.cli:main"
 
 [project.entry-points."scimesh.workloads"]
-"similarity-search@1.0.0" = "scimesh.sdk.builtins:similarity_search_workload_definition"
-"descriptor-batch@1.0.0" = "scimesh.sdk.descriptors.definition:workload_definition"
+"similarity-search@1.0.0" = "scimesh.workloads.search:workload_definition"
+"similarity-graph@1.0.0" = "scimesh.workloads.graph:workload_definition"
+"descriptor-batch@1.0.0" = "scimesh.workloads.descriptors:workload_definition"
 
 [tool.setuptools.packages.find]
 include = ["scimesh*"]

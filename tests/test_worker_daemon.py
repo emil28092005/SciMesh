@@ -23,7 +23,11 @@ from scimesh.worker.models import (
     RunResult,
     UploadedArtifact,
 )
-from scimesh.worker.artifacts import HttpArtifactClient, _SameOriginAuthRedirectHandler, _origin
+from scimesh.worker.artifacts import (
+    HttpArtifactClient,
+    _SameOriginAuthRedirectHandler,
+    _origin,
+)
 from scimesh.worker.runners import SciMeshRunner
 from scimesh.worker.transport import NoRedirectHandler
 
@@ -32,12 +36,18 @@ class FakeCoordinator:
     def __init__(self, task: ClaimedTask | None) -> None:
         self.task, self.submissions, self.failures, self.heartbeats = task, [], [], []
 
-    def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
+    def claim(
+        self, worker_id: str, capabilities: tuple[str, ...]
+    ) -> ClaimedTask | None:
         task, self.task = self.task, None
         return task
 
     def register(
-        self, name: str, capabilities: tuple[str, ...], cpu_count: int, memory_mb: int | None
+        self,
+        name: str,
+        capabilities: tuple[str, ...],
+        cpu_count: int,
+        memory_mb: int | None,
     ) -> RegisteredWorker:
         return RegisteredWorker("11111111-1111-4111-8111-111111111111", 15)
 
@@ -71,6 +81,7 @@ class FakeArtifacts:
             len(content),
         )
 
+
 class FakeRunner:
     def __init__(self) -> None:
         self.calls = 0
@@ -84,18 +95,40 @@ class FakeRunner:
 
 def make_task(content: bytes, checksum: str | None = None) -> ClaimedTask:
     lease = (datetime.now(timezone.utc) + timedelta(seconds=60)).isoformat()
-    return ClaimedTask("task-1", 1, lease, "similarity-search", InputArtifact("https://example.test/input", checksum or hashlib.sha256(content).hexdigest()), {"query_id": "CHEMBL1"})
+    return ClaimedTask(
+        "task-1",
+        1,
+        lease,
+        "similarity-search",
+        InputArtifact(
+            "https://example.test/input",
+            checksum or hashlib.sha256(content).hexdigest(),
+        ),
+        {"query_id": "CHEMBL1"},
+    )
 
 
 def daemon(tmp_path: Path, task: ClaimedTask | None, content: bytes):
-    coordinator, artifacts, runner = FakeCoordinator(task), FakeArtifacts(content), FakeRunner()
+    coordinator, artifacts, runner = (
+        FakeCoordinator(task),
+        FakeArtifacts(content),
+        FakeRunner(),
+    )
     config = WorkerConfig("https://example.test", "worker-1", tmp_path / "work")
-    return WorkerDaemon(config, coordinator, artifacts, runner), coordinator, artifacts, runner, config
+    return (
+        WorkerDaemon(config, coordinator, artifacts, runner),
+        coordinator,
+        artifacts,
+        runner,
+        config,
+    )
 
 
 def test_claims_runs_uploads_and_submits_csv(tmp_path: Path) -> None:
     content = b"input fixture"
-    worker, coordinator, artifacts, runner, _ = daemon(tmp_path, make_task(content), content)
+    worker, coordinator, artifacts, runner, _ = daemon(
+        tmp_path, make_task(content), content
+    )
     assert worker.run_once() == RunOnceOutcome(claimed=True, completed=True)
     assert runner.calls == 1
     assert len(artifacts.uploaded) == 1
@@ -107,10 +140,16 @@ def test_claims_runs_uploads_and_submits_csv(tmp_path: Path) -> None:
 
 
 def test_worker_executes_a_resolved_similarity_search_shard(tmp_path: Path) -> None:
-    content = b"chembl_id\tcanonical_smiles\nQUERY\tCCO\nMATCH\tCCCO\nINVALID\tnot-a-smiles\n"
+    content = (
+        b"chembl_id\tcanonical_smiles\nQUERY\tCCO\nMATCH\tCCCO\nINVALID\tnot-a-smiles\n"
+    )
     task = make_task(content)
     task = ClaimedTask(
-        task.task_id, task.attempt, task.lease_expires_at, task.workload, task.input,
+        task.task_id,
+        task.attempt,
+        task.lease_expires_at,
+        task.workload,
+        task.input,
         {"query_smiles": "CCO", "top_k": 5, "progress_every": 0},
     )
     worker, coordinator, artifacts, _, _ = daemon(tmp_path, task, content)
@@ -131,11 +170,19 @@ def test_two_workers_complete_resolved_shards_after_one_retry(tmp_path: Path) ->
     content = b"chembl_id\tcanonical_smiles\nQUERY\tCCO\nMATCH\tCCCO\n"
     first = make_task(content)
     first = ClaimedTask(
-        "retry-task", 1, first.lease_expires_at, "similarity-search", first.input,
+        "retry-task",
+        1,
+        first.lease_expires_at,
+        "similarity-search",
+        first.input,
         {"query_smiles": "CCO", "top_k": 5},
     )
     second = ClaimedTask(
-        "other-task", 1, first.lease_expires_at, "similarity-search", first.input,
+        "other-task",
+        1,
+        first.lease_expires_at,
+        "similarity-search",
+        first.input,
         {"query_smiles": "CCO", "top_k": 5},
     )
 
@@ -145,16 +192,26 @@ def test_two_workers_complete_resolved_shards_after_one_retry(tmp_path: Path) ->
             self.queue = [first, second]
             self.claimants: list[str] = []
 
-        def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
+        def claim(
+            self, worker_id: str, capabilities: tuple[str, ...]
+        ) -> ClaimedTask | None:
             self.claimants.append(worker_id)
             return self.queue.pop(0) if self.queue else None
 
         def fail(self, task: ClaimedTask, payload: dict) -> None:
             self.failures.append(payload)
-            if task.task_id == "retry-task" and task.attempt == 1 and payload["retryable"]:
+            if (
+                task.task_id == "retry-task"
+                and task.attempt == 1
+                and payload["retryable"]
+            ):
                 self.queue.append(
                     ClaimedTask(
-                        task.task_id, 2, task.lease_expires_at, task.workload, task.input,
+                        task.task_id,
+                        2,
+                        task.lease_expires_at,
+                        task.workload,
+                        task.input,
                         task.parameters,
                     )
                 )
@@ -174,11 +231,15 @@ def test_two_workers_complete_resolved_shards_after_one_retry(tmp_path: Path) ->
     artifacts = FakeArtifacts(content)
     worker_a = WorkerDaemon(
         WorkerConfig("https://example.test", "worker-a", tmp_path / "worker-a"),
-        coordinator, artifacts, FailFirstAttempt(),
+        coordinator,
+        artifacts,
+        FailFirstAttempt(),
     )
     worker_b = WorkerDaemon(
         WorkerConfig("https://example.test", "worker-b", tmp_path / "worker-b"),
-        coordinator, artifacts, SciMeshRunner(),
+        coordinator,
+        artifacts,
+        SciMeshRunner(),
     )
 
     assert worker_a.run_once() == RunOnceOutcome(claimed=True, completed=False)
@@ -197,16 +258,22 @@ def test_no_task_does_not_create_directory(tmp_path: Path) -> None:
     assert not config.work_dir.exists()
 
 
-def test_once_worker_exits_after_an_empty_claim(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_once_worker_exits_after_an_empty_claim(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     caplog.set_level(logging.INFO, logger="scimesh.worker")
     worker, _, _, runner, _ = daemon(tmp_path, None, b"")
-    worker.config = WorkerConfig(**{**worker.config.__dict__, "exit_when_idle": True, "max_tasks": 1})
+    worker.config = WorkerConfig(
+        **{**worker.config.__dict__, "exit_when_idle": True, "max_tasks": 1}
+    )
     assert worker.run_forever() is True
     assert runner.calls == 0
     assert "queue_empty" in caplog.text
 
 
-def test_worker_stops_after_the_configured_number_of_claims(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_worker_stops_after_the_configured_number_of_claims(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     caplog.set_level(logging.INFO, logger="scimesh.worker")
     content = b"input fixture"
     worker, _, _, runner, _ = daemon(tmp_path, make_task(content), content)
@@ -216,10 +283,15 @@ def test_worker_stops_after_the_configured_number_of_claims(tmp_path: Path, capl
     assert "max_tasks_reached" in caplog.text
 
 
-def test_keyboard_interrupt_stops_worker_without_propagating(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_keyboard_interrupt_stops_worker_without_propagating(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     caplog.set_level(logging.INFO, logger="scimesh.worker")
+
     class InterruptingCoordinator(FakeCoordinator):
-        def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
+        def claim(
+            self, worker_id: str, capabilities: tuple[str, ...]
+        ) -> ClaimedTask | None:
             raise KeyboardInterrupt
 
     worker, _, _, _, _ = daemon(tmp_path, None, b"")
@@ -228,7 +300,9 @@ def test_keyboard_interrupt_stops_worker_without_propagating(tmp_path: Path, cap
     assert "interrupted" in caplog.text
 
 
-def test_interrupting_an_active_task_reports_a_sanitized_failure(tmp_path: Path) -> None:
+def test_interrupting_an_active_task_reports_a_sanitized_failure(
+    tmp_path: Path,
+) -> None:
     content = b"input fixture"
     worker, coordinator, _, _, _ = daemon(tmp_path, make_task(content), content)
 
@@ -271,12 +345,16 @@ def test_max_tasks_counts_successes_not_failed_claims(tmp_path: Path) -> None:
                 ),
             ]
 
-        def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
+        def claim(
+            self, worker_id: str, capabilities: tuple[str, ...]
+        ) -> ClaimedTask | None:
             return self.tasks.pop(0) if self.tasks else None
 
     coordinator = SequencedCoordinator()
     artifacts, runner = FakeArtifacts(successful_content), FakeRunner()
-    config = WorkerConfig("https://example.test", "worker-1", tmp_path / "work", max_tasks=1)
+    config = WorkerConfig(
+        "https://example.test", "worker-1", tmp_path / "work", max_tasks=1
+    )
     worker = WorkerDaemon(config, coordinator, artifacts, runner)
     assert worker.run_forever() is True
     assert len(coordinator.failures) == 1
@@ -303,9 +381,12 @@ def test_worker_cli_uses_a_nonzero_exit_code_for_interruption(
             return False
 
     monkeypatch.setattr(worker_cli, "WorkerDaemon", InterruptedDaemon)
-    assert worker_cli.main(
-        ["--coordinator-url", "https://example.test", "--work-dir", str(tmp_path)]
-    ) == 130
+    assert (
+        worker_cli.main(
+            ["--coordinator-url", "https://example.test", "--work-dir", str(tmp_path)]
+        )
+        == 130
+    )
 
 
 @pytest.mark.parametrize("value", [0, -1, True])
@@ -315,7 +396,9 @@ def test_max_tasks_must_be_positive(value: object, tmp_path: Path) -> None:
 
 
 def test_bad_checksum_reports_failure_without_running(tmp_path: Path) -> None:
-    worker, coordinator, _, runner, _ = daemon(tmp_path, make_task(b"actual", "not-the-hash"), b"actual")
+    worker, coordinator, _, runner, _ = daemon(
+        tmp_path, make_task(b"actual", "not-the-hash"), b"actual"
+    )
     assert worker.run_once() == RunOnceOutcome(claimed=True, completed=False)
     assert runner.calls == 0
     assert coordinator.failures[0]["error_code"] == "ValueError"
@@ -323,7 +406,9 @@ def test_bad_checksum_reports_failure_without_running(tmp_path: Path) -> None:
     assert not coordinator.submissions
 
 
-def test_failure_reporting_removes_paths_outside_the_worker_directory(tmp_path: Path) -> None:
+def test_failure_reporting_removes_paths_outside_the_worker_directory(
+    tmp_path: Path,
+) -> None:
     worker, coordinator, _, _, _ = daemon(tmp_path, make_task(b"input"), b"input")
     error = subprocess.CalledProcessError(
         1,
@@ -344,9 +429,13 @@ def test_directory_creation_failure_is_reported(tmp_path: Path) -> None:
     assert coordinator.failures[0]["error_code"] == "FileExistsError"
 
 
-def test_transient_claim_error_is_propagated_for_bounded_backoff(tmp_path: Path) -> None:
+def test_transient_claim_error_is_propagated_for_bounded_backoff(
+    tmp_path: Path,
+) -> None:
     class UnavailableCoordinator(FakeCoordinator):
-        def claim(self, worker_id: str, capabilities: tuple[str, ...]) -> ClaimedTask | None:
+        def claim(
+            self, worker_id: str, capabilities: tuple[str, ...]
+        ) -> ClaimedTask | None:
             raise CoordinatorTransientError("temporary outage")
 
     worker, _, _, _, _ = daemon(tmp_path, None, b"")
@@ -368,7 +457,9 @@ def test_task_directories_are_retained_until_cleanup_is_enabled(tmp_path: Path) 
 
 def test_input_token_is_sent_only_to_the_coordinator_origin() -> None:
     client = HttpArtifactClient("https://coordinator.example/api", 10, "secret")
-    assert client._auth_headers_for("https://coordinator.example/tasks/1/input") == {"Authorization": "Bearer secret"}
+    assert client._auth_headers_for("https://coordinator.example/tasks/1/input") == {
+        "Authorization": "Bearer secret"
+    }
     assert client._auth_headers_for("https://bucket.example/presigned") == {}
 
 
@@ -384,17 +475,28 @@ def test_relative_input_uri_is_resolved_against_the_coordinator() -> None:
 def test_redirect_to_external_storage_strips_authorization() -> None:
     handler = _SameOriginAuthRedirectHandler(_origin("https://coordinator.example"))
     source = Request(
-        "https://coordinator.example/tasks/1/input", headers={"Authorization": "Bearer secret"}
+        "https://coordinator.example/tasks/1/input",
+        headers={"Authorization": "Bearer secret"},
     )
-    redirected = handler.redirect_request(source, None, 302, "Found", {}, "https://bucket.example/presigned")
+    redirected = handler.redirect_request(
+        source, None, 302, "Found", {}, "https://bucket.example/presigned"
+    )
     assert redirected is not None
     assert redirected.get_header("Authorization") is None
 
 
 def test_api_requests_never_follow_redirects() -> None:
     handler = NoRedirectHandler()
-    request = Request("https://coordinator.example/tasks/claim", headers={"Authorization": "Bearer secret"})
-    assert handler.redirect_request(request, None, 302, "Found", {}, "https://other.example") is None
+    request = Request(
+        "https://coordinator.example/tasks/claim",
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert (
+        handler.redirect_request(
+            request, None, 302, "Found", {}, "https://other.example"
+        )
+        is None
+    )
 
 
 def test_lease_is_renewed_while_a_runner_is_still_working(tmp_path: Path) -> None:
@@ -429,44 +531,101 @@ def test_heartbeat_reschedules_from_the_renewed_lease(tmp_path: Path) -> None:
     assert len(coordinator.heartbeats) >= 3
 
 
-def test_runner_maps_graph_and_smiles_search_parameters(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    commands: list[list[str]] = []
-
-    def fake_run(command: list[str], **_: object) -> None:
-        commands.append(command)
-        output = Path(command[command.index("--output") + 1])
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text("a,b\n", encoding="utf-8")
-
-    monkeypatch.setattr("scimesh.worker.runners.subprocess.run", fake_run)
+def test_runner_executes_search_through_the_sdk_and_rejects_graph(
+    tmp_path: Path,
+) -> None:
     runner = SciMeshRunner()
-    graph = ClaimedTask("graph", 1, "2026-07-30T00:00:00Z", "similarity-graph", InputArtifact("https://example/input", "x"), {"threshold": 0.2, "threshold_direction": "less", "block_size": 42, "max_rows": 7, "progress_every": 0})
-    search = ClaimedTask("search", 1, "2026-07-30T00:00:00Z", "similarity-search", InputArtifact("https://example/input", "x"), {"query_smiles": "CCO", "top_k": 3})
+    graph = ClaimedTask(
+        "graph",
+        1,
+        "2026-07-30T00:00:00Z",
+        "similarity-graph",
+        InputArtifact("https://example/input", "x"),
+        {
+            "threshold": 0.2,
+            "threshold_direction": "less",
+            "block_size": 42,
+            "max_rows": 7,
+            "progress_every": 0,
+        },
+    )
+    search = ClaimedTask(
+        "search",
+        1,
+        "2026-07-30T00:00:00Z",
+        "similarity-search",
+        InputArtifact("https://example/input", "x"),
+        {"query_smiles": "CCO", "top_k": 3},
+    )
     search_dir = tmp_path / "search"
     search_dir.mkdir()
     (search_dir / "input").write_text(
         "chembl_id\tcanonical_smiles\nA\tCCO\nB\tCCCO\n", encoding="utf-8"
     )
-    runner.run(graph, tmp_path / "graph")
+    with pytest.raises(ValueError, match="unsupported workload"):
+        runner.run(graph, tmp_path / "graph")
     result = runner.run(search, search_dir)
-    assert "--threshold-direction" in commands[0] and "less" in commands[0]
-    assert "--block-size" in commands[0] and "42" in commands[0]
-    assert "--max-rows" in commands[0] and "7" in commands[0]
-    assert len(commands) == 1
     assert result.metrics == {
-        "scanned_rows": 2, "valid_molecules": 2, "invalid_smiles": 0, "matches_emitted": 1,
+        "scanned_rows": 2,
+        "valid_molecules": 2,
+        "invalid_smiles": 0,
+        "matches_emitted": 1,
     }
+    assert result.artifacts[0].content_type == "text/csv"
+    assert (
+        result.artifacts[0]
+        .path.read_text(encoding="utf-8")
+        .startswith("rank,chembl_id,canonical_smiles,similarity\n")
+    )
 
 
-def test_runner_accepts_coordinator_workload_names(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_runner_resolves_query_id_from_the_shard_and_rejects_plan_time_options(
+    tmp_path: Path,
+) -> None:
+    task_dir = tmp_path / "search"
+    task_dir.mkdir()
+    (task_dir / "input").write_text(
+        "chembl_id\tcanonical_smiles\nQUERY\tCCO\nMATCH\tCCCO\n", encoding="utf-8"
+    )
+    task = ClaimedTask(
+        "search",
+        1,
+        "2026-07-30T00:00:00Z",
+        "similarity-search",
+        InputArtifact("https://example/input", "a" * 64),
+        {"query_id": "QUERY", "top_k": 5},
+    )
+    result = SciMeshRunner().run(task, task_dir)
+    assert result.metrics["matches_emitted"] == 1
+    assert (task_dir / "result.csv").is_file()
+
+    with_max_rows = ClaimedTask(
+        "search",
+        1,
+        "2026-07-30T00:00:00Z",
+        "similarity-search",
+        InputArtifact("https://example/input", "a" * 64),
+        {"query_smiles": "CCO", "max_rows": 1},
+    )
+    with pytest.raises(ValueError, match="unsupported runner parameters"):
+        SciMeshRunner().run(with_max_rows, task_dir)
+
+
+def test_runner_accepts_coordinator_workload_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     task_dir = tmp_path / "search"
     task_dir.mkdir()
     (task_dir / "input").write_text(
         "chembl_id\tcanonical_smiles\nA\tCCO\nB\tCCCO\n", encoding="utf-8"
     )
     task = ClaimedTask(
-        "search", 1, "2026-07-30T00:00:00Z", "similarity_search",
-        InputArtifact("https://example/input", "a" * 64), {"query_smiles": "CCO"},
+        "search",
+        1,
+        "2026-07-30T00:00:00Z",
+        "similarity_search",
+        InputArtifact("https://example/input", "a" * 64),
+        {"query_smiles": "CCO"},
     )
     result = SciMeshRunner().run(task, task_dir)
     assert result.metrics["matches_emitted"] == 1
@@ -502,7 +661,10 @@ def test_claimed_task_accepts_a_coordinator_relative_input_path() -> None:
             "attempt": 1,
             "lease_expires_at": "2026-07-30T00:00:00Z",
             "workload": "similarity_search",
-            "input": {"uri": "/tasks/11111111-1111-4111-8111-111111111111/input", "sha256": "a" * 64},
+            "input": {
+                "uri": "/tasks/11111111-1111-4111-8111-111111111111/input",
+                "sha256": "a" * 64,
+            },
             "parameters": {},
         }
     )
@@ -523,7 +685,9 @@ def test_uploaded_artifact_requires_complete_durable_metadata() -> None:
         UploadedArtifact.from_json({"artifact_id": "missing"})
 
 
-def test_environment_overrides_allow_cli_only_configuration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_environment_overrides_allow_cli_only_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.delenv("SCIMESH_COORDINATOR_URL", raising=False)
     config = WorkerConfig.from_environment(
         {
@@ -552,8 +716,12 @@ def test_relative_work_dir_is_normalized_for_runner_subprocesses(
         "chembl_id\tcanonical_smiles\nA\tCCO\nB\tCCCO\n", encoding="utf-8"
     )
     task = ClaimedTask(
-        "task", 1, "2026-07-30T00:00:00Z", "similarity-search",
-        InputArtifact("https://example.test/input", "a" * 64), {"query_smiles": "CCO"},
+        "task",
+        1,
+        "2026-07-30T00:00:00Z",
+        "similarity-search",
+        InputArtifact("https://example.test/input", "a" * 64),
+        {"query_smiles": "CCO"},
     )
     SciMeshRunner().run(task, task_dir)
     assert (task_dir / "result.csv").is_file()

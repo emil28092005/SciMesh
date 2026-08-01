@@ -25,20 +25,22 @@ from scimesh.sdk import (
     WorkloadDefinition,
     WorkloadId,
     WorkloadRegistry,
-    current_scimesh_package_digest,
-    default_sdk_runtime,
     installed_distribution_digest,
-    similarity_search_sdk_adapter,
 )
 from scimesh.sdk.schema import (
     ParameterValidationError,
     validate_parameter_instance,
     validate_schema_definition,
 )
+from scimesh.workloads.environment import current_scimesh_package_digest
+from scimesh.workloads.library import default_sdk_runtime
+from scimesh.workloads.search import similarity_search_sdk_definition
 
 
-def _definition(*, version: str = "1.0.0", digest_character: str = "a") -> WorkloadDefinition:
-    original = similarity_search_sdk_adapter(shard_rows=2).definition()
+def _definition(
+    *, version: str = "1.0.0", digest_character: str = "a"
+) -> WorkloadDefinition:
+    original = similarity_search_sdk_definition(shard_rows=2).definition()
     manifest = replace(
         original.manifest,
         workload=WorkloadId("similarity-search", version),
@@ -72,13 +74,16 @@ def test_registry_requires_an_explicit_enabled_version_and_digest() -> None:
         registry.register(first)
 
     registry.enable("similarity-search", "2.0.0", "sha256:" + "b" * 64)
-    assert [item.workload.version for item in registry.descriptions()] == ["1.0.0", "2.0.0"]
+    assert [item.workload.version for item in registry.descriptions()] == [
+        "1.0.0",
+        "2.0.0",
+    ]
 
 
 def test_compatibility_failure_occurs_before_planner_invocation(
     tmp_path: Path,
 ) -> None:
-    original = similarity_search_sdk_adapter(shard_rows=2).definition()
+    original = similarity_search_sdk_definition(shard_rows=2).definition()
 
     class CountingPlanner:
         calls = 0
@@ -140,7 +145,7 @@ def test_job_selected_features_and_trust_mode_fail_closed_before_planning(
     request_changes: dict[str, object],
     error_code: str,
 ) -> None:
-    definition = similarity_search_sdk_adapter(shard_rows=2).definition()
+    definition = similarity_search_sdk_definition(shard_rows=2).definition()
     registry = WorkloadRegistry()
     registry.register(definition, enabled=True)
     input_port = definition.manifest.inputs["input"]
@@ -180,7 +185,7 @@ class _EntryPoints(tuple):
 def test_discovery_imports_only_an_exact_allowlisted_installed_entry_point(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    definition = similarity_search_sdk_adapter().definition()
+    definition = similarity_search_sdk_definition().definition()
     loaded: list[str] = []
 
     class EntryPoint:
@@ -191,7 +196,7 @@ def test_discovery_imports_only_an_exact_allowlisted_installed_entry_point(
                 if distribution == "scimesh"
                 else SimpleNamespace(name=distribution)
             )
-            self.value = "scimesh.sdk.builtins:similarity_search_sdk_adapter"
+            self.value = "scimesh.workloads.search:similarity_search_sdk_definition"
 
         @property
         def module(self) -> str:
@@ -232,14 +237,14 @@ def test_discovery_imports_only_an_exact_allowlisted_installed_entry_point(
 def test_discovery_measures_package_before_importing_entry_point(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    definition = similarity_search_sdk_adapter().definition()
+    definition = similarity_search_sdk_definition().definition()
     loaded = False
 
     class EntryPoint:
         name = "similarity-search@1.0.0"
         dist = metadata.distribution("scimesh")
-        value = "scimesh.sdk.builtins:similarity_search_sdk_adapter"
-        module = "scimesh.sdk.builtins"
+        value = "scimesh.workloads.search:similarity_search_sdk_definition"
+        module = "scimesh.workloads.search"
 
         def load(self):
             nonlocal loaded
@@ -333,7 +338,7 @@ def test_discovery_rejects_entry_point_module_owned_by_another_distribution(
         "scimesh.sdk.registry.metadata.entry_points",
         lambda: _EntryPoints((EntryPoint(),)),
     )
-    definition = similarity_search_sdk_adapter().definition()
+    definition = similarity_search_sdk_definition().definition()
     with pytest.raises(ValueError, match="outside its distribution"):
         WorkloadRegistry().discover_installed(
             (
@@ -463,14 +468,14 @@ def test_disabled_workload_is_not_resolvable_until_re_enabled() -> None:
 def test_discovery_rechecks_the_package_digest_after_loading(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    definition = similarity_search_sdk_adapter().definition()
+    definition = similarity_search_sdk_definition().definition()
     digests = iter((definition.manifest.package.digest, "sha256:" + "e" * 64))
 
     class EntryPoint:
         name = "similarity-search@1.0.0"
         dist = metadata.distribution("scimesh")
-        value = "scimesh.sdk.builtins:similarity_search_sdk_adapter"
-        module = "scimesh.sdk.builtins"
+        value = "scimesh.workloads.search:similarity_search_sdk_definition"
+        module = "scimesh.workloads.search"
 
         def load(self):
             return lambda: definition
@@ -498,10 +503,17 @@ def test_discovery_rechecks_the_package_digest_after_loading(
     assert registry.descriptions() == ()
 
 
-def test_request_trust_mode_must_be_enforceable_by_runtime_and_stages(tmp_path: Path) -> None:
-    original = similarity_search_sdk_adapter(shard_rows=2).definition()
+def test_request_trust_mode_must_be_enforceable_by_runtime_and_stages(
+    tmp_path: Path,
+) -> None:
+    original = similarity_search_sdk_definition(shard_rows=2).definition()
+    stages = tuple(
+        replace(stage, trust_modes=("trusted",))
+        for stage in original.manifest.workflow.stages
+    )
     manifest = replace(
         original.manifest,
+        workflow=replace(original.manifest.workflow, stages=stages),
         trust_modes=(TrustMode.TRUSTED, TrustMode.VERIFIED),
     )
     definition = WorkloadDefinition(
@@ -554,7 +566,7 @@ def test_request_trust_mode_must_be_enforceable_by_runtime_and_stages(tmp_path: 
 
 
 def test_job_cannot_require_a_feature_outside_the_runtime(tmp_path: Path) -> None:
-    original = similarity_search_sdk_adapter(shard_rows=2).definition()
+    original = similarity_search_sdk_definition(shard_rows=2).definition()
     manifest = replace(
         original.manifest,
         optional_features=(

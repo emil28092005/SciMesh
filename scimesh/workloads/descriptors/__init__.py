@@ -1,4 +1,4 @@
-"""SDK-native ``descriptor-batch`` reference workload.
+"""SDK-built ``descriptor-batch`` reference workload.
 
 See ``core.py`` for the pinned scientific contract and ``definition.py`` for
 the manifest-backed planner/runner/reducer handlers.

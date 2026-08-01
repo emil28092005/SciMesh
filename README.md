@@ -135,11 +135,17 @@ The package separates common dataset parsing and fingerprints from independent w
 
 ## Workload SDK
 
-`scimesh.sdk` implements the `core-batch-v1` authoring profile: strict and
-immutable workload manifests, typed artifact ports, static map/reduce plans,
-resource eligibility and local reservations, exact/canonical/numeric verifier
-primitives, installed-package allowlisting, and a compatibility adapter for the
-existing distributed `similarity-search`. See the
+`scimesh.sdk` is the framework only: strict and immutable workload manifests,
+typed artifact ports, static map/reduce plans, resource eligibility and local
+reservations, exact/canonical/numeric verifier primitives, installed-package
+allowlisting, and a local conformance executor. It contains no scientific
+workload code. Workloads are user scripts built on the SDK: the built-in
+`similarity-search`, `similarity-graph`, and `descriptor-batch` live in
+`scimesh/workloads/` (each a small package with `core.py` + `definition.py`),
+composed by `scimesh/workloads/library.py` and registered through
+`scimesh.workloads` entry points. The Worker Agent executes those SDK-built
+workloads directly (see `scimesh/worker/runners.py`), so the same scientific
+handlers run locally, in conformance, and on claimed coordinator tasks. See the
 [SDK author guide](docs/workload-sdk.md), [contract](docs/scimesh-sdk-contract.md),
 and [delivery roadmap](docs/scimesh-sdk-roadmap.md).
 

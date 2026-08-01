@@ -12,6 +12,18 @@ Read first, in this order: `AGENTS.md` (binding repo rules),
 
 ## What is already done (do not redo)
 
+**Legacy removal (2026-08-01):** the CTX-07 `DistributedWorkload` protocol
+package (`scimesh/distributed/`), the SDK compatibility adapter
+(`scimesh/sdk/compat/`), and `library.similarity_search_sdk_adapter` were
+removed. The worker now executes the SDK-built workloads directly:
+`scimesh/worker/runners.py` builds a `TaskSpec` with the workload's pins,
+negotiates, reserves resources, runs the workload's own Runner through
+`LocalTaskContext` (store-backed catalog/sink), and uploads the sealed
+partial over the unchanged v1 wire. `run_search_shard` + the full-precision
+partial writer moved to `scimesh/workloads/search/core.py`; the partial
+format is unchanged, so the Go reducer and UI keep working. The runner
+resolves `query_id` per task and rejects plan-time `max_rows`.
+
 CTX-16 "Workload SDK foundation" is complete and tested. `scimesh/sdk/`
 implements the `core-batch-v1` profile:
 
@@ -26,29 +38,41 @@ implements the `core-batch-v1` profile:
   `NumericToleranceVerifier` with bounded sanitized evidence: `verification.py`.
 - Local conformance harness: `LocalArtifactStore`, `LocalCoreBatchExecutor`,
   `ResourcePool` (atomic all-or-nothing reservation): `conformance.py`.
-- Legacy adapter exposing distributed `similarity-search` through the SDK
-  without changing its wire schema: `compat/distributed_v1.py`, `builtins.py`;
-  entry point `similarity-search@1.0.0` is declared in `pyproject.toml`.
+- SDK-built workloads living outside the SDK: `scimesh/workloads/search/`,
+  `scimesh/workloads/graph/`, `scimesh/workloads/descriptors/` (each `core.py`
+  + `definition.py`), composed by `scimesh/workloads/library.py`
+  (`default_sdk_registry`, `default_sdk_runtime`); entry points for all three
+  declared in `pyproject.toml`.
 - Tests: `tests/test_sdk_{models,resources,verification,compatibility,registry}.py`
   including fail-closed rejection coverage for every advanced profile
   declaration (gang, GPU modes, pools, checkpoints, retries, secrets, streams,
-  loops, side effects).
+  loops, side effects), plus `tests/test_sdk_{search,graph,descriptors}.py`
+  and the worker bridge tests in `tests/test_worker_daemon.py`.
+  `tests/test_distributed*.py` were removed with the protocol.
 
 ## What remains, in delivery order
 
 1. ~~**`descriptor-batch` reference workload**~~ — **done** (2026-08-01):
-   `scimesh/sdk/descriptors/` (`core.py` + `definition.py`) is the first
-   SDK-native workload. Pinned 81-name RDKit 2D descriptor set (validated at
+   `scimesh/workloads/descriptors/` (`core.py` + `definition.py`) is the first
+   SDK-built workload. Pinned 81-name RDKit 2D descriptor set (validated at
    definition build time), canonical one-row-per-input CSV with `%.6f` floats,
    deterministic row-bounded shards, shard-index concatenation with one header,
    byte-identical local/distributed output, `skip_invalid` explicit policy, and
-   `untrusted_quorum` + exact-artifact@1 declared in the manifest. Entry point
-   `descriptor-batch@1.0.0` is in `pyproject.toml`; `default_sdk_runtime` now
-   advertises the `descriptor-batch` capability. Tests:
-   `tests/test_sdk_descriptors.py` (8 tests: manifest/negotiation, local-vs-
-   reference byte parity, deterministic path-free planning, explicit invalid-
-   row policy, strict parameter schema, two-owner quorum accept, conflicting-
-   quorum reject, allowlist discovery). Total suite: 233 passing.
+   `untrusted_quorum` + exact-artifact@1 declared in the manifest. Tests:
+   `tests/test_sdk_descriptors.py`.
+2. ~~**SDK-built `similarity-search` and `similarity-graph`**~~ — **done**
+   (2026-08-01). Both local workloads are SDK-built packages outside the SDK:
+   `scimesh/workloads/search/` and `scimesh/workloads/graph/` (each `core.py` +
+   `definition.py`, manifest + planner/runner/reducer, byte_exact +
+   exact-artifact@1, trusted + untrusted_quorum). Search resolves the query at
+   plan time and merges partials with the reference heap (byte-identical to the
+   CLI). Graph plans one task per block pair `(i,j)` with `i <= j`, reducer
+   enforces pair-coverage and duplicate-pair rejection, output byte-identical
+   to the local brute-force reference for both directions and any block size.
+   Tests: `tests/test_sdk_search.py`, `tests/test_sdk_graph.py`.
+   **Architecture note:** `scimesh.sdk/` is the framework ONLY (no workload
+   code); workloads are user scripts/packages under `scimesh/workloads/` that
+   import the SDK. Keep new workloads out of the SDK package.
 2. **Distributed `similarity-graph`** (CTX-10, roadmap step 1). The coordinator
    currently rejects `similarity-graph` uploads; it needs cross-shard block-pair
    planning and duplicate-safe reduction. STATUS.md names this the next
@@ -76,6 +100,12 @@ implements the `core-batch-v1` profile:
 
 ## Known traps (cost the previous session real time)
 
+- **Architecture boundary:** `scimesh.sdk/` is the framework only and must
+  never import `scimesh.workloads` (SDK depends on nothing workload-specific).
+  Workload packages live under `scimesh/workloads/` (each `core.py` +
+  `definition.py`), and built-in wiring lives in `scimesh/workloads/library.py`.
+  The digest helpers are in `scimesh/workloads/environment.py`; the SDK keeps
+  only the generic `installed_distribution_digest` in `scimesh/sdk/integrity.py`.
 - The legacy adapter pins its own manifest (`adapter.manifest`). If a test
   changes limits/workflow on the manifest, the adapter's copy must be replaced
   too, or `registry.plan` fails with "planner plan does not carry the selected
