@@ -11,7 +11,12 @@ requires-python = ">=3.10"
 dependencies = ["rdkit>=2024.3"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=1.0",
+]
 
 [project.scripts]
 scimesh = "scimesh.cli:main"

@@ -1,0 +1,43 @@
+site_name: SciMesh
+site_description: Local-first distributed scientific computation for molecular workloads
+repo_url: https://github.com/emil28092005/SciMesh
+edit_uri: blob/main/docs/
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: indigo
+    accent: cyan
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_options:
+        show_root_heading: true
+        show_symbol_type_heading: true
+        show_source: false
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+
+nav:
+  - Home: index.md
+  - API reference:
+      - SDK batch scaffold: api/sdk-batch.md
+
+extra:
+  generator: false
