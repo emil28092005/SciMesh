@@ -133,6 +133,27 @@ pytest
 
 The package separates common dataset parsing and fingerprints from independent workloads. Add future workloads through the workload registry without changing the main CLI.
 
+## Workload SDK
+
+`scimesh.sdk` implements the `core-batch-v1` authoring profile: strict and
+immutable workload manifests, typed artifact ports, static map/reduce plans,
+resource eligibility and local reservations, exact/canonical/numeric verifier
+primitives, installed-package allowlisting, and a compatibility adapter for the
+existing distributed `similarity-search`. See the
+[SDK author guide](docs/workload-sdk.md), [contract](docs/scimesh-sdk-contract.md),
+and [delivery roadmap](docs/scimesh-sdk-roadmap.md).
+
+Dynamic workflows, real Worker concurrency, coordinator-backed GPU allocation,
+streaming, and gang execution remain fail-closed until their versioned runtime
+features are implemented; declaring those profiles does not silently enable
+them.
+
+The included `LocalCoreBatchExecutor` is a trusted, single-threaded in-process
+conformance harness. It validates scientific parity, sealed outputs, provenance,
+and limits, but intentionally refuses profiles that claim network/process
+isolation, secrets, accelerators, gangs, checkpoints, or retries; those require
+the future enforcing Agent runtime.
+
 ## Team
 
 - [Emil](https://github.com/emil28092005) — Project Lead

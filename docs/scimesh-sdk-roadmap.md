@@ -1,7 +1,11 @@
 # SciMesh Workload SDK roadmap
 
-**Status:** future design and sequencing document. No SDK package, commands, or
-general verifier abstraction described here is implemented yet.
+**Status:** active delivery roadmap. The Python `scimesh.sdk` package now
+implements the `core-batch-v1` foundation, verifier primitives, resource
+eligibility/local allocation, installed-package registry, local conformance
+runtime, and legacy similarity-search adapter. Coordinator-backed generalized
+DAG execution, Worker concurrency, accelerators, streaming, gang execution,
+and authoring CLI commands remain future phases.
 
 The normative future API, workflow, execution, resource, security, and failure
 semantics are specified in the design-draft
@@ -69,8 +73,10 @@ canonical, numeric, domain-specific, or trust-policy comparison. It processes
 structured manifests and bounded streams where practical, records sanitized
 evidence, and rejects inconsistent results.
 
-Current untrusted quorum is only `ExactArtifactVerifier`: distinct owners must
-produce whole files with identical SHA-256. Future modes are
+Current untrusted quorum is only `ExactArtifactVerifier`: coordinator-created
+candidate envelopes from distinct owners must share the exact workload, task,
+package/manifest/environment, parameters, and input binding and produce whole
+files with identical SHA-256. Future modes are
 `CanonicalRecordVerifier`, `NumericToleranceVerifier`,
 `DomainSpecificVerifier`, and `TrustedWorkerPolicy`. Canonical mode requires a
 specified parser/schema/order/encoding/serialization; numeric mode compares

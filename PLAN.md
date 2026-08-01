@@ -958,6 +958,42 @@ workload logic into the service.
 - the existing single-operator demo remains usable through a documented local
   development configuration.
 
+### CTX-16 — Workload SDK foundation
+
+**Goal:** Provide a strict Python authoring SDK for installed, allowlisted
+scientific workloads while retaining the CTX-07 distributed protocol as a
+compatible wire profile.
+
+**Depends on:** CTX-07 and CTX-08. Coordinator-backed generalized scheduling
+also depends on CTX-10 through CTX-14, but the Python contract and local
+conformance runtime can land independently and must fail closed for unavailable
+features.
+
+**Acceptance criteria:**
+
+- public manifest, workflow, task, artifact, resource, execution, provenance,
+  and verifier value objects are immutable, typed, JSON-safe, versioned, and
+  strict about unknown fields;
+- installed workload discovery requires an administrator allowlist plus exact
+  workload version and package digest; job parameters cannot select code;
+- compatibility negotiation covers SDK/protocol/profile/feature/environment
+  versions and occurs before planner invocation;
+- plans/tasks pin package and manifest digests plus selected trust mode, and
+  quorum candidates carry coordinator-owned candidate/owner and scientific
+  binding identities;
+- `core-batch-v1` has a trusted local conformance executor with atomic resource
+  reservation, sealed-output/provenance validation, declared verifier
+  invocation, and golden scientific parity;
+- exact, canonical-record, and structured numeric-tolerance verifier
+  primitives return bounded sanitized decisions;
+- the existing distributed `similarity-search` is available through an adapter
+  without changing its wire schema, worker alias boundary, or scientific
+  result, and parity is tested;
+- advanced dynamic, stream, accelerator, gang, and side-effect profiles are
+  rejected unless an enforcing runtime advertises their required features;
+- an author guide documents package entry points, security boundaries,
+  conformance tests, and current coordinator/Worker limitations.
+
 ---
 
 ## 10. Suggested assignment bundles
@@ -973,6 +1009,7 @@ parallel unless one engineer owns integration.
 | Distributed computation | CTX-07, CTX-08, CTX-10 | Scientific Python engineer |
 | Product surface | CTX-09, CTX-11 | Full-stack/backend engineer |
 | Quality gate | CTX-12 | DevOps/QA engineer |
+| Workload SDK | CTX-16 | Scientific Python/platform engineer |
 
 Suggested order for a small team:
 

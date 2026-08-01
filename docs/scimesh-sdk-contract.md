@@ -1,13 +1,16 @@
 # SciMesh Workload SDK contract
 
-**Status:** design draft `0.1`; not implemented. Normative words **MUST**,
-**MUST NOT**, **SHOULD**, and **MAY** describe the intended future contract,
-not capabilities of the current release.
+**Status:** contract `0.1`. The Python `core-batch-v1` foundation is implemented
+in `scimesh.sdk`; dynamic, streaming, accelerator, gang, side-effect, and
+coordinator protocol-v2 behavior remains a normative target. Normative words
+**MUST**, **MUST NOT**, **SHOULD**, and **MAY** apply to an implementation only
+when it advertises the affected profile or feature.
 
 This document defines the compatibility boundary for approved SciMesh workload
 packages. The sequencing and unresolved product decisions remain in
-[`scimesh-sdk-roadmap.md`](scimesh-sdk-roadmap.md). The currently implemented
-protocol is still [`ctx-07-distributed-workload-protocol.md`](ctx-07-distributed-workload-protocol.md).
+[`scimesh-sdk-roadmap.md`](scimesh-sdk-roadmap.md). The production coordinator
+wire compatibility profile remains
+[`ctx-07-distributed-workload-protocol.md`](ctx-07-distributed-workload-protocol.md).
 
 ## 1. Scope and invariants
 
@@ -240,7 +243,11 @@ indefinitely while holding resources.
 `TaskSpec` is the concrete unit leased to a Worker Agent:
 
 ```yaml
-task_schema_version: 1
+schema_version: 1
+workload: descriptor-batch@1.2.0
+package_digest: sha256:...
+manifest_digest: ...
+trust_mode: trusted
 task_key: calculate/shard-000042
 stage_id: calculate
 parameters: {...validated JSON...}
@@ -279,9 +286,10 @@ represent a collection. A later protocol may persist collection edges directly.
 
 Before completion, a runner uploads an `OutputManifest` listing every declared
 output artifact, checksum, schema, size, record/dimension summary, metrics, and
-provenance. Provenance includes resolved versions, package/environment digest,
-Worker runtime, allocated resource IDs, parameters digest, input collection
-digest, timestamps, random seed where applicable, and checkpoint lineage.
+provenance. Provenance includes resolved versions, package/environment and
+manifest digests, Worker runtime, allocated resource IDs, parameters digest,
+input collection digest, timestamps, random seed where applicable, and
+checkpoint lineage.
 
 Unexpected ports, missing required outputs, extra artifacts, schema failures,
 or limit violations reject the Attempt. Logs and checkpoints are separate
@@ -419,6 +427,13 @@ declare an appropriate verifier/trust combination. Reducers consume only
 accepted partial outputs and MUST detect missing, duplicate, conflicting, or
 inconclusive inputs.
 
+Quorum candidates MUST be coordinator-authenticated envelopes with unique
+Attempt/candidate identity and an owner identity. A verifier counts at most one
+vote per owner. It also receives a coordinator-owned binding for workload,
+task, package/manifest/environment, parameters, and input-collection digests;
+outputs from another job or code pin are invalid even when their result bytes
+match.
+
 ## 8. Failure, retry, cancellation, and checkpoint semantics
 
 Every failure has a stable sanitized code, category (`input`, `scientific`,
@@ -472,26 +487,34 @@ isolation is ineligible rather than silently unsandboxed.
 
 ## 10. SDK interfaces and conformance
 
-The future Python API SHOULD expose protocols equivalent to:
+The Python API exposes protocols equivalent to:
 
 ```python
 class Planner(Protocol):
     def validate(self, request: JobRequest) -> ValidatedJob: ...
-    def plan(self, job: ValidatedJob, artifacts: ArtifactCatalog) -> WorkflowPlan: ...
+    def plan(self, job: ValidatedJob, context: PlanningContext) -> WorkflowPlan: ...
 
 class Runner(Protocol):
     def run(self, context: TaskContext) -> OutputManifest: ...
 
 class Reducer(Protocol):
-    def reduce(self, context: ReduceContext, inputs: AcceptedOutputs) -> OutputManifest: ...
+    def reduce(self, context: ReduceContext) -> OutputManifest: ...
 
 class Verifier(Protocol):
     def verify(self, context: VerifyContext, candidates: CandidateOutputs) -> VerificationDecision: ...
 ```
 
-Concrete public value objects are immutable, typed, JSON-safe, schema-versioned,
-and reject unknown fields. Scientific cores SHOULD remain callable without a
-coordinator so the same implementation powers local and distributed adapters.
+Concrete public value objects are immutable, typed, JSON-safe, strict about
+unknown fields, and canonically serialized inside versioned wire contracts.
+Scientific cores SHOULD remain callable without a coordinator so the same
+implementation powers local and distributed adapters.
+
+The shipped `LocalCoreBatchExecutor` is a trusted in-process conformance
+harness, not the `core-batch-v1` production isolation boundary. It rejects
+restricted-network, parallel-process/thread, accelerator, secret, checkpoint,
+retry, gang, and advanced-stage declarations. Subprocess isolation, hard
+timeouts, leases, and credential enforcement remain requirements for an Agent
+runtime that advertises those guarantees.
 
 An SDK conformance suite MUST test manifest/schema validation, deterministic
 planning, no local-path/URI leakage, output bounds, local/distributed parity,

@@ -1,7 +1,7 @@
 # SciMesh Status
 
 **Updated:** 2026-08-01
-**Branch baseline:** `main` at `b9a975b` (self-service worker enrollment)
+**Branch baseline:** `main`; this revision adds the Workload SDK foundation.
 
 ## Current state
 
@@ -49,6 +49,7 @@ the complete result-artifact SHA-256 before a task is accepted.
 | CTX-11 Dashboard/operator view | Implemented | Protected live control room: recent-run/worker overview, real pipeline-stage visualization, shard attempts and safe failures, validated similarity-search upload, coordinator artifacts, final-result download, and bounded polling. |
 | CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
 | CTX-15 User Service and access control | Implemented | User/owner scoping, verified contributors, worker keys, self-service enrollment, and quorum-backed untrusted workers are merged; local Go/Python and Docker/PostgreSQL checks passed. |
+| CTX-16 Workload SDK foundation | Implemented | `scimesh.sdk` provides strict immutable manifests/plans/artifacts, digest/trust-pinned tasks, typed DAGs, compatibility negotiation, verifier primitives with owner/binding-safe quorum inputs, resource eligibility/local allocation, measured package discovery, a trusted local core-batch conformance harness, and a tested legacy similarity-search adapter. Enforcing coordinator/Worker profiles remain fail-closed. |
 
 ## Next recommended assignment
 
@@ -65,6 +66,14 @@ block-pair planning and reduction for `similarity-graph`.
 - The coordinator accepts uploaded distributed jobs only for
   `similarity-search` with `query_smiles`. It rejects `similarity-graph` until
   CTX-10 supplies cross-shard pair planning.
+- The SDK can execute `core-batch-v1` locally, but the protocol-v1 coordinator
+  still has flat single-input/single-result tasks and no package/resource
+  leases. General DAG, concurrent-Agent, GPU, stream, and gang execution needs
+  a versioned coordinator/Worker rollout; unsupported features fail before
+  planner invocation.
+- The local SDK executor is intentionally trusted and in-process. It does not
+  enforce process/network/timeout/credential isolation and rejects declarations
+  that would require those guarantees.
 
 ## Update rule
 

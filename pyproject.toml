@@ -17,8 +17,12 @@ dev = ["pytest>=8"]
 scimesh = "scimesh.cli:main"
 scimesh-worker = "scimesh.worker.cli:main"
 
+[project.entry-points."scimesh.workloads"]
+"similarity-search@1.0.0" = "scimesh.sdk.builtins:similarity_search_workload_definition"
+
 [tool.setuptools.packages.find]
 include = ["scimesh*"]
+namespaces = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
