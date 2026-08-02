@@ -672,16 +672,16 @@ func TestMigrateProvisionsAndIsIdempotent(t *testing.T) {
 		t.Fatalf("second migrate (idempotent): %v", err)
 	}
 	pool := testPool(t)
-	var count int
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
-		t.Fatalf("read schema_migrations: %v", err)
-	}
 	migrations, err := listMigrations()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != len(migrations) {
-		t.Errorf("schema_migrations has %d rows, want %d", count, len(migrations))
+	var watermark int64
+	if err := pool.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&watermark); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	if watermark != int64(len(migrations)) {
+		t.Errorf("schema watermark = %d, want %d", watermark, len(migrations))
 	}
 	var hasJobs bool
 	if err := pool.QueryRow(ctx,

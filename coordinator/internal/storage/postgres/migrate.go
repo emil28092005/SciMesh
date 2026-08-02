@@ -72,12 +72,13 @@ func listMigrations() ([]migration, error) {
 	return migrations, nil
 }
 
-// Migrate applies every embedded migration that is not yet recorded in the
-// schema_migrations table, so the binary provisions its own schema. It is
-// idempotent and safe to run concurrently: a PostgreSQL advisory lock
-// serializes migrators, and each migration file runs as its own transaction
-// (the files carry explicit BEGIN/COMMIT, matching the golang-migrate format
-// the CLI and CI still use).
+// Migrate applies every embedded migration above the recorded schema version,
+// so the binary provisions its own schema. It is idempotent and interoperates
+// with the golang-migrate CLI: both tools use the same schema_migrations
+// watermark table (single row: version + dirty flag), and a PostgreSQL
+// advisory lock serializes concurrent migrators. Each migration file runs as
+// its own transaction (the files carry explicit BEGIN/COMMIT, matching the
+// golang-migrate format the CLI and CI still use).
 func Migrate(ctx context.Context, databaseURL string, log *slog.Logger) error {
 	migrations, err := listMigrations()
 	if err != nil {
@@ -102,31 +103,20 @@ func Migrate(ctx context.Context, databaseURL string, log *slog.Logger) error {
 	defer func() { _, _ = conn.Exec(ctx, "SELECT pg_advisory_unlock(82473911)") }()
 
 	if _, err := conn.Exec(ctx,
-		"CREATE TABLE IF NOT EXISTS schema_migrations (version bigint PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())",
+		"CREATE TABLE IF NOT EXISTS schema_migrations (version bigint PRIMARY KEY, dirty boolean NOT NULL DEFAULT false)",
 	); err != nil {
 		return fmt.Errorf("ensure schema_migrations: %w", err)
 	}
 
-	applied := map[int64]bool{}
-	rows, err := conn.Query(ctx, "SELECT version FROM schema_migrations")
-	if err != nil {
-		return fmt.Errorf("read applied migrations: %w", err)
-	}
-	for rows.Next() {
-		var version int64
-		if err := rows.Scan(&version); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan applied migration: %w", err)
-		}
-		applied[version] = true
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("read applied migrations: %w", err)
+	var applied int64
+	if err := conn.QueryRow(ctx,
+		"SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+	).Scan(&applied); err != nil {
+		return fmt.Errorf("read applied schema version: %w", err)
 	}
 
 	for _, item := range migrations {
-		if applied[int64(item.version)] {
+		if int64(item.version) <= applied {
 			continue
 		}
 		if log != nil {
@@ -135,10 +125,19 @@ func Migrate(ctx context.Context, databaseURL string, log *slog.Logger) error {
 		if _, err := conn.Exec(ctx, item.sql); err != nil {
 			return fmt.Errorf("apply migration %s: %w", item.name, err)
 		}
-		if _, err := conn.Exec(ctx,
-			"INSERT INTO schema_migrations (version) VALUES ($1)", item.version,
-		); err != nil {
+		// Advance the watermark to the single-row golang-migrate layout.
+		tag, err := conn.Exec(ctx,
+			"UPDATE schema_migrations SET version = $1, dirty = false", item.version)
+		if err != nil {
 			return fmt.Errorf("record migration %s: %w", item.name, err)
+		}
+		if tag.RowsAffected() == 0 {
+			if _, err := conn.Exec(ctx,
+				"INSERT INTO schema_migrations (version, dirty) VALUES ($1, false)",
+				item.version,
+			); err != nil {
+				return fmt.Errorf("record migration %s: %w", item.name, err)
+			}
 		}
 	}
 	return nil

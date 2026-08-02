@@ -68,12 +68,12 @@ func TestRunProvisionsDatabaseSchemaAndEnvFile(t *testing.T) {
 		t.Fatalf("connect to provisioned database: %v", err)
 	}
 	defer func() { _ = conn.Close(ctx) }()
-	var count int
-	if err := conn.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
+	var watermark int64
+	if err := conn.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations").Scan(&watermark); err != nil {
 		t.Fatalf("read schema_migrations: %v", err)
 	}
-	if count < 13 {
-		t.Errorf("schema_migrations has %d rows, want >= 13", count)
+	if watermark < 13 {
+		t.Errorf("schema watermark = %d, want >= 13", watermark)
 	}
 	envContent, err := os.ReadFile(envPath)
 	if err != nil {
