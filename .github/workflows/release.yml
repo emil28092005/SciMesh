@@ -74,8 +74,8 @@ jobs:
         with:
           files: |
             artifacts/*
-            install.sh
-            install.ps1
+            ../install.sh
+            ../install.ps1
           # Pre-release tags (e.g. v1.1.0-alpha.1) publish as pre-releases.
           prerelease: ${{ contains(github.ref_name, '-alpha') }}
           generate_release_notes: true
