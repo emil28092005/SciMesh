@@ -21,7 +21,8 @@ help:
 
 # --- build / run ---------------------------------------------------------
 build:
-	go build ./...
+	mkdir -p bin
+	go build -trimpath -ldflags="-s -w" -o bin/userservice ./cmd/userservice
 
 run:
 	go run ./cmd/userservice

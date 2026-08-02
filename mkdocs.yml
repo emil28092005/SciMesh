@@ -47,6 +47,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Standalone setup: standalone.md
   - SDK:
       - Overview: sdk/overview.md
       - Authoring workloads: sdk/authoring-workloads.md
