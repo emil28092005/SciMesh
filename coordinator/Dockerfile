@@ -16,6 +16,9 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY . .
 
+# Release builds inject the tag via build-arg; local builds stay "dev".
+ARG VERSION=dev
+
 # The cache mounts persist the module cache and the compiler's build cache
 # *across* builds, so a rebuild after a code edit recompiles only what changed
 # instead of the whole dependency tree.
@@ -25,7 +28,7 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build \
-        -trimpath -ldflags="-s -w" \
+        -trimpath -ldflags="-s -w -X main.version=${VERSION#v}" \
         -o /out/coordinator ./cmd/coordinator
 
 # --- runtime stage --------------------------------------------------------

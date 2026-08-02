@@ -31,16 +31,20 @@ DEMO_DIR ?= .demo
 # whenever workloads or their manifests change (requires the Python venv).
 WORKLOADS_JSON := internal/workloads/workloads.json
 
+# Version injected into the binaries via -ldflags; falls back to "dev".
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X main.version=$(VERSION)
+
 # The Go worker agent: a static coordinator client that executes SDK
 # workloads in a Python subprocess per claimed task.
 agent:
-	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/worker-agent ./cmd/worker-agent
+	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/worker-agent ./cmd/worker-agent
 	@printf '%s\n' 	  'Built bin/worker-agent. Configure via environment:' 	  '  COORDINATOR_URL, WORKER_AUTH_TOKEN, WORK_DIR, CPU_COUNT, MEMORY_MB,' 	  '  POLL_INTERVAL, REQUEST_TIMEOUT, HEARTBEAT_INTERVAL, CAPABILITIES,' 	  '  TASK_RUNNER, MAX_TASKS, EXIT_WHEN_IDLE, WORKER_NAME, WORKER_ID'
 
 # The coordinator server as a static binary, the same way the Docker image
 # builds it (CGO_ENABLED=0, trimmed). Requires PostgreSQL at runtime.
 coordinator:
-	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/coordinator ./cmd/coordinator
+	CGO_ENABLED=0 go build -trimpath -ldflags="$(LDFLAGS)" -o bin/coordinator ./cmd/coordinator
 	@printf '%s\n' \
 	  'Built bin/coordinator. Configure via environment:' \
 	  '  DATABASE_URL, COORDINATOR_ADDR, COORDINATOR_TOKEN, UI_AUTH_TOKEN,' \

@@ -3,13 +3,25 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/agent"
 )
 
+// version is injected at build time (-ldflags "-X main.version=...") and
+// reported by --version. "dev" marks a local build.
+var version = "dev"
+
 func main() {
+	showVersion := flag.Bool("version", false, "print the build version and exit")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println("worker-agent " + version)
+		return
+	}
 	config, err := agent.LoadConfig()
 	if err != nil {
 		slog.Error("invalid configuration", "error", err)

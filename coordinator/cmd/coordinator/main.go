@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,7 +19,17 @@ import (
 	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
+// version is injected at build time (-ldflags "-X main.version=...") and
+// reported by --version. "dev" marks a local build.
+var version = "dev"
+
 func main() {
+	showVersion := flag.Bool("version", false, "print the build version and exit")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println("coordinator " + version)
+		return
+	}
 	// All work happens in run() so its defers (pool.Close, log flush, signal
 	// stop) still execute: os.Exit skips deferred calls entirely.
 	if err := run(); err != nil {

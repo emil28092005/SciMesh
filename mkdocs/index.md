@@ -67,6 +67,27 @@ make demo-ui
 # open http://localhost:18080/ui  (root@scimesh.local / rootpassword)
 ```
 
+## Prebuilt binaries
+
+Every `v*` tag pushes a GitHub Release with static binaries for
+`coordinator` and `worker-agent` on linux/darwin/windows × amd64/arm64
+(plus SHA-256 checksums) and the `coordinator` image on GHCR. Download and
+run:
+
+```bash
+curl -L -o coordinator https://github.com/emil28092005/SciMesh/releases/latest/download/coordinator-linux-amd64
+chmod +x coordinator
+```
+
+- **worker-agent** runs anywhere with Python: it spawns
+  `python -m scimesh.worker.task`, so the machine needs the `scimesh`
+  package in a venv (`pip install scimesh`) and the usual environment:
+  `COORDINATOR_URL`, `WORKER_AUTH_TOKEN`, `WORK_DIR`.
+- **coordinator** needs PostgreSQL with the applied migrations (the binary
+  never migrates on startup) plus `DATABASE_URL`, `COORDINATOR_STORAGE_DIR`,
+  and `JWT_SECRET`; the UI login additionally requires `USERSERVICE_URL`.
+  `coordinator --version` / `worker-agent --version` print the build tag.
+
 Build and serve this documentation site:
 
 ```bash
