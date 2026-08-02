@@ -38,26 +38,37 @@ The two halves of the project:
 
 ## Quick start
 
+The fastest path for a scientist: install the platform with one command and
+start it. Everything — the coordinator, its databases, the userservice, and
+local workers — is embedded in a single binary; no PostgreSQL, no Docker, no
+Python setup.
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash
+coordinator serve --open
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.ps1 | iex"
+coordinator serve --open
+```
+
+The first start prints the admin login (also stored under `~/.scimesh`), and
+`--open` opens the UI in the browser. `coordinator serve --workers 2`
+spawns two local workers; `SCIMESH_PIP_PACKAGE` points the managed venv at
+your scimesh wheel so scientific workloads can run.
+
+For development, install the Python SDK and run workloads locally:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
-```
-
-List the installed SDK workloads and run one locally:
-
-```bash
 scimesh workload list
 scimesh workload run molwt-filter \
   --input molecules.tsv \
   --params '{"min_molwt": 40.0}' \
   -o filtered.csv
-```
-
-Run the local scientific CLI workloads:
-
-```bash
-scimesh help
 ```
 
 Start the full demo (PostgreSQL, coordinator, UI, two workers):
@@ -71,8 +82,8 @@ make demo-ui
 
 Every `v*` tag pushes a GitHub Release with static binaries for
 `coordinator` and `worker-agent` on linux/darwin/windows × amd64/arm64
-(plus SHA-256 checksums) and the `coordinator` image on GHCR. Download and
-run:
+(plus SHA-256 checksums), the installer scripts above, and the `coordinator`
+image on GHCR. Download and run:
 
 ```bash
 curl -L -o coordinator https://github.com/emil28092005/SciMesh/releases/latest/download/coordinator-linux-amd64
@@ -82,15 +93,17 @@ chmod +x coordinator
 - **worker-agent** runs anywhere with Python: it spawns
   `python -m scimesh.worker.task`, so the machine needs the `scimesh`
   package in a venv (`pip install scimesh`) and the usual environment:
-  `COORDINATOR_URL`, `WORKER_AUTH_TOKEN`, `WORK_DIR`.
-- **coordinator** needs PostgreSQL running (`DATABASE_URL`,
-  `COORDINATOR_STORAGE_DIR`, `JWT_SECRET`); the binary applies its embedded
-  schema migrations itself on startup (`AUTO_MIGRATE=false` opts out), so no
-  separate migration step is needed. The interactive wizard provisions the
-  rest: it checks the database, creates it when missing, generates a
-  `JWT_SECRET`, and writes a `.env` file (`coordinator setup --help`, or
-  `make setup`; `--yes` for non-interactive runs). The UI login additionally
-  requires `USERSERVICE_URL`.
+  `COORDINATOR_URL`, `WORKER_AUTH_TOKEN`, `WORK_DIR`. The same binary can run
+  it via `coordinator agent`.
+- **coordinator** needs no external services at all in its default mode:
+  `coordinator serve` embeds SQLite (both databases), the userservice, and
+  local workers. The `SCIMESH_DB=postgres` engine remains for cluster
+  deployments (`DATABASE_URL`, `COORDINATOR_STORAGE_DIR`, `JWT_SECRET`); the
+  binary applies its embedded schema migrations itself on startup
+  (`AUTO_MIGRATE=false` opts out), and `coordinator setup` provisions a
+  PostgreSQL deployment interactively. The UI login uses the userservice
+  (`USERSERVICE_URL`) — embedded by `serve`, or the standalone `users/`
+  service otherwise.
   `coordinator --version` / `worker-agent --version` print the build tag.
 
 Build and serve this documentation site:

@@ -43,13 +43,34 @@ pip install -e .
 
 Every `v*` tag pushes a GitHub Release with static binaries for `coordinator`
 and `worker-agent` on linux/darwin/windows × amd64/arm64 (plus SHA-256
-checksums) and the `coordinator` image on GHCR:
+checksums), the installer scripts, and the `coordinator` image on GHCR:
 
 ```bash
 docker pull ghcr.io/emil28092005/SciMesh/coordinator:latest
 ```
 
-Download and run a release binary:
+For scientists: one command downloads the right binary and prints the start
+instructions:
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash
+coordinator serve --open
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.ps1 | iex"
+coordinator serve --open
+```
+
+`coordinator serve` is the single-binary mode: it embeds SQLite (coordinator +
+userservice databases), the userservice itself, and local worker agents
+(`--workers N`, default 1). On first start it generates secrets and the admin
+password under `~/.scimesh`, prints the login, and opens the UI. No
+PostgreSQL, no Docker, no environment variables. The scientific runtime is a
+managed venv (`~/.scimesh/venv`); point `SCIMESH_PIP_PACKAGE` at your scimesh
+wheel to install it automatically.
+
+Manual download and run of a release binary:
 
 ```bash
 curl -L -o coordinator https://github.com/emil28092005/SciMesh/releases/latest/download/coordinator-linux-amd64
@@ -57,23 +78,10 @@ chmod +x coordinator
 ./coordinator --version
 ```
 
-- **worker-agent** runs anywhere with Python: it spawns
-  `python -m scimesh.worker.task`, so the machine needs the `scimesh` package
-  in a venv (`pip install scimesh`) plus `COORDINATOR_URL`,
-  `WORKER_AUTH_TOKEN`, and `WORK_DIR`.
-- **coordinator** needs PostgreSQL running. The binary applies its embedded
-  schema migrations itself on startup (`AUTO_MIGRATE=false` opts out), and the
-  interactive wizard provisions the rest — database creation when missing, a
-  generated `JWT_SECRET`, and a `.env` file:
-
-  ```bash
-  ./coordinator setup --yes --db 'postgres://user:pass@localhost:5432/scimesh?sslmode=disable'
-  ENV_FILE=.env ./coordinator
-  ```
-
-  `coordinator setup --help` lists all options (`--admin-db`, `--env-file`,
-  `--force`, non-interactive `--yes`). The UI login additionally requires a
-  userservice (`USERSERVICE_URL`, see the `users/` service).
+Cluster deployments keep the PostgreSQL engine (`SCIMESH_DB=postgres` with
+`DATABASE_URL`, or `coordinator setup` to provision it) and the standalone
+userservice (`users/`). `coordinator agent` runs a worker agent from the same
+binary.
 
 ## Quick start
 

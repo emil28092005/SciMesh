@@ -1003,11 +1003,12 @@ with as little manual configuration as possible: it provisions its own
 schema, and a `setup` command walks the operator through the remaining
 environment (database creation, secrets, admin account).
 
-**Depends on:** the Go coordinator and the release build pipeline. Step 1
-(embedded migrations, `AUTO_MIGRATE`) and step 2 (the `coordinator setup`
-wizard: database reachability and creation, schema migration, `.env` with a
-generated `JWT_SECRET`, readiness summary) are implemented; step 3 — a fully
-embedded userservice — is the remaining work.
+**Depends on:** the Go coordinator and the release build pipeline. All steps
+are implemented: embedded migrations with `AUTO_MIGRATE`, the `setup` wizard,
+the embedded SQLite storage backend (`SCIMESH_DB=sqlite`), the embedded
+userservice, and the `coordinator serve` single-binary mode with local worker
+agents. The standalone `users/` service and the PostgreSQL engine remain for
+cluster deployments.
 
 **Acceptance criteria:**
 
@@ -1024,6 +1025,34 @@ embedded userservice — is the remaining work.
 - the Docker image keeps working without the separate migrate step, and the
   release workflow publishes the binaries that support `setup`;
 - setup fails closed on non-interactive input and never logs secrets.
+
+---
+
+### CTX-18 — Single-binary platform (`coordinator serve`)
+
+**Goal:** A scientist installs one file, runs one command, and gets the whole
+platform: coordinator, both databases, the userservice, and local workers —
+no PostgreSQL, no Docker, no Python setup.
+
+**Depends on:** CTX-17 (embedded migrations, SQLite, embedded userservice).
+
+**Acceptance criteria:**
+
+- `coordinator serve` provisions `~/.scimesh` (databases, secrets chmod 0600,
+  generated admin password printed once, artifacts dir) and serves the UI on
+  127.0.0.1:8080 by default; `--open` opens the browser;
+- `--workers N` spawns N `coordinator agent` subprocesses that claim and
+  execute tasks locally; agents are stopped on shutdown;
+- the embedded userservice listens on the loopback interface and shares the
+  JWT secret with the coordinator, so UI login/registration work unchanged;
+- a managed scientific runtime venv (`~/.scimesh/venv`) is bootstrapped on
+  first start; `SCIMESH_PIP_PACKAGE` controls what gets installed (the PyPI
+  name is not ours), and `TASK_RUNNER` points at the venv python;
+- `install.sh` / `install.ps1` detect the platform, download the release
+  binary, and print the start command; both are release assets;
+- the PostgreSQL engine and the standalone userservice stay fully supported;
+- `coordinator serve` passes the full local E2E without any external service:
+  health, login, upload, claim, compute, reduction, byte-exact result.
 
 ---
 
@@ -1166,12 +1195,11 @@ Do not start these before CTX-12 is accepted.
 - Add shard caching and content-addressed input deduplication.
 - Add job priority and fair scheduling.
 - Add a CLI for submitting and monitoring remote jobs.
-- Implement CTX-17 step 3: a fully embedded userservice
-  (`coordinator userservice` subcommand) so one binary can serve the whole
-  platform without containers.
-- Replace PostgreSQL with an embedded SQLite backend for fully self-contained
-  single-binary deployments (large storage-layer change; postgres row locks,
-  transactions, and integration tests must be re-derived).
+- Publish the scimesh Python package to PyPI so the managed venv bootstrap
+  (`SCIMESH_PIP_PACKAGE`) works out of the box on a scientist's machine.
+- Bundle a Python runtime (python-build-standalone) into the release so local
+  workers need no system Python at all.
+- Native installers (.msi/.dmg/.deb) built by the release workflow.
 
 ---
 

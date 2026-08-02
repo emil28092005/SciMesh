@@ -1,7 +1,7 @@
 # SciMesh Status
 
-**Updated:** 2026-08-01
-**Branch baseline:** `main`; this revision adds the Workload SDK foundation.
+**Updated:** 2026-08-02
+**Branch baseline:** `main`; this revision adds the single-binary platform.
 
 ## Current state
 
@@ -17,11 +17,22 @@ the reference behaviour for future distributed execution:
 
 The Go coordinator and its PostgreSQL-backed task lifecycle are implemented:
 registration, atomic claiming, lease renewal, artifact storage, dataset
-chunking, result/failure reporting, and job progress. The Python worker now
-uses the live coordinator contract. Completed similarity-search shard results
-are reduced once into a checksum-protected final CSV, which is downloadable
-through the coordinator. The full Go checks (including a fresh migration and
-real PostgreSQL smoke test) passed on 2026-07-24.
+chunking, result/failure reporting, and job progress. The Go worker agent now
+uses the live coordinator contract. Completed shard results are reduced once
+into a checksum-protected final CSV, downloadable through the coordinator.
+
+**Single-binary platform (`coordinator serve`)**: the coordinator now ships
+an embedded SQLite storage backend (`SCIMESH_DB=sqlite`), an embedded
+userservice, and `serve`/`agent` subcommands, so one downloaded binary runs
+the whole platform — coordinator, both databases, UI logins, and local
+workers — with no PostgreSQL, no Docker, and no environment variables. The
+first start provisions `~/.scimesh` (secrets, admin password printed once,
+managed scientific-runtime venv) and opens the UI. `install.sh` / `install.ps1`
+download the right release binary in one command and are release assets. The
+PostgreSQL engine, the `setup` wizard, and the standalone `users/` service
+remain fully supported for cluster deployments. The full E2E passes with zero
+external services: health, UI login, job upload, local agent compute,
+reduction, and a byte-exact final CSV.
 
 The User Service is merged into `main`. It owns user accounts, authentication,
 roles, and verified-contributor status; the coordinator scopes user jobs and
@@ -37,24 +48,25 @@ the complete result-artifact SHA-256 before a task is accepted.
 | --- | --- | --- |
 | CTX-00 API and error contract | Implemented | Contract, OpenAPI, and request examples are in `docs/`. |
 | CTX-01 Go coordinator bootstrap | Implemented | Go service and Docker runtime in `coordinator/`. |
-| CTX-02 PostgreSQL migrations | Implemented | Applied by the Compose migration service. |
-| CTX-03 Transactional queue | Implemented | Real-PostgreSQL integration tests cover atomic claims and concurrency. |
+| CTX-02 PostgreSQL migrations | Implemented | Embedded into the binary (`AUTO_MIGRATE`); the CLI path is still available for managed databases. |
+| CTX-03 Transactional queue | Implemented | Real-PostgreSQL integration tests cover atomic claims and concurrency; the SQLite backend mirrors the semantics. |
 | CTX-04 Worker registry and HTTP API | Implemented | Registration, claim, heartbeat, result, failure, and status endpoints. |
 | CTX-05 Artifact storage | Implemented | Coordinator-owned inputs/results, checksum verification, and upload flow. |
-| CTX-06 Python Worker live-contract alignment | Superseded | The Python worker daemon was removed; the Go worker agent (`coordinator/internal/agent/` + `cmd/worker-agent`) now implements the lifecycle (register/claim/heartbeat/download/upload/submit/fail, token refresh, cleanup) and executes SDK workloads via the Python task entry `scimesh/worker/task.py`. E2E: `make smoke-two-worker` passes 4/4 shards with two agents. |
-| CTX-07 Distributed workload protocol | Implemented | Versioned Python contract models, registry, strict plan validation, and deterministic reduction ordering are in `scimesh/distributed/`. |
-| CTX-08 Distributed similarity-search | Implemented | Python planner resolves `query_id` once, creates deterministic shard plans, worker adapter emits exact partial top-k CSVs/metrics, and reducer matches the local reference. |
-| CTX-09 Reducer and final-result API | Implemented | Atomic `reducing` claim, deterministic coordinator-side top-k reducer, sanitized reducer failure, final artifact persistence, `result_uri`, and final CSV download. |
-| CTX-10 Distributed similarity-graph | Not started | Local reference exists; the SDK-built local graph workload already enforces the pair-coverage invariant. |
-| CTX-11 Dashboard/operator view | Implemented | Protected live control room: MkDocs documentation served at `/ui/docs/` (SCIMESH_DOCS_DIR; the demo mounts `site/` automatically), recent-run/worker overview, real pipeline-stage visualization, shard attempts and safe failures, validated similarity-search upload, coordinator artifacts, final-result download, bounded polling, a Workload library page rendering the embedded catalog from `scimesh workload export` (`/ui/workloads`, regenerated via `make workloads-export`). |
-| CTX-12 Reliability, security, CI | In progress | Unit, race, PostgreSQL integration, and smoke checks exist; CI hardening remains. |
-| CTX-15 User Service and access control | Implemented | User/owner scoping, verified contributors, worker keys, self-service enrollment, and quorum-backed untrusted workers are merged; local Go/Python and Docker/PostgreSQL checks passed. |
-| MkDocs documentation site | Implemented | A standalone documentation site (`mkdocs/`, `docs_dir: mkdocs`) covering the complete Workload SDK: guides (overview, authoring workloads, CLI, worker integration), the full auto-generated API reference for all 15 `scimesh.sdk` modules (mkdocstrings), and the writing rules (`mkdocs/approach.md`). Built with `make docs`, served inside the UI at `/ui/docs/`; the project's internal `docs/` directory is not part of the site. |
-| CTX-16 Workload SDK foundation | Implemented | `scimesh.sdk` provides strict immutable manifests/plans/artifacts, digest/trust-pinned tasks, typed DAGs, compatibility negotiation, verifier primitives with owner/binding-safe quorum inputs, resource eligibility/local allocation, measured package discovery, a trusted local core-batch conformance harness, and strict package discovery. Enforcing coordinator/Worker profiles remain fail-closed. |
-| SDK roadmap step 3: `descriptor-batch` | Implemented | The first SDK-built reference workload (`scimesh/workloads/descriptors/`): pinned 81-name RDKit 2D descriptor set, canonical one-row-per-input CSV, deterministic row-bounded shards, shard-index concatenation with one header, byte-identical local/distributed output, and a two-worker `untrusted_quorum` verifier test. |
-| SDK-built `similarity-search` and `similarity-graph` | Implemented | Both workloads are SDK-built packages (`scimesh/workloads/search/`, `scimesh/workloads/graph/`) built on the `MapReduceWorkload` authoring scaffold (`scimesh/sdk/batch.py`); they reuse the local scientific cores and are byte-identical to the single-process references (search; graph for both threshold directions and any block size). The graph reducer enforces the CTX-10 pair-coverage invariant. `scimesh/workloads/library.py` composes the built-in registry/runtime. |
-| SDK-built `molwt-filter` | Implemented | The minimal authoring example (`scimesh/workloads/molwt_filter/`): filters molecules by exact RDKit molecular weight with only one scientific hook, using the scaffold's new default sharding and concatenation hooks. Registered in the built-in library and as a `scimesh.workloads` entry point. |
-| SDK authoring scaffold | Implemented | `MapReduceWorkload` (exported from `scimesh.sdk`) assembles manifest, map/reduce stages, workflow, and digest-pinned handlers from three scientific hooks (partition/compute/merge), with overridable hooks for domain validation, plan-time resolution, custom task planning, and partial-key policy. The generic `scimesh workload list|run` CLI and the worker's allowlist-driven loading (`SCIMESH_WORKLOAD_ALLOWLIST`, `SCIMESH_CAPABILITIES`) let new workloads run without touching other code. |
+| CTX-06 Python Worker live-contract alignment | Superseded | The Python worker daemon was removed; the Go worker agent (`coordinator/internal/agent/` + `cmd/worker-agent`, or `coordinator agent`) implements the lifecycle and executes SDK workloads via `scimesh/worker/task.py`. |
+| CTX-07 Distributed workload protocol | Implemented | Versioned Python contract models, registry, strict plan validation, and deterministic reduction ordering. |
+| CTX-08 Distributed similarity-search | Implemented | Planner/worker/reducer match the local reference byte-exactly. |
+| CTX-09 Reducer and final-result API | Implemented | Atomic `reducing` claim, deterministic coordinator-side reducers (`top-k` and `ordered-concat`), sanitized failure, final artifact, `result_uri`. |
+| CTX-10 Distributed similarity-graph | Not started | Local reference exists; the SDK-built local graph workload enforces the pair-coverage invariant. |
+| CTX-11 Dashboard/operator view | Implemented | Protected live control room, workload library, workload-agnostic "New computation" form (SDK-declared `UIElement`s), MkDocs at `/ui/docs/`, final-result download. |
+| CTX-12 Reliability, security, CI | In progress | vet, gofmt, race tests, golangci-lint (0 issues), PostgreSQL integration, and smoke checks exist. |
+| CTX-15 User Service and access control | Implemented | User/owner scoping, verified contributors, worker keys, quorum; also embeddable (`coordinator serve`). |
+| CTX-16 Workload SDK foundation | Implemented | Strict immutable manifests/plans/artifacts, digest/trust-pinned tasks, negotiation, verifier primitives, conformance harness. |
+| CTX-17 Self-provisioning + setup wizard | Implemented | Embedded migrations, `coordinator setup`, SQLite backend, embedded userservice, `serve` mode. |
+| CTX-18 Single-binary platform | Implemented | `coordinator serve` (data dir, secrets, admin bootstrap, local agents, managed venv) + `install.sh`/`install.ps1`; full no-external-service E2E green. |
+| SDK roadmap step 3: `descriptor-batch` | Implemented | Byte-identical local/distributed output, quorum verifier test. |
+| SDK-built `similarity-search` and `similarity-graph` | Implemented | SDK-built packages, byte-identical to single-process references. |
+| SDK-built `molwt-filter` | Implemented | Minimal authoring example; also the single-binary E2E workload. |
+| SDK authoring scaffold | Implemented | `MapReduceWorkload` with `UIElement` declarations, `reduction`, `upload_ready`; generic `scimesh workload list|run|export|allowlist` CLI. |
 
 ## Next recommended assignment
 
