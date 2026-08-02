@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,7 +26,10 @@ func newTestServer(t *testing.T, sup Supervisor) (*Server, string) {
 	t.Helper()
 	dir := t.TempDir()
 	server := New(testLogger(), Options{
-		Port:        0, // ephemeral: tests must never collide on the default 12700
+		// A distinct random port per test: Port 0 means "the default 12700" in
+		// the server, which would let the shared http.Client pool reuse a stale
+		// keep-alive connection across tests (EOF after a Shutdown).
+		Port:        freePort(t),
 		ConfigPath:  filepath.Join(dir, "config.json"),
 		Dir:         dir,
 		Supervisor:  sup,
@@ -81,7 +85,9 @@ func postJSON(t *testing.T, base, path string, body any) (*httptest.ResponseReco
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	client := http.Client{}
+	// No keep-alive pooling: a pooled connection to a shut-down test server
+	// would surface as an EOF instead of a fresh dial.
+	client := http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +98,20 @@ func postJSON(t *testing.T, base, path string, body any) (*httptest.ResponseReco
 	data := map[string]any{}
 	_ = json.NewDecoder(resp.Body).Decode(&data)
 	return rec, data
+}
+
+// freePort reserves an ephemeral port and returns it. The listener is closed
+// immediately; the tiny reuse window is acceptable for tests and each test
+// gets a different port, so nothing can collide or share pooled connections.
+func freePort(t *testing.T) int {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	_ = listener.Close()
+	return port
 }
 
 func mustJSON(t *testing.T, v any) string {
