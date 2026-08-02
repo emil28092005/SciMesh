@@ -26,11 +26,24 @@ var version = "dev"
 
 func main() {
 	args := os.Args[1:]
-	if len(args) > 0 && args[0] == "setup" {
-		if err := runSetup(args[1:]); err != nil {
-			os.Exit(1)
+	if len(args) > 0 {
+		switch args[0] {
+		case "setup":
+			if err := runSetup(args[1:]); err != nil {
+				os.Exit(1)
+			}
+			return
+		case "serve":
+			if err := runServe(args[1:]); err != nil {
+				os.Exit(1)
+			}
+			return
+		case "agent":
+			if err := runAgent(args[1:]); err != nil {
+				os.Exit(1)
+			}
+			return
 		}
-		return
 	}
 	showVersion := flag.Bool("version", false, "print the build version and exit")
 	flag.Parse()
@@ -64,8 +77,6 @@ type storageDeps struct {
 }
 
 func run() error {
-	// Bootstrap logger, used only until config says where logs should go. It
-	// writes to stderr so it never contaminates the configured stdout stream.
 	boot := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
 	cfg, err := infra.LoadConfig()
@@ -73,6 +84,16 @@ func run() error {
 		boot.Error("load config", "err", err)
 		return err
 	}
+	return runWithConfig(cfg)
+}
+
+// runWithConfig boots the coordinator server with an explicit config. The
+// `serve` subcommand builds such a config for the single-binary mode; the
+// plain `coordinator` binary loads it from the environment.
+func runWithConfig(cfg infra.Config) error {
+	// Bootstrap logger, used only until config says where logs should go. It
+	// writes to stderr so it never contaminates the configured stdout stream.
+	boot := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 
 	// The real logger: stdout plus an optional rotated file (LOG_FILE).
 	log, logCloser, err := infra.NewLogger(cfg)

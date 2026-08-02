@@ -101,7 +101,7 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	if len(capabilities) == 0 {
-		capabilities = defaultCapabilities()
+		capabilities = DefaultCapabilities()
 	}
 	runner, err := envList("TASK_RUNNER")
 	if err != nil {
@@ -160,11 +160,11 @@ func durationEnv(name string, fallback time.Duration) (time.Duration, error) {
 	return parsed, nil
 }
 
-// defaultCapabilities derives the worker's advertised capabilities from the
+// DefaultCapabilities derives the worker's advertised capabilities from the
 // embedded workload catalog, so an agent is workload-agnostic out of the box:
 // it claims whatever enabled workloads the coordinator library declares.
 // Explicit CAPABILITIES still overrides this for operators who want a subset.
-func defaultCapabilities() []string {
+func DefaultCapabilities() []string {
 	catalog, err := workloads.Load()
 	if err != nil {
 		return []string{"similarity-search"}
