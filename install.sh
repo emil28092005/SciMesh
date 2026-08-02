@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
-# SciMesh installer: downloads the coordinator binary for this OS/architecture
-# from the latest GitHub release and installs it locally. One command, no
-# picking from a list of files:
+# SciMesh installer: downloads a binary for this OS/architecture from the
+# newest GitHub release and installs it locally. One command, no picking from
+# a list of files:
 #
 #   curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash -s worker
 #
-# Installed to ~/.local/bin/coordinator (Linux/macOS). Then run:
-#
-#   coordinator serve --open
+# The first form installs the coordinator (the whole platform in one binary:
+# databases, userservice, local workers). The second installs a standalone
+# worker agent that joins an existing coordinator. Installed to ~/.local/bin
+# (Linux/macOS) or %LOCALAPPDATA%\SciMesh (Windows).
 set -eu
 
 REPO="emil28092005/SciMesh"
+COMPONENT="${1:-coordinator}"
 VERSION="${SCIMESH_VERSION:-latest}"
 INSTALL_DIR="${SCIMESH_INSTALL_DIR:-$HOME/.local/bin}"
+
+case "$COMPONENT" in
+  coordinator) BINARY="coordinator" ;;
+  worker)      BINARY="worker-agent" ;;
+  *) echo "unknown component: $COMPONENT (use 'coordinator' or 'worker')" >&2; exit 1 ;;
+esac
 
 case "$(uname -s)" in
   Linux)  OS="linux" ;;
@@ -41,16 +50,16 @@ if [ "$VERSION" = "latest" ]; then
 fi
 
 mkdir -p "$INSTALL_DIR"
-TARGET="$INSTALL_DIR/coordinator"
+TARGET="$INSTALL_DIR/$BINARY"
 
-URL="https://github.com/${REPO}/releases/download/${VERSION}/coordinator-${OS}-${ARCH}"
+URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY}-${OS}-${ARCH}"
 echo "Downloading $URL"
 curl -fsSL -o "$TARGET.tmp" "$URL"
 chmod +x "$TARGET.tmp"
 mv "$TARGET.tmp" "$TARGET"
 
 echo
-echo "SciMesh installed: $TARGET"
+echo "SciMesh $COMPONENT installed: $TARGET"
 INSTALLED_VERSION=$("$TARGET" --version 2>/dev/null | awk '{print $2}')
 "$TARGET" --version
 if [ -n "$INSTALLED_VERSION" ] && [ "$INSTALLED_VERSION" != "${VERSION#v}" ]; then
@@ -60,8 +69,25 @@ if [ -n "$INSTALLED_VERSION" ] && [ "$INSTALLED_VERSION" != "${VERSION#v}" ]; th
   echo "minutes, or pin the version explicitly:"
   echo "  SCIMESH_VERSION=${VERSION} bash <(curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh)"
 fi
-echo
-echo "Start the platform (one command, everything embedded):"
-echo "  $TARGET serve --open"
-echo
-echo "Your data lives in ~/.scimesh. The admin login is printed on first start."
+
+if [ "$COMPONENT" = "coordinator" ]; then
+  echo
+  echo "Start the platform (one command, everything embedded):"
+  echo "  $TARGET serve --open"
+  echo
+  echo "Your data lives in ~/.scimesh. The admin login is printed on first start."
+else
+  echo
+  echo "The worker needs Python 3 with the scimesh package, then a coordinator"
+  echo "to connect to. Run it with environment variables:"
+  echo
+  echo "  export COORDINATOR_URL=http://COORDINATOR_HOST:8080"
+  echo "  export WORKER_AUTH_TOKEN=<worker token from the coordinator>"
+  echo "  export WORK_DIR=~/scimesh-worker"
+  echo "  $TARGET"
+  echo
+  echo "For a coordinator started with 'coordinator serve', the worker token is"
+  echo "in ~/.scimesh/worker.token on that machine. Set SCIMESH_PIP_PACKAGE to"
+  echo "install scimesh into a managed venv, or install it yourself:"
+  echo "  pip install scimesh"
+fi

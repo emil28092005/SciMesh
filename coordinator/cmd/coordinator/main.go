@@ -30,16 +30,19 @@ func main() {
 		switch args[0] {
 		case "setup":
 			if err := runSetup(args[1:]); err != nil {
+				fmt.Fprintln(os.Stderr, "setup:", err)
 				os.Exit(1)
 			}
 			return
 		case "serve":
 			if err := runServe(args[1:]); err != nil {
+				fmt.Fprintln(os.Stderr, "serve:", err)
 				os.Exit(1)
 			}
 			return
 		case "agent":
 			if err := runAgent(args[1:]); err != nil {
+				fmt.Fprintln(os.Stderr, "agent:", err)
 				os.Exit(1)
 			}
 			return

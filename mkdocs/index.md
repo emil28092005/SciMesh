@@ -90,11 +90,21 @@ curl -L -o coordinator https://github.com/emil28092005/SciMesh/releases/latest/d
 chmod +x coordinator
 ```
 
-- **worker-agent** runs anywhere with Python: it spawns
-  `python -m scimesh.worker.task`, so the machine needs the `scimesh`
-  package in a venv (`pip install scimesh`) and the usual environment:
-  `COORDINATOR_URL`, `WORKER_AUTH_TOKEN`, `WORK_DIR`. The same binary can run
-  it via `coordinator agent`.
+- **worker-agent** is installed separately and joins an existing coordinator:
+
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash -s worker
+  export COORDINATOR_URL=http://COORDINATOR_HOST:8080
+  export WORKER_AUTH_TOKEN=<worker token from the coordinator>
+  export WORK_DIR=~/scimesh-worker
+  worker-agent
+  ```
+
+  It spawns `python -m scimesh.worker.task`, so the machine needs Python 3
+  with the `scimesh` package (`pip install scimesh`, or let the managed venv
+  do it via `SCIMESH_PIP_PACKAGE`). For a `coordinator serve` instance, the
+  worker token is in `~/.scimesh/worker.token`. On Windows set
+  `SCIMESH_COMPONENT=worker` for `install.ps1`.
 - **coordinator** needs no external services at all in its default mode:
   `coordinator serve` embeds SQLite (both databases), the userservice, and
   local workers. The `SCIMESH_DB=postgres` engine remains for cluster

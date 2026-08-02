@@ -77,10 +77,10 @@ func Serve(ctx context.Context, cfg Config) (string, func() error, error) {
 	handler := usershttp.NewServer(cfg.Log, uc, issuer)
 	handler = http.TimeoutHandler(handler, 15*time.Second, `{"error":"request timeout"}`)
 
-	// A fixed loopback port lets the coordinator's proxy reuse its config
-	// unchanged; collisions are unlikely (no other process binds 18081 on a
-	// fresh machine) and fail loudly.
-	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:18081")
+	// Bind an ephemeral loopback port so a second serve instance can never
+	// collide with the first; the coordinator's proxy uses the returned
+	// address and needs no fixed-port assumption.
+	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		_ = db.Close()
 		return "", nil, fmt.Errorf("listen for embedded userservice: %w", err)

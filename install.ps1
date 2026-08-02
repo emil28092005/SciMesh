@@ -9,11 +9,18 @@
 $ErrorActionPreference = "Stop"
 
 $Repo = "emil28092005/SciMesh"
+$Component = if ($env:SCIMESH_COMPONENT) { $env:SCIMESH_COMPONENT } else { "coordinator" }
 $Version = if ($env:SCIMESH_VERSION) { $env:SCIMESH_VERSION } else { "latest" }
 $InstallDir = if ($env:SCIMESH_INSTALL_DIR) {
     $env:SCIMESH_INSTALL_DIR
 } else {
     Join-Path $env:LOCALAPPDATA "SciMesh"
+}
+
+switch ($Component) {
+    "coordinator" { $Binary = "coordinator" }
+    "worker"      { $Binary = "worker-agent" }
+    default       { throw "unknown component: $Component (use 'coordinator' or 'worker')" }
 }
 
 $Arch = switch ($env:PROCESSOR_ARCHITECTURE) {
@@ -39,20 +46,35 @@ if ($Version -eq "latest") {
     }
 }
 
-$Url = "https://github.com/$Repo/releases/download/$Version/coordinator-windows-$Arch.exe"
+$Url = "https://github.com/$Repo/releases/download/$Version/$Binary-windows-$Arch.exe"
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-$Target = Join-Path $InstallDir "coordinator.exe"
+$Target = Join-Path $InstallDir "$Binary.exe"
 
 Write-Host "Downloading $Url"
 Invoke-WebRequest -Uri $Url -OutFile "$Target.tmp"
 Move-Item -Force "$Target.tmp" $Target
 
 Write-Host ""
-Write-Host "SciMesh installed: $Target"
+Write-Host "SciMesh $Component installed: $Target"
 & $Target --version
 Write-Host ""
-Write-Host "Start the platform (one command, everything embedded):"
-Write-Host "  $Target serve --open"
-Write-Host ""
-Write-Host "Your data lives in ~\.scimesh. The admin login is printed on first start."
+if ($Component -eq "coordinator") {
+    Write-Host "Start the platform (one command, everything embedded):"
+    Write-Host "  $Target serve --open"
+    Write-Host ""
+    Write-Host "Your data lives in ~\.scimesh. The admin login is printed on first start."
+} else {
+    Write-Host "The worker needs Python 3 with the scimesh package, then a coordinator"
+    Write-Host "to connect to. Run it with environment variables:"
+    Write-Host ""
+    Write-Host "  set COORDINATOR_URL=http://COORDINATOR_HOST:8080"
+    Write-Host "  set WORKER_AUTH_TOKEN=<worker token from the coordinator>"
+    Write-Host "  set WORK_DIR=%USERPROFILE%\scimesh-worker"
+    Write-Host "  $Target"
+    Write-Host ""
+    Write-Host "For a coordinator started with 'coordinator serve', the worker token is"
+    Write-Host "in ~\.scimesh\worker.token on that machine. Set SCIMESH_PIP_PACKAGE to"
+    Write-Host "install scimesh into a managed venv, or install it yourself:"
+    Write-Host "  pip install scimesh"
+}
