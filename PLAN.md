@@ -1073,17 +1073,18 @@ supported, unit + permission + integration tests green.
 
 ### CTX-20 — Worker Setup UI
 
-**Goal:** A four-step wizard (`/ui/workers/setup`) that turns any machine into
-a worker: platform detection, auth choice (serve token or worker key), a
-ready-to-run command, and a `worker-agent --check` verification step.
+**Goal:** A local setup wizard embedded in the **worker-agent** binary
+(`worker-agent setup`, browser on 127.0.0.1) that turns any machine into a
+worker: coordinator URL + auth (serve token or worker key), work dir,
+connection check, start/stop, and a live status page. Runs on machines that
+have only the worker installed — no coordinator needed.
 
-**Depends on:** CTX-19 (admin API for token reveal), the existing worker-key
-API, the agent.
+**Depends on:** the agent daemon; the worker-key exchange (CTX-15).
 
 **Acceptance criteria:** full plan in
 [`docs/ui-admin-worker-plan.md`](docs/ui-admin-worker-plan.md) (section 4);
-end-to-end in the browser: generated command starts a real worker that
-registers and completes a job.
+the agent gains `setup`, `--config <path>`, and `--check`; end-to-end: the
+wizard starts a real worker that registers and completes a job.
 
 ---
 

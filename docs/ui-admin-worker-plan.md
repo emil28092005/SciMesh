@@ -1,35 +1,33 @@
 # План: Coordinator Admin UI и Worker Setup UI
 
 > Статус: план. Текущий `/ui` — демонстрационный control room (джобы, ворклоады, docs).
-> Два новых UI решают две разные задачи: **управление платформой** (админка
-> координатора) и **подключение машин как воркеров** (установочный визард).
+> Два новых UI решают две разные задачи и живут в **разных бинарниках**:
+> админка кластера — в `coordinator`, визард установки воркера — в
+> `worker-agent` (для тех, кто ставит ТОЛЬКО воркер и не имеет координатора
+> на своей машине).
 
 ## 1. Цель
 
-1. **Coordinator Admin UI** (`/ui/admin`) — полноценная консоль оператора:
-   система, джобы, воркеры, юзеры/роли, ворклоады, настройки, метрики.
-2. **Worker Setup UI** (`/ui/workers/setup`) — пошаговый визард, который
-   превращает любую машину (Linux/macOS/Windows, amd64/arm64) в воркера
-   без чтения документации: выбрать платформу → получить готовую команду →
-   запустить → убедиться, что машина появилась в «My machines».
-
-Оба UI живут в бинарнике координатора (single-binary philosophy), защищены
-той же сессией (JWT через userservice), браузер по-прежнему не касается БД —
-только bounded read model от координатора.
+1. **Coordinator Admin UI** (`/ui/admin`) — полноценная консоль админа
+   распределённого кластера: система, джобы, воркеры, юзеры/роли,
+   ворклоады, настройки, метрики. Живёт в бинарнике `coordinator`.
+2. **Worker Setup UI** — локальный визард **в бинарнике `worker-agent`**
+   (`worker-agent setup` → браузер на 127.0.0.1): пошаговое подключение
+   машины к координатору — URL/токен/ключ, рабочий каталог, проверка
+   соединения, запуск и статус воркера. Не требует установки координатора
+   и работает на машине, где есть только воркер.
 
 ## 2. Принципы
 
-- **Не демо**: каждый экран работает от реального состояния (репозитории +
-  metrics), без симуляции; пустые состояния информативны.
-- **Роли**: всё в `/ui/admin` — только `admin`; `/ui/workers/setup` — любой
-  аутентифицированный пользователь (ключи привязаны к аккаунту).
-- **Секреты**: `worker.token` показывается только админу, с явным
-  подтверждением и предупреждением; в командах setup-визарда по умолчанию
-  плейсхолдер `$(coordinator token)`.
-- **Новые API** — `/ui/admin/api/*` (JSON), те же middleware
-  (`withUISession`, `requireAdmin`), тот же паттерн bounded read model.
-- **Оба движка БД** (sqlite и postgres) поддерживаются одинаково; новые
-  таблицы — миграции в обоих наборах.
+- **Coordinator UI** (админка кластера): `/ui/admin/*` — только `admin`,
+  bounded read model, браузер не касается БД, оба движка (sqlite/postgres)
+  одинаково, секреты (`worker.token`) только админу с подтверждением.
+- **Worker UI** (локальный визард в `worker-agent`): слушает только
+  `127.0.0.1`, без аутентификации (локальная машина), не требует никаких
+  внешних сервисов; конфигурация сохраняется в JSON-файле рядом с
+  рабочим каталогом воркера; запуск воркера — отдельным процессом
+  (`worker-agent --config <path>`), который визард же может остановить.
+- Никаких секретов в логах и в самом UI после сохранения.
 
 ## 3. Coordinator Admin UI (`/ui/admin`)
 
@@ -80,42 +78,62 @@
 | POST | `/ui/admin/api/workloads/{name}/enabled` | enable/disable |
 | GET | `/ui/admin/api/settings` | конфигурация (без секретов) |
 
-## 4. Worker Setup UI (`/ui/workers/setup`)
+## 4. Worker Setup UI (в бинарнике `worker-agent`)
 
-### 4.1 Визард (4 шага)
+### 4.1 Как это выглядит
 
-1. **Платформа**: автоопределение (navigator/platform + архитектура), ручной
-   выбор (linux/darwin/windows × amd64/arm64) → показ установочной команды
-   (`install.sh | bash -s worker`, `install.ps1` с `SCIMESH_COMPONENT=worker`).
-2. **Способ аутентификации**:
-   - a) токен serve-инстанса: поле ввода + (для admin) кнопка «вставить токен»
-     — забирает из `/ui/admin/api/system` (показывается только админу);
-   - b) worker key: форма создания ключа (существующий
-     `POST /ui/api/worker-keys`) — для кластерного режима;
-3. **Готовая команда**: полный блок `export ...` + `worker-agent`
-   (COORDINATOR_URL, токен/ключ, WORK_DIR, WORKER_NAME) + кнопка Copy;
-   чек-лист зависимостей: Python 3, scimesh (`pip install scimesh` или
-   `SCIMESH_PIP_PACKAGE`).
-4. **Проверка**: `worker-agent --check` (новый флаг: `GET /health` +
-   `--version`, без регистрации) + инструкция «появится в My machines».
+```bash
+curl -fsSL .../install.sh | bash -s worker
+worker-agent setup          # печатает URL и открывает браузер
+# → http://127.0.0.1:12700 — локальный визард, ничего устанавливать не нужно
+```
 
-### 4.2 Дополнительно
-- сайдбар «My machines» (существующий список ключей с revoke);
-- ссылка на этот же флоу из дашборда и из `install.sh worker` (печать URL).
+### 4.2 Визард (шаги)
 
-### 4.3 Изменения в агенте
-- `worker-agent --check [--coordinator-url URL]`: пингует координатор,
-  печатает версии и пригодность (python3/scimesh видимость), exit 0/1.
+1. **Координатор**: URL (например `http://192.168.1.10:8080`) + способ
+   аутентификации: токен (serve) или worker key (кластер);
+2. **Рабочий каталог**: путь + имя машины (WORKER_NAME);
+3. **Проверка**: кнопка «Проверить соединение» — `GET /health` координатора
+   (+ обмен ключа, если key), версии; чек-лист зависимостей (Python 3,
+   scimesh) с командой установки;
+4. **Запуск**: «Запустить воркер» — визард сохраняет `config.json` и
+   запускает `worker-agent --config <path>` отдельным процессом.
+
+### 4.3 Статусная страница (та же вкладка после запуска)
+
+- состояние: не запущен / запущен, worker id, зарегистрирован ли;
+- статистика: забрано задач, выполнено, ошибок, последний heartbeat;
+- runtime: python, scimesh, capabilities (из каталога);
+- кнопки: Остановить / Запустить / Открыть лог (хвост).
+
+### 4.4 API визарда (локальный HTTP, 127.0.0.1)
+
+| Метод | Путь | Назначение |
+| --- | --- | --- |
+| GET | `/api/status` | конфиг (без секрета), состояние, статистика |
+| POST | `/api/config` | сохранить конфигурацию в `config.json` |
+| POST | `/api/test` | проверка соединения с координатором |
+| POST | `/api/start` | запустить воркера (self `--config`) |
+| POST | `/api/stop` | остановить |
+| GET | `/api/logs` | хвост лога воркера |
+
+### 4.5 Изменения в агенте
+
+- `worker-agent setup [--port 12700] [--no-open]` — локальный сервер визарда;
+- `worker-agent --config <path>` — запуск демона из JSON-конфига (URL, токен
+  или ключ, work dir, имя, task runner); env-переменные имеют приоритет;
+- `worker-agent --check [--coordinator-url URL]` — пинг `/health` + версии,
+  exit 0/1 (используется визардом на шаге 3);
+- `config.json` по умолчанию: `~/.scimesh-worker/config.json` (переопределяется
+  через `WORKER_CONFIG`); секрет хранится с правами 0600.
 
 ## 5. Компоненты и структура кода
 
 ```
+# Coordinator Admin UI (бинарник coordinator)
 coordinator/internal/transport/http/
-  ui_admin.go            # новые admin-хендлеры + шаблоны admin/*.html
-  ui_worker_setup.go     # setup-визард + worker-setup.html
-  templates/admin.html   # (заменяет текущий минимальный)
-  templates/worker-setup.html
-  server.go              # роуты /ui/admin/* (requireAdmin), /ui/workers/setup
+  ui_admin.go            # admin-хендлеры + admin.html
+  server.go              # роуты /ui/admin/* (requireAdmin)
 
 coordinator/internal/usecase/
   admin.go               # AdminSystem/ListJobsAdmin/ListWorkersAdmin/WorkloadSettings
@@ -125,10 +143,12 @@ coordinator/internal/storage/{sqlite,postgres}/
   ui_read_repo.go        # + ListJobsPaginated, StorageStats
   migrations/*.sql       # + workload_settings
 
+# Worker Setup UI (бинарник worker-agent)
 coordinator/internal/agent/
-  main.go / daemon       # + --check mode
-
-coordinator/cmd/coordinator/main.go  # (serve уже отдаёт UI; правки не нужны)
+  setup/                 # локальный визард: сервер, шаблоны, API, config.json
+  setup_ui.go            # worker-agent setup (сервер 127.0.0.1:12700)
+  configfile.go          # --config <path>: JSON-конфиг демона
+  check.go               # --check: пинг /health + версии
 ```
 
 ## 6. Милестоуны
@@ -138,8 +158,9 @@ coordinator/cmd/coordinator/main.go  # (serve уже отдаёт UI; правк
 - **M2. Admin-управление**: воркеры (trust), юзеры/ключи (userservice),
   ворклоады enable/disable (таблица `workload_settings` + миграции обоих
   движков), настройки (read-only).
-- **M3. Worker Setup**: визард 4 шага + `worker-agent --check` + admin-кнопка
-  «вставить токен» + ключевой флоу (токен/ключ).
+- **M3. Worker Setup (в worker-agent)**: `setup`-сервер с визардом
+  (config/test/start/stop/logs), `--config`, `--check`; E2E: визард запускает
+  реального воркера, тот регистрируется и берёт джоб.
 - **M4. Полировка и верификация**: пустые состояния, mobile, копирование,
   E2E в браузере (admin-флоу и setup-флоу с реальным worker-agent),
   обновление mkdocs/standalone.md, CI зелёный.
@@ -147,12 +168,13 @@ coordinator/cmd/coordinator/main.go  # (serve уже отдаёт UI; правк
 ## 7. Тестирование
 
 - **Go (unit)**: usecase admin (memstore + sqlite), permission-тесты
-  (admin vs user → 403), фильтры/пагинация, enable/disable ворклоадов
-  (схема учитывается), `--check` (с/без координатора).
+  (admin vs user → 403), фильтры/пагинация, enable/disable ворклоадов;
+  агент: визард API (config persist 0600, test без/с координатором,
+  start/stop), `--config`, `--check` (с/без координатора).
 - **Go (integration, postgres)**: пагинация и storage-метрики на реальной БД.
 - **E2E (браузер)**: вход админом → `/ui/admin` показывает реальную систему;
-  `/ui/workers/setup` → сгенерированная команда запускает `worker-agent` на
-  той же машине → воркер появляется в «My machines» и берёт джоб.
+  на «голой» машине: `worker-agent setup` → визард → запуск → воркер
+  регистрируется в координаторе и берёт джоб.
 - **CI**: существующие джобы + новые тесты в общем `go test -race`; sqlite и
   postgres пути одинаково зелёные.
 
@@ -163,5 +185,8 @@ coordinator/cmd/coordinator/main.go  # (serve уже отдаёт UI; правк
 - **Токен в UI**: только админ, с подтверждением; в командах визарда —
   плейсхолдер, чтобы не светить секрет в логах истории.
 - **`worker-agent --check`**: без регистрации, только health + версии.
-- Скоуп v1: без редактирования конфигурации и без управления миграциями
-  из UI (это задача `setup`/CLI).
+- **Локальный визард без аутентификации**: сервер слушает только
+  `127.0.0.1`; любой локальный процесс может управлять воркером — это
+  сознательное упрощение для одной машины.
+- Скоуп v1: без редактирования конфигурации координатора и без управления
+  миграциями из UI (это задача `setup`/CLI).
