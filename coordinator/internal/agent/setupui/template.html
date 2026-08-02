@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SciMesh Worker · Setup</title>
+<style>
+:root{--bg:#0b0e13;--panel:#11151d;--panel-2:#161c27;--border:#1f2634;--border-soft:#181f2b;--text:#e9ecf3;--text-2:#98a2b5;--text-3:#5d6879;--accent:#5b8cff;--accent-soft:#5b8cff1f;--accent-strong:#3f6fe0;--green:#3fce8a;--green-soft:#3fce8a1a;--amber:#e5b64f;--amber-soft:#e5b64f1a;--red:#f2647c;--red-soft:#f2647c1a;--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;color-scheme:dark}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:radial-gradient(900px 500px at 50% -180px,#16233d66,transparent),var(--bg);color:var(--text);font:14px/1.55 Inter,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input{font:inherit;color:var(--text);background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:10px 13px;width:100%;outline:none;transition:border-color .12s,box-shadow .12s}
+input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+input::placeholder{color:var(--text-3)}
+code{font-family:var(--mono);font-size:.86em}
+.shell{max-width:660px;margin:0 auto;padding:44px 22px 70px}
+.brand{display:flex;align-items:center;justify-content:center;gap:11px;margin-bottom:8px}
+.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#5b8cff,#7c5cff);box-shadow:0 4px 16px #5b8cff40}
+.brand-mark svg{width:18px;height:18px;stroke:#fff}
+.brand-name{font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand-name span{color:var(--text-3);font-weight:500}
+.tagline{text-align:center;color:var(--text-3);font-size:12.5px;margin-bottom:34px}
+.tagline code{color:var(--text-2)}
+.steps{display:flex;align-items:center;justify-content:center;gap:0;margin-bottom:30px}
+.step{display:flex;flex-direction:column;align-items:center;gap:7px;width:96px}
+.step-dot{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;border:1.5px solid var(--border);background:var(--panel);color:var(--text-3);font-size:12.5px;font-weight:700;transition:all .2s}
+.step-label{font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.02em}
+.step.active .step-dot{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);box-shadow:0 0 0 4px #5b8cff14}
+.step.active .step-label{color:var(--text)}
+.step.done .step-dot{border-color:var(--green);background:var(--green-soft);color:var(--green)}
+.step.done .step-label{color:var(--text-2)}
+.step-line{flex:1;max-width:44px;height:1.5px;background:var(--border);margin:0 6px 22px;position:relative;overflow:hidden}
+.step-line.done:after{content:"";position:absolute;inset:0;background:var(--green)}
+.card{background:var(--panel);border:1px solid var(--border-soft);border-radius:15px;padding:26px 28px;box-shadow:0 24px 60px #0000004d}
+.card h1{font-size:18px;font-weight:700;letter-spacing:-.02em;margin-bottom:4px}
+.card .sub{color:var(--text-2);font-size:13px;margin-bottom:22px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:7px}
+.field .hint{margin-top:6px;font-size:12px;color:var(--text-3)}
+.field .hint code{color:var(--text-2)}
+.radio-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.radio-card{border:1px solid var(--border);border-radius:11px;padding:13px 14px;cursor:pointer;transition:all .13s;background:var(--panel-2)}
+.radio-card:hover{border-color:#2a3446}
+.radio-card.sel{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 3px #5b8cff14}
+.radio-card b{display:flex;align-items:center;gap:8px;font-size:13.5px}
+.radio-card b svg{width:15px;height:15px;stroke:var(--accent)}
+.radio-card p{margin-top:4px;font-size:12px;color:var(--text-2)}
+.check-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--border-soft);border-radius:10px;margin-bottom:9px;background:var(--panel-2)}
+.check-ic{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;flex:none}
+.check-ic svg{width:13px;height:13px;stroke-width:2.6}
+.check-ok{background:var(--green-soft)}.check-ok svg{stroke:var(--green)}
+.check-bad{background:var(--red-soft)}.check-bad svg{stroke:var(--red)}
+.check-wait{background:#ffffff10}.check-wait svg{stroke:var(--text-3)}
+.check-row b{font-size:13.5px;font-weight:600}
+.check-row span{display:block;font-size:12px;color:var(--text-3)}
+.check-row .ms{margin-left:auto;font:11.5px var(--mono);color:var(--text-3)}
+.actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:24px}
+.btn{display:inline-flex;align-items:center;gap:8px;border-radius:9px;padding:10px 18px;font-weight:650;font-size:13.5px;border:1px solid transparent;transition:all .13s}
+.btn svg{width:15px;height:15px;stroke:currentColor}
+.btn-primary{background:var(--accent);color:#0a1222}
+.btn-primary:hover{background:var(--accent-strong);color:#fff}
+.btn-ghost{border-color:var(--border);color:var(--text-2);background:var(--panel-2)}
+.btn-ghost:hover{color:var(--text);border-color:#2a3446}
+.btn-danger{background:var(--red-soft);color:var(--red)}
+.btn-lg{padding:12px 24px;font-size:14.5px;border-radius:10px}
+.link{color:var(--text-3);font-size:13px}
+.link:hover{color:var(--text)}
+.status-head{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+.pulse{position:relative;width:12px;height:12px;border-radius:50%;background:var(--green);flex:none}
+.pulse:after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--green);opacity:.5;animation:ping 1.6s ease-out infinite}
+@keyframes ping{from{transform:scale(.6);opacity:.7}to{transform:scale(1.4);opacity:0}}
+.status-head h1{font-size:19px}
+.status-head .sub{font-size:12.5px;color:var(--text-3)}
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
+.stat{background:var(--panel-2);border:1px solid var(--border-soft);border-radius:11px;padding:12px 14px}
+.stat b{display:block;font-size:20px;font-weight:700;letter-spacing:-.02em}
+.stat span{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3)}
+.stat.bad b{color:var(--red)}
+.logbox{background:#0a0d12;border:1px solid var(--border-soft);border-radius:11px;padding:14px 16px;font:12px/1.7 var(--mono);color:#8fa3bf;max-height:210px;overflow-y:auto;white-space:pre-wrap;word-break:break-word}
+.meta-line{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:99px;padding:4px 11px;font-size:12px;color:var(--text-2);background:var(--panel-2)}
+.chip svg{width:12px;height:12px;stroke:var(--text-3)}
+.wizard-page{display:none}.wizard-page.active{display:block;animation:fade .18s ease}
+@keyframes fade{from{opacity:0;transform:translateY(5px)}to{opacity:1}}
+.error-strip{background:var(--red-soft);border:1px solid #f2647c33;border-radius:9px;padding:9px 12px;font-size:12.5px;color:#ffb3c0;margin-bottom:14px}
+.spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--text-3);border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px;margin-right:7px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.checks{padding-bottom:6px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="brand">
+    <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="7" r="2.4"/><circle cx="12" cy="17" r="2.4"/><path d="M8 7.5l7.6-1M7 8.3l3.7 6.5M16.6 9.2l-3.2 5.6"/></svg></div>
+    <div class="brand-name">SciMesh <span>· Worker setup</span></div>
+  </div>
+  <p class="tagline">Local wizard served by <code>worker-agent setup</code> · <code>127.0.0.1</code></p>
+
+  <!-- ═══ WIZARD VIEW ═══ -->
+  <div id="view-wizard">
+    <div class="steps" id="steps">
+      <div class="step active" id="st1"><div class="step-dot">1</div><div class="step-label">Connect</div></div>
+      <div class="step-line" id="sl1"></div>
+      <div class="step" id="st2"><div class="step-dot">2</div><div class="step-label">Machine</div></div>
+      <div class="step-line" id="sl2"></div>
+      <div class="step" id="st3"><div class="step-dot">3</div><div class="step-label">Check</div></div>
+      <div class="step-line" id="sl3"></div>
+      <div class="step" id="st4"><div class="step-dot">4</div><div class="step-label">Run</div></div>
+    </div>
+    <div id="error-box"></div>
+
+    <!-- step 1: connect -->
+    <div class="wizard-page active" id="wp1">
+      <div class="card">
+        <h1>Connect to a coordinator</h1>
+        <p class="sub">The coordinator hands out work and collects results. Ask your cluster admin for its address.</p>
+        <div class="field"><label>Coordinator URL</label><input id="in-url" placeholder="http://192.168.1.10:8080"><p class="hint">For a served instance this is the address printed by <code>coordinator serve</code>.</p></div>
+        <div class="field"><label>Authentication</label>
+          <div class="radio-grid" id="auth-grid">
+            <div class="radio-card sel" data-mode="token"><b><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Cluster token</b><p>Serve instances: one token for every worker.</p></div>
+            <div class="radio-card" data-mode="key"><b><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="8" cy="14" r="4"/><path d="M10.8 11.2L20 2M15 4l3 3"/></svg>Worker key</b><p>Shared clusters: a key tied to your account.</p></div>
+          </div>
+        </div>
+        <div class="field" id="token-field"><label>Token</label><input id="in-token" type="password" placeholder="paste the token from coordinator token"><p class="hint">The admin can copy it from <code>coordinator token</code> on the server.</p></div>
+        <div class="field" id="key-field" style="display:none"><label>Worker key + userservice URL</label><input id="in-key" type="password" placeholder="smk_…"><input id="in-users" placeholder="http://userservice-host:8081" style="margin-top:8px"><p class="hint">Create a key in the coordinator UI: Users → worker keys.</p></div>
+        <div class="actions"><span class="link" id="l1">Step 1 of 4</span><button class="btn btn-primary" id="b1">Continue →</button></div>
+      </div>
+    </div>
+
+    <!-- step 2: machine -->
+    <div class="wizard-page" id="wp2">
+      <div class="card">
+        <h1>This machine</h1>
+        <p class="sub">Where tasks run and how the machine appears in the cluster.</p>
+        <div class="field"><label>Worker name</label><input id="in-name" placeholder="auto-detected"><p class="hint">Shown in the coordinator’s worker list.</p></div>
+        <div class="field"><label>Work directory</label><input id="in-dir" placeholder="./scimesh-agent-data"><p class="hint">Datasets and shard results live here. ~1 GB free space recommended.</p></div>
+        <div class="field"><label>Compute resources advertised</label>
+          <div class="radio-grid">
+            <div class="radio-card sel" data-cpu="auto"><b>Auto</b><p>Detect the machine’s CPU count.</p></div>
+            <div class="radio-card" data-cpu="custom"><b>Custom…</b><p>Limit what this machine advertises.</p></div>
+          </div>
+        </div>
+        <div class="field" id="cpu-field" style="display:none"><label>CPU count</label><input id="in-cpu" type="number" min="1" value="1"></div>
+        <div class="actions"><button class="btn btn-ghost" id="b2b">← Back</button><button class="btn btn-primary" id="b2">Continue →</button></div>
+      </div>
+    </div>
+
+    <!-- step 3: preflight -->
+    <div class="wizard-page" id="wp3">
+      <div class="card">
+        <h1>Preflight check</h1>
+        <p class="sub">Making sure this machine can reach the coordinator and run SciMesh workloads.</p>
+        <div class="checks" id="checks"></div>
+        <div class="actions"><button class="btn btn-ghost" id="b3b">← Back</button><button class="btn btn-primary" id="b3" disabled>Continue anyway →</button></div>
+      </div>
+    </div>
+
+    <!-- step 4: run -->
+    <div class="wizard-page" id="wp4">
+      <div class="card" style="text-align:center;padding:40px 28px">
+        <div class="brand-mark" style="margin:0 auto 18px;width:46px;height:46px;border-radius:13px"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px"><path d="M6 4l14 8-14 8V4z"/></svg></div>
+        <h1 style="font-size:20px">Ready to join the cluster</h1>
+        <p class="sub" style="max-width:380px;margin:8px auto 26px">Configuration will be saved and the worker started as a background process.</p>
+        <div class="actions" style="justify-content:space-between;margin-top:30px"><button class="btn btn-ghost" id="b4b">← Back</button><button class="btn btn-primary btn-lg" id="b4">Start worker</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ STATUS VIEW ═══ -->
+  <div id="view-status" style="display:none">
+    <div class="card">
+      <div class="status-head">
+        <div class="pulse" id="st-pulse"></div>
+        <div><h1 id="st-title">Worker is working</h1><div class="sub" id="st-sub">—</div></div>
+        <button class="btn btn-danger" id="st-stop" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Stop</button>
+      </div>
+      <div class="meta-line" id="st-meta"></div>
+      <div class="logbox" id="st-log"></div>
+      <div class="actions"><span class="link" id="st-cfg">—</span><button class="btn btn-ghost" id="st-reconfig">Reconfigure…</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+let state={mode:'token',cpu:'auto'};
+let checksOk=false;
+
+function err(msg){$('error-box').innerHTML=msg?'<div class="error-strip">'+msg+'</div>':''}
+function goto(n){
+  ['wp1','wp2','wp3','wp4'].forEach((id,i)=>$(id).classList.toggle('active',i===n-1));
+  for(let i=1;i<=4;i++){
+    const st=$('st'+i);
+    st.classList.toggle('done',i<n);st.classList.toggle('active',i===n);
+    st.querySelector('.step-dot').textContent=i<n?'✓':i;
+    if(i<4)$('sl'+i).classList.toggle('done',i<n);
+  }
+  err('');
+}
+document.querySelectorAll('#auth-grid .radio-card').forEach(c=>c.addEventListener('click',()=>{
+  document.querySelectorAll('#auth-grid .radio-card').forEach(x=>x.classList.remove('sel'));
+  c.classList.add('sel');state.mode=c.dataset.mode;
+  $('token-field').style.display=state.mode==='token'?'':'none';
+  $('key-field').style.display=state.mode==='key'?'':'none';
+}));
+document.querySelectorAll('#wp2 .radio-card').forEach(c=>c.addEventListener('click',()=>{
+  c.parentElement.querySelectorAll('.radio-card').forEach(x=>x.classList.remove('sel'));
+  c.classList.add('sel');state.cpu=c.dataset.cpu;
+  $('cpu-field').style.display=state.cpu==='custom'?'':'none';
+}));
+
+async function postJSON(path,body){
+  const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const data=await r.json().catch(()=>({}));
+  return {status:r.status,data};
+}
+function draftConfig(){
+  return {
+    coordinator_url:$('in-url').value.trim(),
+    token:state.mode==='token'?$('in-token').value.trim():'',
+    worker_key:state.mode==='key'?$('in-key').value.trim():'',
+    userservice_url:state.mode==='key'?$('in-users').value.trim():'',
+    work_dir:$('in-dir').value.trim(),
+    worker_name:$('in-name').value.trim(),
+    cpu_count:state.cpu==='custom'?parseInt($('in-cpu').value||'1',10):0
+  };
+}
+
+$('b1').onclick=()=>{
+  const c=draftConfig();
+  if(!c.coordinator_url){err('Enter the coordinator URL.');return}
+  if(state.mode==='token'&&!c.token){err('Enter the cluster token.');return}
+  if(state.mode==='key'&&!c.worker_key){err('Enter the worker key.');return}
+  goto(2);
+};
+$('b2b').onclick=()=>goto(1);
+$('b2').onclick=()=>{goto(3);runChecks()};
+$('b3b').onclick=()=>goto(2);
+$('b3').onclick=()=>goto(4);
+$('b4b').onclick=()=>goto(3);
+$('b4').onclick=async()=>{
+  const c=draftConfig();
+  const r=await postJSON('/api/config',c);
+  if(r.status!==200){err('Could not save the configuration: '+(r.data.error||'unknown error'));return}
+  const s=await postJSON('/api/start',{});
+  if(s.status!==200){err('Could not start the worker: '+(s.data.error||'unknown error'));return}
+  showStatus();
+};
+
+const checkRow=(name,ok,detail,ms)=>
+  '<div class="check-row"><div class="check-ic '+(ok===null?'check-wait':ok?'check-ok':'check-bad')+'"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round">'+(ok===null?'<path d="M12 7v5l3 3"/>':ok?'<path d="M4 12l5 5L20 6"/>':'<path d="M6 6l12 12M18 6L6 18"/>')+'</svg></div><div><b>'+name+'</b><span>'+(detail||'')+'</span></div>'+(ms?'<span class="ms">'+ms+' ms</span>':'')+'</div>';
+async function runChecks(){
+  const box=$('checks');
+  box.innerHTML=checkRow('Coordinator reachable','',null,null)+checkRow('Python 3','',null,null)+checkRow('scimesh package','',null,null);
+  const r=await postJSON('/api/test',draftConfig());
+  box.innerHTML='';
+  checksOk=true;
+  const items=[r.data.coordinator,r.data.python,r.data.scimesh];
+  for(const item of items){
+    if(item&&!item.ok)checksOk=false;
+    box.insertAdjacentHTML('beforeend',checkRow(item?item.name:'?',item?item.ok:null,item?item.detail:'',item?item.latency_ms:null));
+  }
+  $('b3').disabled=!checksOk;
+}
+
+async function showStatus(){
+  $('view-wizard').style.display='none';
+  $('view-status').style.display='block';
+  await refreshStatus();
+  setInterval(refreshStatus,2000);
+}
+async function refreshStatus(){
+  const r=await fetch('/api/status');
+  if(!r.ok)return;
+  const v=await r.json();
+  $('st-pulse').style.background=v.running?'var(--green)':'var(--text-3)';
+  $('st-pulse').style.animation=v.running?'':'none';
+  $('st-title').textContent=v.running?(v.worker_name||'Worker')+' is working':(v.worker_name||'Worker')+' is stopped';
+  $('st-sub').textContent='pid '+(v.pid||'—')+' · config '+(v.config_present?v.config_path:'not saved yet');
+  $('st-cfg').textContent='Configuration: '+(v.config_present?v.config_path:'—');
+  const meta=$('st-meta');
+  meta.innerHTML='';
+  if(v.coordinator){const c=document.createElement('span');c.className='chip';c.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>'+v.coordinator;meta.append(c)}
+  if(v.work_dir){const d=document.createElement('span');d.className='chip';d.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'+v.work_dir;meta.append(d)}
+  if(!v.token_set){const t=document.createElement('span');t.className='chip';t.style.color='var(--amber)';t.textContent='no credential set';meta.append(t)}
+  const logs=await fetch('/api/logs?tail=200');
+  const lv=await logs.json();
+  $('st-log').textContent=lv.log||'(no log yet — the worker writes here once started)';
+}
+$('st-stop').onclick=async()=>{await postJSON('/api/stop',{});refreshStatus()};
+$('st-reconfig').onclick=()=>{
+  $('view-status').style.display='none';
+  $('view-wizard').style.display='block';
+  goto(1);
+};
+
+// Prefill from a saved configuration, then decide which view to show.
+(async()=>{
+  const r=await fetch('/api/status');
+  const v=await r.json();
+  if(v.config_present){
+    $('in-url').value=v.coordinator||'';
+    $('in-dir').value=v.work_dir||'';
+    $('in-name').value=v.worker_name||'';
+  }
+  if(v.running)showStatus();
+})();
+</script>
+</body>
+</html>
