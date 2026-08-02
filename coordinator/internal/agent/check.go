@@ -84,7 +84,9 @@ func CheckEnvironment(ctx context.Context) CheckReport {
 	cmd := exec.CommandContext(ctx, python, "-c", "import scimesh; print(scimesh.__version__ if hasattr(scimesh, '__version__') else 'installed')")
 	out, err := cmd.Output()
 	if err != nil {
-		report.Scimesh = CheckItem{Name: "scimesh", OK: false, Detail: "install with: pip install scimesh"}
+		// The worker executes workloads by spawning scimesh's task runner, so
+		// the package is a hard requirement, not an optimisation.
+		report.Scimesh = CheckItem{Name: "scimesh", OK: false, Detail: "the worker runs workloads through scimesh — install with: pip install scimesh"}
 		return report
 	}
 	report.Scimesh = CheckItem{Name: "scimesh", OK: true, Detail: strings.TrimSpace(string(out))}

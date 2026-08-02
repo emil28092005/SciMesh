@@ -183,7 +183,7 @@ code{font-family:var(--mono);font-size:.86em}
 
 <script>
 const $=id=>document.getElementById(id);
-let state={mode:'token',cpu:'auto'};
+let state={mode:'token',cpu:'auto',venvPython:null};
 let checksOk=false;
 
 function err(msg){$('error-box').innerHTML=msg?'<div class="error-strip">'+msg+'</div>':''}
@@ -215,7 +215,7 @@ async function postJSON(path,body){
   return {status:r.status,data};
 }
 function draftConfig(){
-  return {
+  const cfg={
     coordinator_url:$('in-url').value.trim(),
     token:state.mode==='token'?$('in-token').value.trim():'',
     worker_key:state.mode==='key'?$('in-key').value.trim():'',
@@ -224,6 +224,8 @@ function draftConfig(){
     worker_name:$('in-name').value.trim(),
     cpu_count:state.cpu==='custom'?parseInt($('in-cpu').value||'1',10):0
   };
+  if(state.venvPython)cfg.task_runner=[state.venvPython,'-m','scimesh.worker.task'];
+  return cfg;
 }
 
 $('b1').onclick=()=>{

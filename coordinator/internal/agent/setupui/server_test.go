@@ -3,6 +3,7 @@ package setupui
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -24,16 +25,22 @@ func testLogger() *slog.Logger {
 
 func newTestServer(t *testing.T, sup Supervisor) (*Server, string) {
 	t.Helper()
+	return newTestServerWithInstall(t, sup, nil)
+}
+
+func newTestServerWithInstall(t *testing.T, sup Supervisor, install func(ctx context.Context, venvPython, pkg string) error) (*Server, string) {
+	t.Helper()
 	dir := t.TempDir()
 	server := New(testLogger(), Options{
 		// A distinct random port per test: Port 0 means "the default 12700" in
 		// the server, which would let the shared http.Client pool reuse a stale
 		// keep-alive connection across tests (EOF after a Shutdown).
-		Port:        freePort(t),
-		ConfigPath:  filepath.Join(dir, "config.json"),
-		Dir:         dir,
-		Supervisor:  sup,
-		OpenBrowser: func(string) {},
+		Port:           freePort(t),
+		ConfigPath:     filepath.Join(dir, "config.json"),
+		Dir:            dir,
+		Supervisor:     sup,
+		OpenBrowser:    func(string) {},
+		InstallScimesh: install,
 	})
 	listener, err := server.Listen()
 	if err != nil {
@@ -289,5 +296,43 @@ func TestConfigFileDefaultsAndEnvOverride(t *testing.T) {
 	}
 	if config.CPUCount != 4 {
 		t.Errorf("cpu = %d", config.CPUCount)
+	}
+}
+
+func TestInstallRuntimeCreatesVenvAndReportsPython(t *testing.T) {
+	var installedPkg string
+	sup := &fakeSup{}
+	_, base := newTestServerWithInstall(t, sup, func(ctx context.Context, venvPython, pkg string) error {
+		installedPkg = pkg
+		// Prove the venv python path really exists by creating a marker file
+		// where the real venv python would be.
+		_ = os.MkdirAll(filepath.Dir(venvPython), 0o755)
+		_ = os.WriteFile(venvPython, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+		return nil
+	})
+
+	rec, data := postJSON(t, base, "/api/runtime/install", map[string]any{})
+	if rec.Code != http.StatusOK || data["ok"] != true {
+		t.Fatalf("install: got %d %v, want 200 ok", rec.Code, data)
+	}
+	if installedPkg != "scimesh" {
+		t.Errorf("package = %q, want the default scimesh", installedPkg)
+	}
+	if !strings.HasSuffix(data["python"].(string), "venv/bin/python") {
+		t.Errorf("python = %v, want the venv python", data["python"])
+	}
+}
+
+func TestInstallRuntimeFailureIsExplained(t *testing.T) {
+	sup := &fakeSup{}
+	_, base := newTestServerWithInstall(t, sup, func(ctx context.Context, venvPython, pkg string) error {
+		return errors.New("no matching distribution found")
+	})
+	rec, data := postJSON(t, base, "/api/runtime/install", map[string]any{"scimesh_package": "/wheels/scimesh.whl"})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("install failure: got %d, want 409", rec.Code)
+	}
+	if !strings.Contains(data["error"].(string), "SCIMESH_PIP_PACKAGE") {
+		t.Errorf("error = %v, want a hint about SCIMESH_PIP_PACKAGE", data["error"])
 	}
 }

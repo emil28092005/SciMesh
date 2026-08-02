@@ -183,6 +183,7 @@ type Server struct {
 	sup         Supervisor
 	openBrowser func(string)
 	port        int
+	install     func(ctx context.Context, venvPython, pkg string) error
 }
 
 // Options customises the wizard for tests and embedding.
@@ -192,6 +193,9 @@ type Options struct {
 	OpenBrowser func(url string)
 	Supervisor  Supervisor
 	Dir         string // directory for pid/log files; defaults to the config dir
+	// InstallScimesh overrides the pip step of the runtime installer (tests
+	// substitute a fake); nil uses the real pip inside the managed venv.
+	InstallScimesh func(ctx context.Context, venvPython, pkg string) error
 }
 
 func New(log *slog.Logger, opts Options) *Server {
@@ -215,7 +219,11 @@ func New(log *slog.Logger, opts Options) *Server {
 	if port == 0 {
 		port = defaultPort
 	}
-	return &Server{log: log, cfgPath: cfgPath, logPath: filepath.Join(dir, logFileName), dir: dir, sup: sup, openBrowser: open, port: port}
+	install := opts.InstallScimesh
+	if install == nil {
+		install = installScimeshWithPip
+	}
+	return &Server{log: log, cfgPath: cfgPath, logPath: filepath.Join(dir, logFileName), dir: dir, sup: sup, openBrowser: open, port: port, install: install}
 }
 
 // Listen binds the loopback listener and returns it; Serve runs the server on
@@ -234,6 +242,7 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 	mux.HandleFunc("GET /api/status", s.handleStatus)
 	mux.HandleFunc("POST /api/config", s.handleSaveConfig)
 	mux.HandleFunc("POST /api/test", s.handleTest)
+	mux.HandleFunc("POST /api/runtime/install", s.handleInstallRuntime)
 	mux.HandleFunc("POST /api/start", s.handleStart)
 	mux.HandleFunc("POST /api/stop", s.handleStop)
 	mux.HandleFunc("GET /api/logs", s.handleLogs)
@@ -412,3 +421,94 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 // ErrCanceled mirrors context.Canceled for callers that treat a cancelled
 // wizard as a clean exit.
 var ErrCanceled = errors.New("setup wizard cancelled")
+
+type installRuntimeRequest struct {
+	// ScimeshPackage overrides where the scimesh wheel comes from: a local
+	// wheel/index path or the PyPI name. Defaults to SCIMESH_PIP_PACKAGE, then
+	// to the PyPI name.
+	ScimeshPackage string `json:"scimesh_package"`
+}
+
+type installRuntimeResponse struct {
+	OK        bool   `json:"ok"`
+	Python    string `json:"python,omitempty"` // venv python to use as TASK_RUNNER[0]
+	Installed bool   `json:"installed"`
+}
+
+// handleInstallRuntime creates a managed venv next to the worker config and
+// installs the scimesh package into it, so the machine needs no manual pip
+// step. The venv python path is returned for the wizard to bake into the
+// task runner.
+func (s *Server) handleInstallRuntime(w http.ResponseWriter, r *http.Request) {
+	var req installRuntimeRequest
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
+		return
+	}
+	pkg := strings.TrimSpace(req.ScimeshPackage)
+	if pkg == "" {
+		pkg = os.Getenv("SCIMESH_PIP_PACKAGE")
+	}
+	if pkg == "" {
+		pkg = "scimesh"
+	}
+
+	python3, err := exec.LookPath("python3")
+	if err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "python3 is not installed on this machine"})
+		return
+	}
+	venvDir := filepath.Join(s.dir, "venv")
+	venvPython := filepath.Join(venvDir, "bin", "python")
+	if _, err := os.Stat(venvPython); err != nil {
+		// Windows layout: Scripts/python.exe.
+		if win := filepath.Join(venvDir, "Scripts", "python.exe"); stat(win) {
+			venvPython = win
+		}
+	}
+	if _, err := os.Stat(venvPython); err != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, python3, "-m", "venv", venvDir) //nolint:gosec // G204: python3 from LookPath, venvDir is our own dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			s.log.Error("create runtime venv", "err", err, "out", truncate(string(out), 500))
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "could not create the python venv"})
+			return
+		}
+	}
+
+	if err := s.install(r.Context(), venvPython, pkg); err != nil {
+		s.log.Error("install scimesh runtime", "err", err)
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "pip install " + pkg + " failed: " + err.Error() +
+				". Set SCIMESH_PIP_PACKAGE to your scimesh wheel or index and retry.",
+		})
+		return
+	}
+	writeJSON(w, http.StatusOK, installRuntimeResponse{OK: true, Python: venvPython, Installed: true})
+}
+
+// installScimeshWithPip installs the package with the venv's own pip,
+// streaming into the agent log so a long build is not silent.
+func installScimeshWithPip(ctx context.Context, venvPython, pkg string) error {
+	pip := filepath.Join(filepath.Dir(venvPython), "pip")
+	if _, err := os.Stat(pip); err != nil {
+		pip += ".exe"
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, pip, "install", pkg) //nolint:gosec // G204: pip from our venv, pkg is operator-set or a fixed default
+	return cmd.Run()
+}
+
+func stat(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
