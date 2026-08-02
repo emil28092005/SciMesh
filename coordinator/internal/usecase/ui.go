@@ -3,12 +3,15 @@ package usecase
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 // UIReadRepository is a read-only projection source for the local operator UI.
@@ -125,9 +128,14 @@ type JobDetailView struct {
 	Session              *SessionView    `json:"-"`
 }
 
-type Dashboard struct{ read UIReadRepository }
+type Dashboard struct {
+	read    UIReadRepository
+	catalog *workloads.Catalog
+}
 
-func NewDashboard(read UIReadRepository) *Dashboard { return &Dashboard{read: read} }
+func NewDashboard(read UIReadRepository, catalog *workloads.Catalog) *Dashboard {
+	return &Dashboard{read: read, catalog: catalog}
+}
 
 func (d *Dashboard) Overview(ctx context.Context, limit int) (DashboardView, error) {
 	jobs, err := d.read.ListJobs(ctx, uiOwnerFilter(ctx), limit)
@@ -219,7 +227,7 @@ func (d *Dashboard) JobDetail(ctx context.Context, jobID uuid.UUID) (JobDetailVi
 		JobCard:    jobCard(*job, tasks),
 		Tasks:      make([]TaskCard, 0, len(tasks)),
 		Artifacts:  make([]ArtifactCard, 0, len(artifacts)),
-		Parameters: uiParameters(job.Parameters),
+		Parameters: uiParameters(job.Parameters, d.catalog, job.Workload),
 		Session:    sessionViewFrom(ctx),
 	}
 	for _, task := range tasks {
@@ -304,29 +312,65 @@ func jobCard(job domain.Job, tasks []domain.Task) JobCard {
 	return c
 }
 
-func uiParameters(parameters map[string]any) []ParameterCard {
-	keys := []struct {
-		key   string
-		label string
-	}{
-		{"query_smiles", "Target SMILES"},
-		{"query_id", "Target ChEMBL ID"},
-		{"top_k", "Global top-k"},
-		{"threshold", "Similarity threshold"},
-		{"threshold_direction", "Threshold direction"},
+func uiParameters(parameters map[string]any, catalog *workloads.Catalog, workload string) []ParameterCard {
+	labels := map[string]string{
+		"query_smiles":        "Target SMILES",
+		"query_id":            "Target ChEMBL ID",
+		"top_k":               "Global top-k",
+		"threshold":           "Similarity threshold",
+		"threshold_direction": "Threshold direction",
+		"min_molwt":           "Minimum molecular weight",
+		"max_molwt":           "Maximum molecular weight",
+		"skip_invalid":        "Skip invalid molecules",
+		"block_size":          "Block size",
 	}
+	keys := make([]string, 0, len(parameters))
+	declared := declaredParameterNames(catalog, workload)
+	for key := range parameters {
+		if declared != nil && !declared[key] {
+			// Only schema-declared scientific parameters may reach the browser;
+			// anything else could carry internal coordinator state.
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
 	out := make([]ParameterCard, 0, len(keys))
-	for _, entry := range keys {
-		value, ok := parameters[entry.key]
+	for _, key := range keys {
+		value, ok := parameters[key]
 		if !ok {
 			continue
 		}
 		formatted, ok := formatUIParameter(value)
-		if ok {
-			out = append(out, ParameterCard{Label: entry.label, Value: formatted})
+		if !ok {
+			continue
 		}
+		label := labels[key]
+		if label == "" {
+			label = strings.ReplaceAll(key, "_", " ")
+		}
+		out = append(out, ParameterCard{Label: label, Value: formatted})
 	}
 	return out
+}
+
+func declaredParameterNames(catalog *workloads.Catalog, workload string) map[string]bool {
+	if catalog == nil || workload == "" {
+		return nil
+	}
+	item := catalog.ByName(workload)
+	if item == nil {
+		return nil
+	}
+	properties, ok := item.Parameters["properties"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	declared := make(map[string]bool, len(properties))
+	for name := range properties {
+		declared[name] = true
+	}
+	return declared
 }
 
 func formatUIParameter(value any) (string, bool) {

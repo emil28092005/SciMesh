@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 // Job operations: the submitter-facing lifecycle of a whole submission.
@@ -227,7 +228,7 @@ func progressFrom(job domain.Job, counts map[domain.TaskStatus]int) domain.JobPr
 // Shared by CompleteTask and FailTask so both close a job by the same rule —
 // the rule itself lives in domain.JobProgress.DeriveStatus.
 func syncJobStatus(ctx context.Context, jobs JobRepository, tasks TaskRepository,
-	jobID uuid.UUID, now time.Time) error {
+	catalog *workloads.Catalog, jobID uuid.UUID, now time.Time) error {
 
 	counts, err := tasks.CountByStatus(ctx, jobID)
 	if err != nil {
@@ -239,9 +240,11 @@ func syncJobStatus(ctx context.Context, jobs JobRepository, tasks TaskRepository
 	}
 	status := progressFrom(*job, counts).DeriveStatus()
 	// All worker shards being complete means scientific reduction is ready, not
-	// that the job's final artifact already exists. CTX-09 owns the transition
-	// from reducing to completed after it persists that artifact.
-	if status == domain.JobCompleted && job.Workload == "similarity-search" {
+	// that the job's final artifact already exists. Known catalog workloads
+	// transition to reducing so ReduceJob can produce the final artifact; the
+	// reducer then completes the job with the result. Unknown (URI-based) jobs
+	// complete without a coordinator-owned final artifact.
+	if status == domain.JobCompleted && catalog != nil && catalog.Reduction(job.Workload) != "" {
 		status = domain.JobReducing
 	}
 
@@ -253,14 +256,14 @@ func syncJobStatus(ctx context.Context, jobs JobRepository, tasks TaskRepository
 }
 
 func syncExpiredJobStatuses(ctx context.Context, jobs JobRepository, tasks TaskRepository,
-	jobIDs []uuid.UUID, now time.Time) error {
+	catalog *workloads.Catalog, jobIDs []uuid.UUID, now time.Time) error {
 	seen := make(map[uuid.UUID]struct{}, len(jobIDs))
 	for _, jobID := range jobIDs {
 		if _, duplicate := seen[jobID]; duplicate {
 			continue
 		}
 		seen[jobID] = struct{}{}
-		if err := syncJobStatus(ctx, jobs, tasks, jobID, now); err != nil {
+		if err := syncJobStatus(ctx, jobs, tasks, catalog, jobID, now); err != nil {
 			return err
 		}
 	}

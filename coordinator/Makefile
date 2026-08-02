@@ -29,7 +29,7 @@ DEMO_DIR ?= .demo
 # workloads.json is the UI workload catalog, generated from the Python SDK
 # workload library. It is checked in so the binary embeds it; regenerate it
 # whenever workloads or their manifests change (requires the Python venv).
-WORKLOADS_JSON := internal/transport/http/workloads.json
+WORKLOADS_JSON := internal/workloads/workloads.json
 
 # The Go worker agent: a static coordinator client that executes SDK
 # workloads in a Python subprocess per claimed task.

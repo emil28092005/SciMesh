@@ -17,7 +17,7 @@ func newDashboardWithWorkers() (*usecase.Dashboard, *memstore.WorkerRepo) {
 	tasks := memstore.NewTaskRepo()
 	workers := memstore.NewWorkerRepo()
 	artifacts := memstore.NewArtifactRepo()
-	return usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, workers, artifacts)), workers
+	return usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, workers, artifacts), testCatalog()), workers
 }
 
 func seedWorker(t *testing.T, workers *memstore.WorkerRepo, owner *uuid.UUID, name string) {

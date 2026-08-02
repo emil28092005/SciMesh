@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 // Task operations: the worker-facing lifecycle of a single chunk.
@@ -27,10 +28,11 @@ type ClaimTask struct {
 	tx            TxManager
 	clock         Clock
 	leaseDuration time.Duration
+	catalog       *workloads.Catalog
 }
 
-func NewClaimTask(tasks TaskRepository, jobs JobRepository, workers WorkerRepository, tx TxManager, clock Clock, leaseDuration time.Duration) *ClaimTask {
-	return &ClaimTask{tasks: tasks, jobs: jobs, workers: workers, tx: tx, clock: clock, leaseDuration: leaseDuration}
+func NewClaimTask(tasks TaskRepository, jobs JobRepository, workers WorkerRepository, tx TxManager, clock Clock, leaseDuration time.Duration, catalog *workloads.Catalog) *ClaimTask {
+	return &ClaimTask{tasks: tasks, jobs: jobs, workers: workers, tx: tx, clock: clock, leaseDuration: leaseDuration, catalog: catalog}
 }
 
 // Execute reclaims elapsed leases first, then hands out one task.
@@ -77,7 +79,7 @@ func (uc *ClaimTask) Execute(ctx context.Context, in ClaimTaskInput) (*domain.Cl
 		if err != nil {
 			return err
 		}
-		if err := syncExpiredJobStatuses(ctx, uc.jobs, uc.tasks, affectedJobs, now); err != nil {
+		if err := syncExpiredJobStatuses(ctx, uc.jobs, uc.tasks, uc.catalog, affectedJobs, now); err != nil {
 			return err
 		}
 
@@ -159,6 +161,7 @@ func (uc *RenewLease) Execute(ctx context.Context, in RenewLeaseInput) (*domain.
 type CompleteTask struct {
 	tasks     TaskRepository
 	jobs      JobRepository
+	catalog   *workloads.Catalog
 	artifacts ArtifactRepository
 	workers   WorkerRepository
 	results   TaskResultRepository
@@ -170,12 +173,12 @@ type CompleteTask struct {
 }
 
 func NewCompleteTask(tasks TaskRepository, jobs JobRepository, artifacts ArtifactRepository,
-	workers WorkerRepository, results TaskResultRepository, tx TxManager, clock Clock, quorum int) *CompleteTask {
+	workers WorkerRepository, results TaskResultRepository, tx TxManager, clock Clock, quorum int, catalog *workloads.Catalog) *CompleteTask {
 	if quorum < 1 {
 		quorum = 2
 	}
 	return &CompleteTask{tasks: tasks, jobs: jobs, artifacts: artifacts, workers: workers,
-		results: results, tx: tx, clock: clock, quorum: quorum}
+		results: results, tx: tx, clock: clock, quorum: quorum, catalog: catalog}
 }
 
 // Execute applies the result and, when that was the job's last outstanding
@@ -229,7 +232,7 @@ func (uc *CompleteTask) Execute(ctx context.Context, in CompleteTaskInput) (*dom
 		if err := uc.tasks.Update(ctx, task); err != nil {
 			return err
 		}
-		return syncJobStatus(ctx, uc.jobs, uc.tasks, task.JobID, now)
+		return syncJobStatus(ctx, uc.jobs, uc.tasks, uc.catalog, task.JobID, now)
 	})
 	if err != nil {
 		return nil, err
@@ -268,7 +271,7 @@ func (uc *CompleteTask) recordVote(ctx context.Context, task *domain.Task, in Co
 	if err := uc.tasks.Update(ctx, task); err != nil {
 		return err
 	}
-	return syncJobStatus(ctx, uc.jobs, uc.tasks, task.JobID, now)
+	return syncJobStatus(ctx, uc.jobs, uc.tasks, uc.catalog, task.JobID, now)
 }
 
 // workerTrust reports whether the worker's results are accepted directly, and
@@ -324,10 +327,11 @@ type FailTask struct {
 	workers WorkerRepository
 	tx      TxManager
 	clock   Clock
+	catalog *workloads.Catalog
 }
 
-func NewFailTask(tasks TaskRepository, jobs JobRepository, workers WorkerRepository, tx TxManager, clock Clock) *FailTask {
-	return &FailTask{tasks: tasks, jobs: jobs, workers: workers, tx: tx, clock: clock}
+func NewFailTask(tasks TaskRepository, jobs JobRepository, workers WorkerRepository, tx TxManager, clock Clock, catalog *workloads.Catalog) *FailTask {
+	return &FailTask{tasks: tasks, jobs: jobs, workers: workers, tx: tx, clock: clock, catalog: catalog}
 }
 
 // Execute delegates the requeue-or-terminate decision to Task.Fail, then keeps
@@ -351,7 +355,7 @@ func (uc *FailTask) Execute(ctx context.Context, in FailTaskInput) (*domain.Task
 			return err
 		}
 		out = task
-		return syncJobStatus(ctx, uc.jobs, uc.tasks, task.JobID, now)
+		return syncJobStatus(ctx, uc.jobs, uc.tasks, uc.catalog, task.JobID, now)
 	})
 	if err != nil {
 		return nil, err
@@ -362,14 +366,15 @@ func (uc *FailTask) Execute(ctx context.Context, in FailTaskInput) (*domain.Task
 // --- ExpireLeases --------------------------------------------------------
 
 type ExpireLeases struct {
-	tasks TaskRepository
-	jobs  JobRepository
-	tx    TxManager
-	clock Clock
+	tasks   TaskRepository
+	jobs    JobRepository
+	tx      TxManager
+	clock   Clock
+	catalog *workloads.Catalog
 }
 
-func NewExpireLeases(tasks TaskRepository, jobs JobRepository, tx TxManager, clock Clock) *ExpireLeases {
-	return &ExpireLeases{tasks: tasks, jobs: jobs, tx: tx, clock: clock}
+func NewExpireLeases(tasks TaskRepository, jobs JobRepository, tx TxManager, clock Clock, catalog *workloads.Catalog) *ExpireLeases {
+	return &ExpireLeases{tasks: tasks, jobs: jobs, tx: tx, clock: clock, catalog: catalog}
 }
 
 // Execute reclaims elapsed tasks and persists the state of every affected job.
@@ -386,7 +391,7 @@ func (uc *ExpireLeases) Execute(ctx context.Context) (int64, error) {
 		if err != nil {
 			return err
 		}
-		return syncExpiredJobStatuses(ctx, uc.jobs, uc.tasks, affected, now)
+		return syncExpiredJobStatuses(ctx, uc.jobs, uc.tasks, uc.catalog, affected, now)
 	})
 	return int64(len(affected)), err
 }

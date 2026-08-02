@@ -1,6 +1,6 @@
 {
   "generated_by": "scimesh workload export",
-  "schema_version": 1,
+  "schema_version": 2,
   "workloads": [
     {
       "capabilities": [
@@ -146,10 +146,25 @@
         },
         "type": "object"
       },
+      "reduction": "ordered-concat",
       "trust_modes": [
         "trusted",
         "untrusted_quorum"
       ],
+      "ui_elements": [
+        {
+          "default": true,
+          "field": "skip_invalid",
+          "group": "",
+          "help": "Skip rows with invalid SMILES instead of failing the shard.",
+          "label": "Skip invalid molecules",
+          "options": [],
+          "order": 1,
+          "placeholder": "",
+          "widget": "checkbox"
+        }
+      ],
+      "upload_ready": true,
       "verifier": "exact-artifact@1",
       "version": "1.0.0"
     },
@@ -227,10 +242,47 @@
         },
         "type": "object"
       },
+      "reduction": "ordered-concat",
       "trust_modes": [
         "trusted",
         "untrusted_quorum"
       ],
+      "ui_elements": [
+        {
+          "default": null,
+          "field": "min_molwt",
+          "group": "",
+          "help": "Keep molecules with MolWt at least this value. Optional.",
+          "label": "Minimum molecular weight",
+          "options": [],
+          "order": 1,
+          "placeholder": "e.g. 100",
+          "widget": "number"
+        },
+        {
+          "default": null,
+          "field": "max_molwt",
+          "group": "",
+          "help": "Keep molecules with MolWt at most this value. Optional.",
+          "label": "Maximum molecular weight",
+          "options": [],
+          "order": 2,
+          "placeholder": "e.g. 600",
+          "widget": "number"
+        },
+        {
+          "default": true,
+          "field": "skip_invalid",
+          "group": "",
+          "help": "Skip rows with invalid SMILES instead of failing the shard.",
+          "label": "Skip invalid molecules",
+          "options": [],
+          "order": 3,
+          "placeholder": "",
+          "widget": "checkbox"
+        }
+      ],
+      "upload_ready": true,
       "verifier": "exact-artifact@1",
       "version": "1.0.0"
     },
@@ -315,10 +367,50 @@
         ],
         "type": "object"
       },
+      "reduction": "ordered-concat",
       "trust_modes": [
         "trusted",
         "untrusted_quorum"
       ],
+      "ui_elements": [
+        {
+          "default": null,
+          "field": "threshold",
+          "group": "",
+          "help": "Minimum (greater) or maximum (less) edge similarity. Required.",
+          "label": "Similarity threshold",
+          "options": [],
+          "order": 1,
+          "placeholder": "",
+          "widget": "number"
+        },
+        {
+          "default": "greater",
+          "field": "threshold_direction",
+          "group": "",
+          "help": "Whether to keep edges above (greater) or below (less) the threshold.",
+          "label": "Direction",
+          "options": [
+            "greater",
+            "less"
+          ],
+          "order": 2,
+          "placeholder": "",
+          "widget": "select"
+        },
+        {
+          "default": 100,
+          "field": "block_size",
+          "group": "",
+          "help": "Deterministic block size for pair sharding.",
+          "label": "Block size",
+          "options": [],
+          "order": 3,
+          "placeholder": "",
+          "widget": "number"
+        }
+      ],
+      "upload_ready": false,
       "verifier": "exact-artifact@1",
       "version": "1.0.0"
     },
@@ -437,10 +529,72 @@
         },
         "type": "object"
       },
+      "reduction": "top-k",
       "trust_modes": [
         "trusted",
         "untrusted_quorum"
       ],
+      "ui_elements": [
+        {
+          "default": null,
+          "field": "query_id",
+          "group": "",
+          "help": "ChEMBL id of the query molecule. Provide exactly one of id or SMILES.",
+          "label": "Query molecule id",
+          "options": [],
+          "order": 1,
+          "placeholder": "",
+          "widget": "text"
+        },
+        {
+          "default": null,
+          "field": "query_smiles",
+          "group": "",
+          "help": "SMILES of the query molecule. Provide exactly one of id or SMILES.",
+          "label": "Query molecule SMILES",
+          "options": [],
+          "order": 2,
+          "placeholder": "",
+          "widget": "text"
+        },
+        {
+          "default": 20,
+          "field": "top_k",
+          "group": "",
+          "help": "Number of most similar molecules to keep per shard (global merge keeps the best of these).",
+          "label": "Top k",
+          "options": [],
+          "order": 3,
+          "placeholder": "",
+          "widget": "number"
+        },
+        {
+          "default": "greater",
+          "field": "threshold_direction",
+          "group": "",
+          "help": "Keep molecules with similarity greater or less than the threshold.",
+          "label": "Direction",
+          "options": [
+            "greater",
+            "less"
+          ],
+          "order": 4,
+          "placeholder": "",
+          "widget": "select"
+        },
+        {
+          "default": null,
+          "field": "threshold",
+          "group": "",
+          "help": "Optional similarity bound: results are filtered to this direction.",
+          "label": "Similarity threshold",
+          "options": [],
+          "order": 5,
+          "placeholder": "e.g. 0.8",
+          "widget": "number"
+        }
+      ],
+      "upload_ready": true,
       "verifier": "exact-artifact@1",
       "version": "1.0.0"
     }

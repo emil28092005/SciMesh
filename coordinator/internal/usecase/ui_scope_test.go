@@ -19,7 +19,7 @@ func newDashboard() (*usecase.Dashboard, *memstore.JobRepo) {
 	tasks := memstore.NewTaskRepo()
 	workers := memstore.NewWorkerRepo()
 	artifacts := memstore.NewArtifactRepo()
-	return usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, workers, artifacts)), jobs
+	return usecase.NewDashboard(memstore.NewUIReadRepo(jobs, tasks, workers, artifacts), testCatalog()), jobs
 }
 
 func ownedJob(t *testing.T, jobs *memstore.JobRepo, owner uuid.UUID) uuid.UUID {

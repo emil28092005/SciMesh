@@ -14,6 +14,7 @@ import (
 	"github.com/emil28092005/SciMesh/coordinator/internal/storage/postgres"
 	httptransport "github.com/emil28092005/SciMesh/coordinator/internal/transport/http"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 func main() {
@@ -70,29 +71,35 @@ func run() error {
 		taskResultRepo = postgres.NewTaskResultRepo(pool)
 	)
 
+	catalog, err := workloads.Load()
+	if err != nil {
+		log.Error("load workload catalog", "err", err)
+		return err
+	}
+
 	useCases := httptransport.UseCases{
 		RegisterWorker:   usecase.NewRegisterWorker(workerRepo, clk),
 		CreateJob:        usecase.NewCreateJob(jobRepo, taskRepo, tx, clk),
-		SubmitDataset:    usecase.NewSubmitDataset(blobStore, artifactRepo, jobRepo, taskRepo, tx, clk, cfg.DefaultMaxAttempts),
-		ClaimTask:        usecase.NewClaimTask(taskRepo, jobRepo, workerRepo, tx, clk, cfg.LeaseDuration),
+		SubmitDataset:    usecase.NewSubmitDataset(blobStore, artifactRepo, jobRepo, taskRepo, tx, clk, cfg.DefaultMaxAttempts, catalog),
+		ClaimTask:        usecase.NewClaimTask(taskRepo, jobRepo, workerRepo, tx, clk, cfg.LeaseDuration, catalog),
 		RenewLease:       usecase.NewRenewLease(taskRepo, workerRepo, tx, clk, cfg.LeaseDuration),
-		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, workerRepo, taskResultRepo, tx, clk, cfg.QuorumSize),
-		ReduceJob:        usecase.NewReduceJob(jobRepo, taskRepo, artifactRepo, blobStore, tx, clk),
-		FailTask:         usecase.NewFailTask(taskRepo, jobRepo, workerRepo, tx, clk),
+		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, workerRepo, taskResultRepo, tx, clk, cfg.QuorumSize, catalog),
+		ReduceJob:        usecase.NewReduceJob(jobRepo, taskRepo, artifactRepo, blobStore, tx, clk, catalog),
+		FailTask:         usecase.NewFailTask(taskRepo, jobRepo, workerRepo, tx, clk, catalog),
 		GetJobStatus:     usecase.NewGetJobStatus(jobRepo, taskRepo),
 		CancelJob:        usecase.NewCancelJob(jobRepo, taskRepo, tx, clk),
 		UploadArtifact:   usecase.NewUploadArtifact(taskRepo, workerRepo, artifactRepo, blobStore, tx, clk),
 		DownloadArtifact: usecase.NewDownloadArtifact(artifactRepo, blobStore),
 		GetJobResult:     usecase.NewGetJobResult(jobRepo, usecase.NewDownloadArtifact(artifactRepo, blobStore)),
 		GetTaskInput:     usecase.NewGetTaskInput(taskRepo, artifactRepo, blobStore),
-		Dashboard:        usecase.NewDashboard(uiReadRepo),
+		Dashboard:        usecase.NewDashboard(uiReadRepo, catalog),
 		PreviewArtifact:  usecase.NewPreviewArtifact(uiReadRepo, blobStore),
 	}
 
 	// Background reapers are tracked so shutdown can wait for them. Without this
 	// the process would exit mid-UPDATE, and the deferred pool.Close() would pull
 	// connections out from under them.
-	expireLeases := usecase.NewExpireLeases(taskRepo, jobRepo, tx, clk)
+	expireLeases := usecase.NewExpireLeases(taskRepo, jobRepo, tx, clk, catalog)
 	markOffline := usecase.NewMarkWorkersOffline(workerRepo, clk, cfg.WorkerOfflineAfter)
 
 	var wg sync.WaitGroup

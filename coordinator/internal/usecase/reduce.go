@@ -9,6 +9,7 @@ import (
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 	"github.com/emil28092005/SciMesh/coordinator/internal/reducer"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 // ReduceJob turns completed coordinator-owned partial artifacts into one final
@@ -20,11 +21,12 @@ type ReduceJob struct {
 	blobs     BlobStore
 	tx        TxManager
 	clock     Clock
+	catalog   *workloads.Catalog
 }
 
 func NewReduceJob(jobs JobRepository, tasks TaskRepository, artifacts ArtifactRepository,
-	blobs BlobStore, tx TxManager, clock Clock) *ReduceJob {
-	return &ReduceJob{jobs: jobs, tasks: tasks, artifacts: artifacts, blobs: blobs, tx: tx, clock: clock}
+	blobs BlobStore, tx TxManager, clock Clock, catalog *workloads.Catalog) *ReduceJob {
+	return &ReduceJob{jobs: jobs, tasks: tasks, artifacts: artifacts, blobs: blobs, tx: tx, clock: clock, catalog: catalog}
 }
 
 // Execute is idempotent for jobs that are not currently reducing. The worker
@@ -42,7 +44,11 @@ func (uc *ReduceJob) Execute(ctx context.Context, jobID uuid.UUID) error {
 	if job.Status != domain.JobReducing {
 		return nil
 	}
-	if job.Workload != "similarity-search" {
+	if uc.catalog == nil {
+		return uc.fail(ctx, jobID)
+	}
+	reduction := uc.catalog.Reduction(job.Workload)
+	if reduction == "" {
 		return uc.fail(ctx, jobID)
 	}
 
@@ -73,13 +79,13 @@ func (uc *ReduceJob) Execute(ctx context.Context, jobID uuid.UUID) error {
 		readers = append(readers, body)
 		closers = append(closers, body)
 	}
-	output, reduceErr := reducer.ReduceSimilaritySearch(readers, job.Parameters)
+	output, reduceErr := reducePartials(reduction, readers, job.Parameters)
 	closeAll(closers)
 	if reduceErr != nil {
 		return uc.fail(ctx, jobID)
 	}
 
-	final, err := domain.NewArtifact(jobID, nil, domain.ArtifactFinalResult, "similarity-search.csv", "text/csv", uc.clock.Now())
+	final, err := domain.NewArtifact(jobID, nil, domain.ArtifactFinalResult, job.Workload+".csv", "text/csv", uc.clock.Now())
 	if err != nil {
 		return uc.fail(ctx, jobID)
 	}
@@ -98,6 +104,17 @@ func (uc *ReduceJob) Execute(ctx context.Context, jobID uuid.UUID) error {
 		return err
 	}
 	return nil
+}
+
+func reducePartials(reduction string, readers []io.Reader, parameters map[string]any) ([]byte, error) {
+	switch reduction {
+	case "top-k":
+		return reducer.ReduceSimilaritySearch(readers, parameters)
+	case "ordered-concat":
+		return reducer.ReduceOrderedConcat(readers)
+	default:
+		return nil, domain.ErrInvalidInput
+	}
 }
 
 func (uc *ReduceJob) fail(ctx context.Context, jobID uuid.UUID) error {

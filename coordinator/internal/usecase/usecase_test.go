@@ -73,20 +73,20 @@ func newHarness() *harness {
 	}
 	tx := memstore.Tx{}
 	h.createJob = usecase.NewCreateJob(h.jobs, h.tasks, tx, h.clk)
-	h.submit = usecase.NewSubmitDataset(h.blobs, h.arts, h.jobs, h.tasks, tx, h.clk, 3)
-	h.claim = usecase.NewClaimTask(h.tasks, h.jobs, h.work, tx, h.clk, lease)
+	h.submit = usecase.NewSubmitDataset(h.blobs, h.arts, h.jobs, h.tasks, tx, h.clk, 3, testCatalog())
+	h.claim = usecase.NewClaimTask(h.tasks, h.jobs, h.work, tx, h.clk, lease, testCatalog())
 	h.renew = usecase.NewRenewLease(h.tasks, h.work, tx, h.clk, lease)
-	h.complete = usecase.NewCompleteTask(h.tasks, h.jobs, h.arts, h.work, h.taskResults, tx, h.clk, 2)
-	h.fail = usecase.NewFailTask(h.tasks, h.jobs, h.work, tx, h.clk)
+	h.complete = usecase.NewCompleteTask(h.tasks, h.jobs, h.arts, h.work, h.taskResults, tx, h.clk, 2, testCatalog())
+	h.fail = usecase.NewFailTask(h.tasks, h.jobs, h.work, tx, h.clk, testCatalog())
 	h.status = usecase.NewGetJobStatus(h.jobs, h.tasks)
 	h.results = usecase.NewListResults(h.tasks)
 	h.register = usecase.NewRegisterWorker(h.work, h.clk)
 	h.uploadArt = usecase.NewUploadArtifact(h.tasks, h.work, h.arts, h.blobs, tx, h.clk)
 	h.downloadArt = usecase.NewDownloadArtifact(h.arts, h.blobs)
 	h.getInput = usecase.NewGetTaskInput(h.tasks, h.arts, h.blobs)
-	h.expire = usecase.NewExpireLeases(h.tasks, h.jobs, tx, h.clk)
+	h.expire = usecase.NewExpireLeases(h.tasks, h.jobs, tx, h.clk, testCatalog())
 	h.cancel = usecase.NewCancelJob(h.jobs, h.tasks, tx, h.clk)
-	h.reduce = usecase.NewReduceJob(h.jobs, h.tasks, h.arts, h.blobs, tx, h.clk)
+	h.reduce = usecase.NewReduceJob(h.jobs, h.tasks, h.arts, h.blobs, tx, h.clk, testCatalog())
 	h.jobResult = usecase.NewGetJobResult(h.jobs, h.downloadArt)
 	return h
 }
@@ -129,6 +129,44 @@ func TestSimilaritySearchReductionCreatesFinalArtifact(t *testing.T) {
 	defer body.Close()
 	bytes, _ := io.ReadAll(body)
 	if art.Kind != domain.ArtifactFinalResult || string(bytes) != "rank,chembl_id,canonical_smiles,similarity\n1,A,CC,0.500000\n2,B,CCC,0.500000\n" {
+		t.Fatalf("unexpected final %q", bytes)
+	}
+}
+
+func TestMolwtFilterReductionConcatenatesPartialsInOrder(t *testing.T) {
+	h := newHarness()
+	jobID := h.seedJob(t, "molwt-filter", 2)
+	if err := h.jobs.UpdateStatus(ctx, jobID, domain.JobRunning, nil); err != nil {
+		t.Fatal(err)
+	}
+	partials := []string{
+		"chembl_id,canonical_smiles\nA,CC\n",
+		"chembl_id,canonical_smiles\nB,CCCC\n",
+	}
+	for _, partial := range partials {
+		taskID, attempt := h.leaseOne(t, "w1", "molwt-filter")
+		art, err := h.uploadArt.Execute(ctx, usecase.UploadArtifactInput{TaskID: taskID, WorkerID: "w1", Attempt: attempt, Filename: "partial.csv", ContentType: "text/csv", Body: strings.NewReader(partial)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.complete.Execute(ctx, usecase.CompleteTaskInput{TaskID: taskID, WorkerID: "w1", Attempt: attempt, ResultArtifactID: art.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.reduce.Execute(ctx, jobID); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := h.status.Execute(ctx, jobID)
+	if err != nil || progress.Job.Status != domain.JobCompleted {
+		t.Fatalf("status=%s err=%v", progress.Job.Status, err)
+	}
+	art, body, err := h.jobResult.Execute(ctx, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer body.Close()
+	bytes, _ := io.ReadAll(body)
+	if art.Kind != domain.ArtifactFinalResult || string(bytes) != "chembl_id,canonical_smiles\nA,CC\nB,CCCC\n" {
 		t.Fatalf("unexpected final %q", bytes)
 	}
 }
@@ -817,8 +855,18 @@ func TestSubmitDatasetRejectsUnsupportedDistributedWorkloads(t *testing.T) {
 		Filename: "chembl.tsv", ContentType: "text/tab-separated-values",
 		Body: strings.NewReader("chembl_id\tcanonical_smiles\nA\tCC\n"),
 	})
+	if err != nil {
+		t.Errorf("query_id submission err = %v, want nil", err)
+	}
+	_, err = h.submit.Execute(ctx, usecase.SubmitDatasetInput{
+		Workload: "similarity-search", Parameters: map[string]any{
+			"query_id": "CHEMBL1", "query_smiles": "CCO",
+		}, RowsPerShard: 2,
+		Filename: "chembl.tsv", ContentType: "text/tab-separated-values",
+		Body: strings.NewReader("chembl_id\tcanonical_smiles\nA\tCC\n"),
+	})
 	if !errors.Is(err, domain.ErrInvalidInput) {
-		t.Errorf("query_id submission err = %v, want ErrInvalidInput", err)
+		t.Errorf("both query fields submission err = %v, want ErrInvalidInput", err)
 	}
 }
 

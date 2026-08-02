@@ -1,44 +1,22 @@
 package http
 
 import (
-	"embed"
 	"encoding/json"
 	"net/http"
 	"sort"
 	"sync"
+
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
-//go:embed workloads.json
-var workloadLibraryFile embed.FS
-
-// uiWorkloadLibrary is the catalog written by `scimesh workload export`. The
-// coordinator never evaluates the schemas in it; it is presentation metadata
-// for the operator UI, kept in sync by `make workloads-export`.
-type uiWorkloadLibrary struct {
-	SchemaVersion int             `json:"schema_version"`
-	GeneratedBy   string          `json:"generated_by"`
-	Workloads     []uiWorkloadRaw `json:"workloads"`
-}
-
-type uiWorkloadRaw struct {
-	Name         string                    `json:"name"`
-	Version      string                    `json:"version"`
-	Description  string                    `json:"description"`
-	Capabilities []string                  `json:"capabilities"`
-	TrustModes   []string                  `json:"trust_modes"`
-	Determinism  string                    `json:"determinism"`
-	Verifier     string                    `json:"verifier"`
-	Enabled      bool                      `json:"enabled"`
-	Parameters   map[string]any            `json:"parameters_schema"`
-	Inputs       map[string]map[string]any `json:"inputs"`
-	Outputs      map[string]map[string]any `json:"outputs"`
-}
-
+// uiPortView is one sorted input/output port of a workload, rendered as
+// pretty JSON on the library page.
 type uiPortView struct {
 	Name   string
 	Schema string
 }
 
+// uiWorkloadView is the library page's view of one catalog workload.
 type uiWorkloadView struct {
 	Name         string
 	Version      string
@@ -48,6 +26,7 @@ type uiWorkloadView struct {
 	Determinism  string
 	Verifier     string
 	Enabled      bool
+	Reduction    string
 	Parameters   string
 	Inputs       []uiPortView
 	Outputs      []uiPortView
@@ -65,18 +44,13 @@ var (
 
 func loadWorkloadLibrary() (uiWorkloadsView, error) {
 	workloadLibraryOnce.Do(func() {
-		data, err := workloadLibraryFile.ReadFile("workloads.json")
+		catalog, err := workloads.Load()
 		if err != nil {
 			workloadLibraryErr = err
 			return
 		}
-		var raw uiWorkloadLibrary
-		if err := json.Unmarshal(data, &raw); err != nil {
-			workloadLibraryErr = err
-			return
-		}
-		view := uiWorkloadsView{Workloads: make([]uiWorkloadView, 0, len(raw.Workloads))}
-		for _, item := range raw.Workloads {
+		view := uiWorkloadsView{Workloads: make([]uiWorkloadView, 0, len(catalog.Enabled()))}
+		for _, item := range catalog.Enabled() {
 			view.Workloads = append(view.Workloads, uiWorkloadView{
 				Name:         item.Name,
 				Version:      item.Version,
@@ -86,6 +60,7 @@ func loadWorkloadLibrary() (uiWorkloadsView, error) {
 				Determinism:  item.Determinism,
 				Verifier:     item.Verifier,
 				Enabled:      item.Enabled,
+				Reduction:    item.Reduction,
 				Parameters:   prettyJSON(item.Parameters),
 				Inputs:       portViews(item.Inputs),
 				Outputs:      portViews(item.Outputs),
@@ -107,7 +82,7 @@ func prettyJSON(value any) string {
 	return string(encoded)
 }
 
-func portViews(ports map[string]map[string]any) []uiPortView {
+func portViews(ports map[string]any) []uiPortView {
 	names := make([]string, 0, len(ports))
 	for name := range ports {
 		names = append(names, name)

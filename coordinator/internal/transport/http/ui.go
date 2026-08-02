@@ -2,17 +2,20 @@ package http
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
 	"mime"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 //go:embed templates/*.html
@@ -165,6 +168,10 @@ func uiWorkloadLabel(workload string) string {
 		return "Molecule similarity search"
 	case "similarity-graph", "similarity_graph":
 		return "Molecular similarity graph"
+	case "molwt-filter", "molwt_filter":
+		return "Molecular weight filter"
+	case "descriptor-batch", "descriptor_batch":
+		return "Descriptor batch"
 	default:
 		return workload
 	}
@@ -236,7 +243,143 @@ func (s *Server) handleUIOverviewJSON(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUINewJob(w http.ResponseWriter, r *http.Request) {
-	s.renderUI(w, "new-job.html", nil)
+	catalog, err := workloads.Load()
+	if err != nil {
+		s.log.Error("load workload catalog", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	s.renderUI(w, "new-job.html", uiNewJobView{Payload: newJobPayload(catalog)})
+}
+
+// uiNewJobWorkloadJSON is the per-workload data handed to the page script. It
+// is presentation metadata from the embedded catalog; the coordinator re-
+// validates everything server-side on upload.
+type uiNewJobWorkloadJSON struct {
+	Name        string                `json:"name"`
+	Description string                `json:"description"`
+	Schema      map[string]any        `json:"schema"`
+	UI          []uiNewJobElementJSON `json:"ui"`
+	Required    []string              `json:"required"`
+	OneOf       [][]string            `json:"one_of"`
+	UploadReady bool                  `json:"upload_ready"`
+	Reduction   string                `json:"reduction"`
+	Defaults    map[string]any        `json:"defaults"`
+	InputMedia  map[string]string     `json:"input_media"`
+}
+
+type uiNewJobElementJSON struct {
+	Field       string   `json:"field"`
+	Widget      string   `json:"widget"`
+	Label       string   `json:"label"`
+	Help        string   `json:"help"`
+	Placeholder string   `json:"placeholder"`
+	Options     []string `json:"options"`
+	Default     any      `json:"default"`
+	Order       int      `json:"order"`
+	Required    bool     `json:"required"`
+}
+
+type uiNewJobView struct {
+	Payload template.JS
+}
+
+func newJobPayload(catalog *workloads.Catalog) template.JS {
+	payload := struct {
+		Workloads []uiNewJobWorkloadJSON `json:"workloads"`
+	}{Workloads: make([]uiNewJobWorkloadJSON, 0, len(catalog.Enabled()))}
+	for _, workload := range catalog.Enabled() {
+		required := map[string]bool{}
+		if entries, ok := workload.Parameters["required"].([]any); ok {
+			for _, entry := range entries {
+				if name, ok := entry.(string); ok {
+					required[name] = true
+				}
+			}
+		}
+		elementViews := make([]uiNewJobElementJSON, 0, len(workload.UIElements))
+		for _, element := range workload.UIElements {
+			elementViews = append(elementViews, uiNewJobElementJSON{
+				Field:       element.Field,
+				Widget:      element.Widget,
+				Label:       element.Label,
+				Help:        element.Help,
+				Placeholder: element.Placeholder,
+				Options:     element.Options,
+				Default:     element.Default,
+				Order:       element.Order,
+				Required:    required[element.Field],
+			})
+		}
+		payload.Workloads = append(payload.Workloads, uiNewJobWorkloadJSON{
+			Name:        workload.Name,
+			Description: workload.Description,
+			Schema:      workload.Parameters,
+			UI:          elementViews,
+			Required:    sortedKeys(required),
+			OneOf:       oneOfGroups(workload.Parameters),
+			UploadReady: workload.UploadReady,
+			Reduction:   workload.Reduction,
+			Defaults:    catalog.ParameterDefaults(workload.Name),
+			InputMedia:  inputMediaViews(catalog, workload.Name),
+		})
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return template.JS("null")
+	}
+	return template.JS(encoded)
+}
+
+func sortedKeys(values map[string]bool) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func oneOfGroups(schema map[string]any) [][]string {
+	rawOneOf, ok := schema["oneOf"].([]any)
+	if !ok {
+		return nil
+	}
+	// The clean shape is "exactly one of these single fields" (e.g. the search
+	// query id vs SMILES choice): every branch requires exactly one distinct
+	// field. Anything more complex is left to server-side validation.
+	var fields []string
+	seen := map[string]bool{}
+	for _, rawOption := range rawOneOf {
+		option, ok := rawOption.(map[string]any)
+		if !ok {
+			return nil
+		}
+		required, _ := option["required"].([]any)
+		if len(required) != 1 {
+			return nil
+		}
+		field, ok := required[0].(string)
+		if !ok || seen[field] {
+			return nil
+		}
+		seen[field] = true
+		fields = append(fields, field)
+	}
+	if len(fields) != len(rawOneOf) {
+		return nil
+	}
+	return [][]string{fields}
+}
+
+func inputMediaViews(catalog *workloads.Catalog, name string) map[string]string {
+	views := map[string]string{}
+	for _, port := range catalog.InputPortNames(name) {
+		if mediaType := catalog.InputMediaType(name, port); mediaType != "" {
+			views[port] = mediaType
+		}
+	}
+	return views
 }
 
 func (s *Server) uiJobID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {

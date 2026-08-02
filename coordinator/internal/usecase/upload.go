@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math"
 
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/chunk"
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 // SubmitDataset accepts an uploaded dataset, splits it into shard artifacts, and
@@ -23,15 +23,16 @@ type SubmitDataset struct {
 	tx          TxManager
 	clk         Clock
 	maxAttempts int
+	catalog     *workloads.Catalog
 }
 
 func NewSubmitDataset(blobs BlobStore, artifacts ArtifactRepository, jobs JobRepository,
-	tasks TaskRepository, tx TxManager, clk Clock, maxAttempts int) *SubmitDataset {
-	return &SubmitDataset{blobs: blobs, artifacts: artifacts, jobs: jobs, tasks: tasks, tx: tx, clk: clk, maxAttempts: maxAttempts}
+	tasks TaskRepository, tx TxManager, clk Clock, maxAttempts int, catalog *workloads.Catalog) *SubmitDataset {
+	return &SubmitDataset{blobs: blobs, artifacts: artifacts, jobs: jobs, tasks: tasks, tx: tx, clk: clk, maxAttempts: maxAttempts, catalog: catalog}
 }
 
 func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (SubmitDatasetResult, error) {
-	if err := validateUploadedWorkload(in.Workload, in.Parameters); err != nil {
+	if err := validateUploadedWorkload(uc.catalog, in.Workload, in.Parameters); err != nil {
 		return SubmitDatasetResult{}, err
 	}
 	if uc.maxAttempts < 1 {
@@ -86,7 +87,8 @@ func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (Su
 		putKeys = append(putKeys, art.StorageKey)
 		art.SetContent(ssum, ssize)
 
-		task, err := domain.NewShardTask(job.ID, index, in.Workload, art.ID, ssum, in.Parameters, uc.maxAttempts, now)
+		task, err := domain.NewShardTask(job.ID, index, in.Workload, art.ID, ssum,
+			taskParameterSubset(in.Parameters), uc.maxAttempts, now)
 		if err != nil {
 			return err
 		}
@@ -128,74 +130,38 @@ func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (Su
 	}, nil
 }
 
-// validateUploadedWorkload is deliberately narrow until CTX-07/08/10 adds a
-// typed distributed-workload registry. In particular, running similarity-graph
-// independently per TSV shard is scientifically wrong: cross-shard pairs would
-// be absent from the apparent graph.
-func validateUploadedWorkload(workload string, parameters map[string]any) error {
-	if workload != "similarity-search" {
+// validateUploadedWorkload checks the submitted workload against the embedded
+// catalog: it must be an enabled, upload-ready workload whose parameters
+// satisfy the declared JSON schema. Workloads that need planner-produced
+// inputs (such as the graph block-pair shards) declare upload_ready=false and
+// cannot be driven from a single uploaded dataset.
+func validateUploadedWorkload(catalog *workloads.Catalog, workload string, parameters map[string]any) error {
+	if catalog == nil {
 		return domain.ErrInvalidInput
 	}
-	allowed := map[string]struct{}{
-		"query_smiles": {}, "top_k": {}, "threshold": {},
-		"threshold_direction": {}, "progress_every": {},
-	}
-	for key := range parameters {
-		if _, ok := allowed[key]; !ok {
-			return domain.ErrInvalidInput
-		}
-	}
-	query, ok := parameters["query_smiles"].(string)
-	if !ok || query == "" || len(query) > 200 {
+	if err := catalog.ValidateParameters(workload, parameters); err != nil {
 		return domain.ErrInvalidInput
 	}
-	if value, ok := parameters["top_k"]; ok && !isPositiveJSONInteger(value) {
-		return domain.ErrInvalidInput
-	}
-	if value, ok := parameters["progress_every"]; ok && !isNonNegativeJSONInteger(value) {
-		return domain.ErrInvalidInput
-	}
-	if value, ok := parameters["threshold"]; ok && !isUnitIntervalNumber(value) {
-		return domain.ErrInvalidInput
-	}
-	if value, ok := parameters["threshold_direction"]; ok && value != "greater" && value != "less" {
+	if !catalog.UploadReady(workload) {
 		return domain.ErrInvalidInput
 	}
 	return nil
 }
 
-func isPositiveJSONInteger(value any) bool    { return isJSONInteger(value, false) }
-func isNonNegativeJSONInteger(value any) bool { return isJSONInteger(value, true) }
-
-func isJSONInteger(value any, allowZero bool) bool {
-	var n int64
-	switch v := value.(type) {
-	case int:
-		n = int64(v)
-	case int64:
-		n = v
-	case float64:
-		if math.Trunc(v) != v || v > math.MaxInt64 || v < math.MinInt64 {
-			return false
+// taskParameterSubset drops coordinator-level keys from the parameters that
+// are handed to workers. max_rows is a plan-time bound applied by the chunker
+// here; a worker would reject it as outside its stage projection.
+func taskParameterSubset(parameters map[string]any) map[string]any {
+	if _, present := parameters["max_rows"]; !present {
+		return parameters
+	}
+	subset := make(map[string]any, len(parameters)-1)
+	for key, value := range parameters {
+		if key != "max_rows" {
+			subset[key] = value
 		}
-		n = int64(v)
-	default:
-		return false
 	}
-	return n >= 0 && (allowZero || n > 0)
-}
-
-func isUnitIntervalNumber(value any) bool {
-	switch v := value.(type) {
-	case float64:
-		return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 && v <= 1
-	case int:
-		return v >= 0 && v <= 1
-	case int64:
-		return v >= 0 && v <= 1
-	default:
-		return false
-	}
+	return subset
 }
 
 // GetTaskInput resolves a task's input shard and opens it for streaming. The
