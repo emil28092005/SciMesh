@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke agent coordinator setup workloads-export demo-ui demo-down demo-reset demo-logs
+.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke agent coordinator setup serve workloads-export demo-ui demo-down demo-reset demo-logs
 
 # `check` deliberately uses its own Compose project and host ports. This keeps
 # it from connecting to or replacing a developer's local PostgreSQL instance.
@@ -56,6 +56,11 @@ coordinator:
 # JWT_SECRET, and writes a .env file. Non-interactive: SETUP_ARGS=--yes.
 setup: coordinator
 	./bin/coordinator setup $(SETUP_ARGS)
+
+# The single-binary mode: everything embedded (sqlite + userservice + local
+# workers), no PostgreSQL or Docker. SETUP_ARGS=--workers 2 --open.
+serve: coordinator
+	./bin/coordinator serve $(SETUP_ARGS)
 
 workloads-export:
 	cd .. && .venv/bin/scimesh workload export -o coordinator/$(WORKLOADS_JSON)

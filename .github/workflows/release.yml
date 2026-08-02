@@ -72,7 +72,10 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/*
+          files: |
+            artifacts/*
+            install.sh
+            install.ps1
           generate_release_notes: true
 
   image:
