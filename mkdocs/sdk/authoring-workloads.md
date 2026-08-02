@@ -111,6 +111,39 @@ that keep the header, `shard_rows` rows each) and default `reduce_partials`
 | `resources` / `execution` | CPU-1 core defaults | Per-task resource and execution profile |
 | `shard_rows` | `1000` | Rows per shard for the default `partition_input` |
 | `map_entry_point` / `reduce_entry_point` | derived from the module | Handler keys (can stay default) |
+| `ui_elements` | `()` | `UIElement` declarations that shape the coordinator "new computation" form |
+| `reduction` | `"ordered-concat"` | Coordinator reduction mode: `ordered-concat` (row tables) or `top-k` |
+| `upload_ready` | `True` | Whether a single uploaded dataset can drive the workload (multi-input planners set `False`) |
+
+## Workload-declared UI elements
+
+The coordinator "new computation" page renders one form per workload from the
+embedded catalog. Workloads that need friendlier controls than plain schema
+fields declare them:
+
+```python
+from scimesh.sdk import UIElement
+
+ui_elements = (
+    UIElement(
+        "min_molwt", "number", "Minimum molecular weight",
+        help="Keep molecules with MolWt at least this value. Optional.",
+        placeholder="e.g. 100", order=1,
+    ),
+    UIElement(
+        "skip_invalid", "checkbox", "Skip invalid molecules",
+        help="Skip rows with invalid SMILES instead of failing the shard.",
+        default=True, order=3,
+    ),
+)
+```
+
+Each `field` must name a `parameters_schema` property. Widgets: `text`,
+`textarea`, `number`, `select` (requires `options`), and `checkbox`. When a
+workload declares no elements, the page falls back to schema-derived controls
+(defaults and descriptions from the schema still apply). The schema remains
+the authoritative contract: the coordinator re-validates submitted parameters
+against it server-side.
 
 ## Scientific hooks
 

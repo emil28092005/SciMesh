@@ -96,10 +96,13 @@ paths:
       description: >
         multipart/form-data. The text fields (`workload`, `parameters`,
         `chunk_rows`, `max_rows`) MUST precede the `file` part: the file is streamed, not
-        buffered, so the fields have to be parsed before it arrives. Currently
-        only `similarity-search` with `parameters.query_smiles` is accepted.
-        When every shard succeeds, the coordinator merges their candidates into
-        one final CSV; distributed graph planning is not implemented.
+        buffered, so the fields have to be parsed before it arrives. The
+        workload must be an enabled, upload-ready entry of the embedded SDK
+        workload catalog, and `parameters` must satisfy its declared JSON
+        schema. When every shard succeeds, the coordinator reduces the partial
+        results (`top-k` workloads merge exactly; `ordered-concat` workloads
+        concatenate in shard order) into one final CSV; distributed graph
+        planning is not implemented.
       requestBody:
         required: true
         content:

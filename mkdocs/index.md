@@ -32,7 +32,9 @@ The two halves of the project:
   tasks claimed from the coordinator, with digest-pinned `TaskSpec`s,
   resource reservation, and allowlist-driven workload discovery.
 - **An operator UI** served by the coordinator: the control room, a workload
-  library page, and this documentation site at `/ui/docs/`.
+  library page, a workload-agnostic "new computation" form whose controls come
+  from each workload's own `UIElement` declarations, and this documentation
+  site at `/ui/docs/`.
 
 ## Quick start
 

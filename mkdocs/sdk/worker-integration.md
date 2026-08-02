@@ -62,9 +62,13 @@ register -> claim (one task) -> download input + verify sha256
 
 The task subprocess loads workloads from `SCIMESH_WORKLOAD_ALLOWLIST` (a
 JSON array of `{distribution, name, version, digest}` entries matched
-against installed `scimesh.workloads` entry points) or falls back to the
-built-in `similarity-search`. Discovery measures the installed package
-before and after importing and fails transactionally on any mismatch.
+against installed `scimesh.workloads` entry points) or falls back to every
+enabled built-in SDK workload of the installed package — the same library
+the coordinator embeds as its catalog. Discovery measures the installed
+package before and after importing and fails transactionally on any
+mismatch. The agent advertises the enabled catalog workloads as its
+capabilities unless `CAPABILITIES` is set explicitly. Generate an allowlist
+for a non-editable install with `scimesh workload allowlist`.
 
 ```bash
 make agent
