@@ -76,6 +76,7 @@ type storageDeps struct {
 	workerRepo     usecase.WorkerRepository
 	artifactRepo   usecase.ArtifactRepository
 	uiReadRepo     usecase.UIReadRepository
+	adminReadRepo  usecase.AdminReadRepository
 	taskResultRepo usecase.TaskResultRepository
 	statsRepo      interface {
 		Counts(ctx context.Context) (tasks, jobs, workers map[string]int, err error)
@@ -172,6 +173,16 @@ func runWithConfig(cfg infra.Config) error {
 		GetTaskInput:     usecase.NewGetTaskInput(taskRepo, artifactRepo, blobStore),
 		Dashboard:        usecase.NewDashboard(uiReadRepo, catalog),
 		PreviewArtifact:  usecase.NewPreviewArtifact(uiReadRepo, blobStore),
+		Admin: usecase.NewAdmin(deps.adminReadRepo, uiReadRepo, usecase.AdminNodeInfo{
+			Version:     version,
+			StartedAt:   clk.Now(),
+			Binary:      executablePath(),
+			Addr:        cfg.Addr,
+			DataDir:     cfg.StorageDir,
+			DBEngine:    cfg.DatabaseEngine,
+			PublicURL:   cfg.PublicCoordinatorURL,
+			Userservice: cfg.UserserviceURL,
+		}, deps.ready, clk.Now),
 	}
 
 	// Background reapers are tracked so shutdown can wait for them. Without this
@@ -225,6 +236,16 @@ func runWithConfig(cfg infra.Config) error {
 	return err
 }
 
+// executablePath resolves the running binary for the admin console's node
+// information, falling back to the invocation name.
+func executablePath() string {
+	path, err := os.Executable()
+	if err != nil || path == "" {
+		return os.Args[0]
+	}
+	return path
+}
+
 // openSQLite opens the embedded database and builds the sqlite repositories.
 func openSQLite(ctx context.Context, cfg infra.Config, log *slog.Logger) (*storageDeps, error) {
 	if err := os.MkdirAll(cfg.StorageDir, 0o750); err != nil {
@@ -242,6 +263,7 @@ func openSQLite(ctx context.Context, cfg infra.Config, log *slog.Logger) (*stora
 		workerRepo:     sqlite.NewWorkerRepo(db),
 		artifactRepo:   sqlite.NewArtifactRepo(db),
 		uiReadRepo:     sqlite.NewUIReadRepo(db),
+		adminReadRepo:  sqlite.NewAdminReadRepo(db),
 		taskResultRepo: sqlite.NewTaskResultRepo(db),
 		statsRepo:      sqlite.NewStatsRepo(db),
 		ready:          func(ctx context.Context) error { return db.PingContext(ctx) },
@@ -264,6 +286,7 @@ func openPostgres(ctx context.Context, cfg infra.Config, log *slog.Logger) (*sto
 		workerRepo:     postgres.NewWorkerRepo(pool),
 		artifactRepo:   postgres.NewArtifactRepo(pool),
 		uiReadRepo:     postgres.NewUIReadRepo(pool),
+		adminReadRepo:  postgres.NewAdminReadRepo(pool),
 		taskResultRepo: postgres.NewTaskResultRepo(pool),
 		statsRepo:      postgres.NewStatsRepo(pool),
 		ready:          func(ctx context.Context) error { return pool.Ping(ctx) },

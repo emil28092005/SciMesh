@@ -35,6 +35,7 @@ type UseCases struct {
 	GetTaskInput     *usecase.GetTaskInput
 	Dashboard        *usecase.Dashboard
 	PreviewArtifact  *usecase.PreviewArtifact
+	Admin            *usecase.Admin
 }
 
 type Server struct {
@@ -177,6 +178,10 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 			// Admin panel: session + admin role.
 			ui.Handle("GET /ui/admin", chain(http.HandlerFunc(s.handleUIAdmin), gate, requireAdmin))
 			ui.Handle("POST /ui/admin/user-action", chain(http.HandlerFunc(s.handleUIAdminUserAction), gate, requireAdmin))
+			// Admin console APIs: session + admin role, bounded read models.
+			ui.Handle("GET /ui/admin/api/system", chain(http.HandlerFunc(s.handleUIAdminSystemJSON), gate, requireAdmin))
+			ui.Handle("GET /ui/admin/api/jobs", chain(http.HandlerFunc(s.handleUIAdminJobsJSON), gate, requireAdmin))
+			ui.Handle("GET /ui/admin/api/metrics", chain(http.HandlerFunc(s.handleUIAdminMetricsJSON), gate, requireAdmin))
 		} else {
 			for _, rt := range app {
 				ui.HandleFunc(rt.pattern, rt.handler)

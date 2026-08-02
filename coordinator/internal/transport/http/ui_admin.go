@@ -2,9 +2,11 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -111,4 +113,79 @@ func (s *Server) callUserserviceAuthed(ctx context.Context, method, path, bearer
 		return 0, nil, err
 	}
 	return resp.StatusCode, body, nil
+}
+
+// handleUIAdminSystemJSON serves the admin "System" page: process info,
+// storage figures and health. Admin-only via the route chain.
+func (s *Server) handleUIAdminSystemJSON(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	view, err := s.uc.Admin.System(ctx)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// handleUIAdminJobsJSON serves one page of the admin jobs table. The owner
+// emails are resolved from the userservice when it is reachable; the resolver
+// failing is not fatal (cards fall back to short ids).
+func (s *Server) handleUIAdminJobsJSON(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	view, err := s.uc.Admin.Jobs(ctx, status, page, perPage, s.adminOwnerEmails(r))
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// handleUIAdminMetricsJSON serves the admin "Metrics" page.
+func (s *Server) handleUIAdminMetricsJSON(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	view, err := s.uc.Admin.Metrics(ctx)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// adminOwnerEmails resolves job owner ids to emails through the userservice,
+// which is the only place email addresses live. It never blocks the page on
+// failure: an empty map leaves the admin jobs table on short ids.
+func (s *Server) adminOwnerEmails(r *http.Request) map[uuid.UUID]string {
+	if s.userserviceURL == "" {
+		return nil
+	}
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return nil
+	}
+	status, body, err := s.callUserserviceAuthed(r.Context(), http.MethodGet, "/users", c.Value)
+	if err != nil || status != http.StatusOK {
+		return nil
+	}
+	var users []struct {
+		ID    string `json:"id"`
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(body, &users); err != nil {
+		return nil
+	}
+	out := make(map[uuid.UUID]string, len(users))
+	for _, user := range users {
+		id, err := uuid.Parse(user.ID)
+		if err != nil {
+			continue
+		}
+		out[id] = user.Email
+	}
+	return out
 }
