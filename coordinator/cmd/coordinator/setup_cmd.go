@@ -72,4 +72,3 @@ func runSetup(args []string) error {
 	log.Info("setup complete")
 	return nil
 }
-

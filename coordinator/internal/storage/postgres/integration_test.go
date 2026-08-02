@@ -23,8 +23,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
-	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 func testPool(t *testing.T) *pgxpool.Pool {
