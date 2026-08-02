@@ -1,15 +1,26 @@
 # SciMesh
 
-SciMesh is a scientific-workload framework for molecular datasets. Its public CLI
-runs exact similarity search and sparse similarity-graph construction locally in
-one Python process; it creates no dense similarity matrix. The Go/PostgreSQL
-coordinator and Go worker agents (which execute SDK workloads in a Python
-subprocess) can run a shard-based `similarity-search`
-pipeline locally. After every shard succeeds, the coordinator deterministically
-merges its candidates into one final global top-k CSV. See
-[`STATUS.md`](STATUS.md).
+SciMesh is a local-first platform for scientific computation on molecular
+datasets. It turns a scientific run into independent tasks, dispatches them
+to worker agents, and deterministically combines the partial results into a
+checksum-protected final artifact.
 
-The ChEMBL TSV database is intentionally not included in this repository. Download it separately and pass its path to the commands below. The expected columns are `chembl_id` and `canonical_smiles`.
+- **The Workload SDK (`scimesh.sdk`)** — a strict Python framework for
+  authoring scientific workloads: `similarity-search` (exact top-k Tanimoto),
+  `similarity-graph` (exact sparse graph), `descriptor-batch`, and
+  `molwt-filter`. Workloads are ordinary user scripts built on the SDK; they
+  run locally, in the conformance harness, and on claimed coordinator tasks
+  without touching any other part of the program.
+- **The coordinator and worker agents** — a Go/PostgreSQL coordinator with an
+  operator UI and Go worker agents that execute SDK workloads in a Python
+  subprocess. The UI is workload-agnostic: the "New computation" form offers
+  every workload from the embedded SDK library, and each workload declares its
+  own form controls (`UIElement`) through the SDK.
+
+The ChEMBL TSV database is intentionally not included in this repository.
+Download it separately and pass its path to the commands below. The expected
+columns are `chembl_id` and `canonical_smiles`. See
+[`STATUS.md`](STATUS.md) and [`PLAN.md`](PLAN.md).
 
 ## Installation
 
@@ -27,6 +38,42 @@ RDKit can alternatively be installed from conda-forge:
 conda install -c conda-forge rdkit
 pip install -e .
 ```
+
+## Releases
+
+Every `v*` tag pushes a GitHub Release with static binaries for `coordinator`
+and `worker-agent` on linux/darwin/windows × amd64/arm64 (plus SHA-256
+checksums) and the `coordinator` image on GHCR:
+
+```bash
+docker pull ghcr.io/emil28092005/SciMesh/coordinator:latest
+```
+
+Download and run a release binary:
+
+```bash
+curl -L -o coordinator https://github.com/emil28092005/SciMesh/releases/latest/download/coordinator-linux-amd64
+chmod +x coordinator
+./coordinator --version
+```
+
+- **worker-agent** runs anywhere with Python: it spawns
+  `python -m scimesh.worker.task`, so the machine needs the `scimesh` package
+  in a venv (`pip install scimesh`) plus `COORDINATOR_URL`,
+  `WORKER_AUTH_TOKEN`, and `WORK_DIR`.
+- **coordinator** needs PostgreSQL running. The binary applies its embedded
+  schema migrations itself on startup (`AUTO_MIGRATE=false` opts out), and the
+  interactive wizard provisions the rest — database creation when missing, a
+  generated `JWT_SECRET`, and a `.env` file:
+
+  ```bash
+  ./coordinator setup --yes --db 'postgres://user:pass@localhost:5432/scimesh?sslmode=disable'
+  ENV_FILE=.env ./coordinator
+  ```
+
+  `coordinator setup --help` lists all options (`--admin-db`, `--env-file`,
+  `--force`, non-interactive `--yes`). The UI login additionally requires a
+  userservice (`USERSERVICE_URL`, see the `users/` service).
 
 ## Quick start
 
@@ -47,9 +94,9 @@ scimesh similarity-graph --help
 
 ## Manual pipeline demo
 
-To inspect the coordinator, Web UI, and distributed `similarity-search`
-pipeline by hand, install development dependencies once and start the isolated
-demo from the repository root:
+To inspect the coordinator, Web UI, and distributed pipeline by hand, install
+development dependencies once and start the isolated demo from the repository
+root:
 
 ```bash
 python3 -m venv .venv
@@ -64,17 +111,19 @@ covers the complete Workload SDK: guides (`mkdocs/sdk/`), the full
 auto-generated API reference for `scimesh.sdk` (`mkdocs/api/`), and the
 documentation rules the site is written by (`mkdocs/approach.md`).
 
-Open `http://localhost:18080/ui` and sign in with username `operator` and
-password `demo-ui-secret`. The command starts PostgreSQL, the coordinator, and
-two Go worker agents (built by `make agent`; each executes the SDK workload
-in a Python subprocess). Upload a small ChEMBL TSV, then use the job page
-to follow shard progress, inspect bounded **Preview CSV** results, and see a
-live processing-speed chart in shards per minute. The **Workloads** page shows
-the installed SDK workload library (descriptions, parameters, and artifact
-schemas) from the embedded catalog; regenerate it with
-`make workloads-export` (or `scimesh workload export`) whenever workloads
-change. To change the worker count, run `make demo-ui WORKERS=3`; stop
-everything with `make demo-down`.
+Open `http://localhost:18080/ui` and sign in with username
+`root@scimesh.local` and password `rootpassword`. The command starts
+PostgreSQL, the coordinator, and two Go worker agents (built by `make agent`;
+each executes the SDK workload in a Python subprocess). The **New computation**
+form offers every upload-ready workload from the installed library — the
+controls come from each workload's own SDK declarations. Upload a small ChEMBL
+TSV, then use the job page to follow shard progress, inspect bounded
+**Preview CSV** results, and see a live processing-speed chart in shards per
+minute. The **Workloads** page shows the installed SDK workload library
+(descriptions, parameters, and artifact schemas) from the embedded catalog;
+regenerate it with `make workloads-export` (or `scimesh workload export`)
+whenever workloads change. To change the worker count, run
+`make demo-ui WORKERS=3`; stop everything with `make demo-down`.
 
 Run `make help` to display these commands in the terminal.
 
@@ -146,6 +195,15 @@ pytest
 
 The package separates common dataset parsing and fingerprints from independent workloads. Add future workloads through the workload registry without changing the main CLI.
 
+The coordinator and worker agent are Go modules under `coordinator/` and `users/`:
+
+```bash
+cd coordinator && make coordinator agent && go test ./...
+```
+
+`make check` runs the full gate: vet, lint, race tests, the PostgreSQL
+integration suite, and the two-worker end-to-end smoke script.
+
 ## Workload SDK
 
 `scimesh.sdk` is the framework only: strict and immutable workload manifests,
@@ -153,14 +211,25 @@ typed artifact ports, static map/reduce plans, resource eligibility and local
 reservations, exact/canonical/numeric verifier primitives, installed-package
 allowlisting, and a local conformance executor. It contains no scientific
 workload code. Workloads are user scripts built on the SDK: the built-in
-`similarity-search`, `similarity-graph`, and `descriptor-batch` live in
-`scimesh/workloads/` (each a small package with `core.py` + `definition.py`),
-composed by `scimesh/workloads/library.py` and registered through
-`scimesh.workloads` entry points. The Worker Agent executes those SDK-built
-workloads directly (see `scimesh/worker/runners.py`), so the same scientific
-handlers run locally, in conformance, and on claimed coordinator tasks.
-`scimesh workload list` and `scimesh workload run` run any SDK workload from
-the command line. See the
+`similarity-search`, `similarity-graph`, `descriptor-batch`, and
+`molwt-filter` live in `scimesh/workloads/` (each a small package with
+`core.py` + `definition.py`), composed by `scimesh/workloads/library.py` and
+registered through `scimesh.workloads` entry points. The Worker Agent executes
+those SDK-built workloads directly (see `scimesh/worker/runners.py`), so the
+same scientific handlers run locally, in conformance, and on claimed
+coordinator tasks. `scimesh workload list` and `scimesh workload run` run any
+SDK workload from the command line; `scimesh workload export` writes the
+coordinator's embedded workload catalog, and `scimesh workload allowlist`
+prints the JSON for `SCIMESH_WORKLOAD_ALLOWLIST`.
+
+Workloads can also declare how they should appear in the coordinator UI:
+a tuple of `UIElement`s (`scimesh.sdk.UIElement`) shapes the "New computation"
+form — widget, label, help, defaults, and ordering — plus the coordinator-side
+reduction mode (`reduction`: `top-k` or `ordered-concat`) and whether a single
+uploaded dataset can drive the workload (`upload_ready`). The strict parameter
+schema stays the authoritative validation contract.
+
+See the
 [SDK author guide](docs/workload-sdk.md), [contract](docs/scimesh-sdk-contract.md),
 and [delivery roadmap](docs/scimesh-sdk-roadmap.md).
 
