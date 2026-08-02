@@ -20,7 +20,10 @@
       <input id="password" name="password" type="password" autocomplete="current-password" required>
       <button class="button" type="submit">Sign in</button>
     </form>
-    {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+    {{if eq .Error "admin role required"}}
+    <p class="error">The admin console is reserved for the cluster administrator.</p>
+    <p class="alt">You are signed in as a non-admin. <a href="/ui/logout-form">Log out</a>, then sign in with the admin account — its login is printed by <code>coordinator serve</code> on first start and stored in <code>~/.scimesh/admin.password</code>.</p>
+    {{else if .Error}}<p class="error">{{.Error}}</p>{{end}}
     <p class="alt">No account? <a href="/ui/register">Register</a></p>
   </main>
 </body>

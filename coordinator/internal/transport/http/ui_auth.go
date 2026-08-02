@@ -58,6 +58,13 @@ func (s *Server) handleUILoginForm(w http.ResponseWriter, r *http.Request) {
 	s.renderUI(w, "login.html", map[string]any{"Error": r.URL.Query().Get("error"), "Next": r.URL.Query().Get("next")})
 }
 
+// handleUILogoutForm renders a small confirm page for ending the current
+// session. The actual logout stays a POST (/ui/logout); this page exists so a
+// signed-in non-admin who hit an admin-only page can switch accounts.
+func (s *Server) handleUILogoutForm(w http.ResponseWriter, r *http.Request) {
+	s.renderUI(w, "logout-form.html", map[string]any{})
+}
+
 func (s *Server) handleUIRegisterForm(w http.ResponseWriter, r *http.Request) {
 	s.renderUI(w, "register.html", map[string]any{"Error": r.URL.Query().Get("error")})
 }

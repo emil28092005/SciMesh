@@ -158,6 +158,7 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 			// Public auth pages — reachable without a session so a user can log in.
 			ui.HandleFunc("GET /ui/login", s.handleUILoginForm)
 			ui.HandleFunc("POST /ui/login", s.handleUILogin)
+			ui.HandleFunc("GET /ui/logout-form", s.handleUILogoutForm)
 			ui.HandleFunc("GET /ui/register", s.handleUIRegisterForm)
 			ui.HandleFunc("POST /ui/register", s.handleUIRegister)
 			ui.HandleFunc("POST /ui/logout", s.handleUILogout)

@@ -33,7 +33,12 @@ var adminUserActions = map[string]bool{
 func requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if req, ok := authctx.From(r.Context()); !ok || !req.IsAdmin() {
-			http.Redirect(w, r, "/ui/login?error=admin+role+required", http.StatusSeeOther)
+			target := "/ui/login?error=admin+role+required"
+			// Keep the destination so a successful login lands straight back.
+			if strings.HasPrefix(r.URL.Path, "/ui/") {
+				target += "&next=" + url.QueryEscape(r.URL.Path)
+			}
+			http.Redirect(w, r, target, http.StatusSeeOther)
 			return
 		}
 		next.ServeHTTP(w, r)

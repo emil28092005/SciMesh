@@ -29,15 +29,15 @@ func TestRequireAdminAllowsAdminOnly(t *testing.T) {
 		t.Error("admin must reach the handler")
 	}
 
-	// Plain user is redirected to the login with the reason.
+	// Plain user is redirected to the login with the reason and the destination.
 	reached = false
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq(t, "user"))
 	if reached {
 		t.Error("non-admin must not reach the handler")
 	}
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui/login?error=admin+role+required" {
-		t.Errorf("non-admin got %d -> %q, want 303 -> login with the admin-required error", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui/login?error=admin+role+required&next=%2Fui%2Fadmin" {
+		t.Errorf("non-admin got %d -> %q, want 303 -> login with the admin-required error and next", rec.Code, rec.Header().Get("Location"))
 	}
 }
 
@@ -97,5 +97,27 @@ func TestAdminUserActionRejectsBadID(t *testing.T) {
 	s.handleUIAdminUserAction(rec, req)
 	if !strings.Contains(rec.Header().Get("Location"), "error=") {
 		t.Errorf("bad id redirect = %q, want an error", rec.Header().Get("Location"))
+	}
+}
+
+func TestLoginPageExplainsAdminRequiredError(t *testing.T) {
+	html := render(t, "login.html", map[string]any{"Error": "admin role required"})
+	if !strings.Contains(html, "/ui/logout-form") {
+		t.Error("the admin-required error must offer a logout path to switch accounts")
+	}
+	if !strings.Contains(html, "cluster administrator") {
+		t.Error("the admin-required error must name the admin account")
+	}
+	// Other errors keep the plain message, no logout teaser.
+	plain := render(t, "login.html", map[string]any{"Error": "invalid email or password"})
+	if strings.Contains(plain, "/ui/logout-form") {
+		t.Error("plain login errors must not advertise logout")
+	}
+}
+
+func TestLogoutFormRendersPostButton(t *testing.T) {
+	html := render(t, "logout-form.html", map[string]any{})
+	if !strings.Contains(html, `action="/ui/logout"`) || !strings.Contains(html, "Log out") {
+		t.Error("logout form must POST /ui/logout")
 	}
 }

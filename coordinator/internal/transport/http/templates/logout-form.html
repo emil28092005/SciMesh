@@ -1,0 +1,24 @@
+{{define "logout-form.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign out · SciMesh</title>
+  <style>
+    :root{color:#e5efff;background:#08111f;font:16px/1.5 Inter,ui-sans-serif,system-ui,sans-serif;color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 10% -8%,#183f77 0,transparent 32rem),#08111f}a{color:#94bdff}.card{width:min(92vw,380px);border:1px solid #294662;border-radius:15px;background:#0d1a2cdd;box-shadow:0 20px 45px #00000021;padding:28px}.eyebrow{margin:0 0 4px;color:#7baaff;font-size:.78rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase}h1{margin:0 0 12px;color:#f4f8ff;font-size:1.5rem;letter-spacing:-.03em}p{margin:0 0 18px;color:#9fb3cf;font-size:.92rem}code{color:#cfe0ff}.button{display:block;width:100%;margin-top:4px;border:0;border-radius:10px;padding:12px 16px;background:#ff7d92;color:#230810;font:inherit;font-weight:850;cursor:pointer}.alt{margin:18px 0 0;color:#9fb3cf;font-size:.92rem}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <p class="eyebrow">SciMesh</p>
+    <h1>Sign out</h1>
+    <p>End the current session so you can sign in with a different account (for example the cluster administrator).</p>
+    <form method="post" action="/ui/logout">
+      <button class="button" type="submit">Log out</button>
+    </form>
+    <p class="alt">Changed your mind? <a href="/ui/login">Back to sign in</a></p>
+  </main>
+</body>
+</html>
+{{end}}
