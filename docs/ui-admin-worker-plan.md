@@ -1,192 +1,181 @@
-# План: Coordinator Admin UI и Worker Setup UI
+# План реализации: Coordinator Admin UI и Worker Setup UI
 
-> Статус: план. Текущий `/ui` — демонстрационный control room (джобы, ворклоады, docs).
-> Два новых UI решают две разные задачи и живут в **разных бинарниках**:
-> админка кластера — в `coordinator`, визард установки воркера — в
-> `worker-agent` (для тех, кто ставит ТОЛЬКО воркер и не имеет координатора
-> на своей машине).
+> Статус: **в работе**. Визуал утверждён — мокапы:
+> [`ui-mockups/coordinator-admin.html`](ui-mockups/coordinator-admin.html),
+> [`ui-mockups/worker-setup.html`](ui-mockups/worker-setup.html).
+> Два UI живут в **разных бинарниках**: админка кластера — в `coordinator`
+> (`/ui/admin`), визард установки воркера — в `worker-agent`
+> (`worker-agent setup`, локально на 127.0.0.1).
 
 ## 1. Цель
 
-1. **Coordinator Admin UI** (`/ui/admin`) — полноценная консоль админа
-   распределённого кластера: система, джобы, воркеры, юзеры/роли,
-   ворклоады, настройки, метрики. Живёт в бинарнике `coordinator`.
-2. **Worker Setup UI** — локальный визард **в бинарнике `worker-agent`**
-   (`worker-agent setup` → браузер на 127.0.0.1): пошаговое подключение
-   машины к координатору — URL/токен/ключ, рабочий каталог, проверка
-   соединения, запуск и статус воркера. Не требует установки координатора
-   и работает на машине, где есть только воркер.
+1. **Coordinator Admin UI** — консоль админа распределённого кластера:
+   System, Jobs, Workers, Users & keys, Workloads, Metrics, Settings.
+   Реальные данные, никакой симуляции; только роль `admin`.
+2. **Worker Setup UI** — локальный визард в бинарнике `worker-agent` для
+   машины, на которой стоит только воркер: подключение (URL + токен/ключ),
+   параметры машины, preflight-проверка, запуск/остановка, статус и лог.
 
-## 2. Принципы
+## 2. Что уже есть в коде (фундамент)
 
-- **Coordinator UI** (админка кластера): `/ui/admin/*` — только `admin`,
-  bounded read model, браузер не касается БД, оба движка (sqlite/postgres)
-  одинаково, секреты (`worker.token`) только админу с подтверждением.
-- **Worker UI** (локальный визард в `worker-agent`): слушает только
-  `127.0.0.1`, без аутентификации (локальная машина), не требует никаких
-  внешних сервисов; конфигурация сохраняется в JSON-файле рядом с
-  рабочим каталогом воркера; запуск воркера — отдельным процессом
-  (`worker-agent --config <path>`), который визард же может остановить.
-- Никаких секретов в логах и в самом UI после сохранения.
+- `requireAdmin` middleware и `/ui/admin` (`internal/transport/http/ui_admin.go`)
+  — сейчас минимальная панель: прокси `promote/demote/verify/unverify` в
+  userservice.
+- Userservice (`internal/userservice/`): `POST /users/{id}/promote|demote|
+  verify|unverify` (admin), `GET/POST/DELETE /worker-keys` (per-user),
+  `POST /worker-tokens/exchange`. **Нет**: list users, list all keys.
+- `domain.Worker.TrustLevel` (`trusted`/`untrusted`) + quorum для untrusted —
+  колонка в БД есть, нужен только метод смены и отображение.
+- `domain.Job.OwnerID *uuid.UUID` — владелец джобы из JWT `sub` (может быть nil).
+- Каталог ворклоадов `internal/workloads` (embedded `workloads.json`) —
+  enable/disable кладём поверх через таблицу настроек.
+- UIReadRepo (`ui_read_repo.go` в обоих движках) — bounded read model для UI.
+- Агент целиком конфигурируется env (таблица в `mkdocs/sdk/worker-integration.md`);
+  `--config` маппится на ту же поверхность `agent.Config`.
 
-## 3. Coordinator Admin UI (`/ui/admin`)
+## 3. Coordinator Admin UI
 
-### 3.1 Экран «Обзор системы» — `/ui/admin`
-- движок БД (sqlite/postgres), версия бинарника, data dir, uptime;
-- занятое место blob-хранилища (байты по артефактам) и число артефактов;
-- чипы: джобы/воркеры/таски по статусам (из существующих business metrics);
-- токен воркера: кнопка «Показать worker token» (admin only, подтверждение).
+### 3.1 Страницы ↔ API ↔ данные
 
-### 3.2 Экран «Джобы» — `/ui/admin/jobs`
-- таблица: id, ворклоад, статус, владелец, создан, завершён, результат;
-- фильтры: статус, ворклоад, владелец; поиск по id (частичное совпадение);
-- пагинация (limit/offset), переход в существующий detail-просмотр;
-- действие: cancel (существующий usecase).
+Все API — JSON, под `withUISession` + `requireAdmin`, префикс
+`/ui/admin/api/`. Страница `admin.html` — оболочка из мокапа (сайдбар,
+7 разделов), данные подтягивает JS через fetch (паттерн dashboard).
 
-### 3.3 Экран «Воркеры» — `/ui/admin/workers`
-- таблица: имя, id, статус (online/busy/offline), capabilities, trust,
-  владелец, последний heartbeat;
-- переключение trust (trusted/untrusted) для воркеров — новый usecase;
-- индикация «какие ворклоады умеет» (capabilities из реестра).
-
-### 3.4 Экран «Юзеры и ключи» — `/ui/admin/users`
-- список юзеров через userservice (существующий прокси `callUserserviceAuthed`);
-- verify/unverify, promote/demote (существующие действия);
-- worker-ключи юзера: просмотр (без секрета), revoke.
-
-### 3.5 Экран «Ворклоады» — `/ui/admin/workloads`
-- каталог из embedded `workloads.json` (уже есть read view);
-- enable/disable: новая таблица `workload_settings (workload TEXT PK, enabled
-  BOOLEAN)`, миграции sqlite + postgres; каталог читается с учётом оверрайдов;
-- параметры: схема, reduction, upload_ready, ui_elements (read-only).
-
-### 3.6 Экран «Настройки» — `/ui/admin/settings`
-- read-only конфигурация без секретов: addr, storage dir, docs dir,
-  лимиты (max upload, attempts, quorum), lease/reaper интервалы, engine;
-- подсказки: где лежат миграции, как сделать бэкап sqlite (скопировать файл).
-
-### 3.7 API (все — admin, JSON)
-
-| Метод | Путь | Назначение |
+| Раздел | API | Данные |
 | --- | --- | --- |
-| GET | `/ui/admin/api/system` | движок, версия, storage usage, counts, worker token (admin) |
-| GET | `/ui/admin/api/jobs` | пагинированный список с фильтрами |
-| GET | `/ui/admin/api/workers` | список воркеров |
-| POST | `/ui/admin/api/workers/{id}/trust` | переключить trust |
-| GET | `/ui/admin/api/users` | список юзеров (userservice) |
-| GET | `/ui/admin/api/workloads` | каталог + enabled |
-| POST | `/ui/admin/api/workloads/{name}/enabled` | enable/disable |
-| GET | `/ui/admin/api/settings` | конфигурация (без секретов) |
+| System | `GET /system` | version, uptime, storage stats, health (db/userservice/reducer), node info |
+| Jobs | `GET /jobs?status=&page=` | пагинированный список + счётчики по статусам; owner email резолвится через userservice |
+| Workers | `GET /workers`, `POST /workers/{id}/trust` | список + trust, смена trust (trusted/untrusted) |
+| Users & keys | `GET /users`, `POST /users/{id}/role`, `GET /worker-keys`, `POST /worker-keys/{id}/revoke` | прокси/агрегация userservice |
+| Workloads | `GET /workloads`, `POST /workloads/{name}/enabled` | каталог + persisted enabled-флаг |
+| Metrics | `GET /metrics` | jobs/day (7d), jobs by workload, shards, failure rate, avg shard time |
+| Settings | `GET /settings`, `POST /token/reveal` | read-only конфиг + reveal токена (audit-лог) |
 
-## 4. Worker Setup UI (в бинарнике `worker-agent`)
+### 3.2 Userservice — новые эндпоинты
 
-### 4.1 Как это выглядит
+- `GET /users` (admin) — `id, email, role, verified, created_at`.
+- `GET /worker-keys/all` (admin) — все ключи + owner email.
+- Репозитории: `ListUsers(ctx)`, `ListWorkerKeysAll(ctx)` в `memstore` и
+  `storage/sqlite` (+ тесты). Координатор вызывает их через
+  `callUserserviceAuthed` и отдаёт в свой bounded API — браузер юзерсервис
+  не касается.
 
-```bash
-curl -fsSL .../install.sh | bash -s worker
-worker-agent setup          # печатает URL и открывает браузер
-# → http://127.0.0.1:12700 — локальный визард, ничего устанавливать не нужно
-```
+### 3.3 Storage координатора — новые методы
 
-### 4.2 Визард (шаги)
+- `WorkerRepository.SetTrust(ctx, id, trust)` — оба движка + тесты.
+- `UIReadRepo.ListJobsPaginated(ctx, status string, limit, offset int)`
+  → `([]UIJob, total int, counts map[string]int)` — фильтр по статусу,
+  счётчики для табов.
+- `UIReadRepo.JobMetrics(ctx, since time.Time)` → jobs/day, by workload,
+  shards completed/failed, avg shard duration (из `tasks`).
+- `UIReadRepo.StorageStats(ctx)` → суммы байт по kind артефактов
+  (datasets/artifacts) + размер файла БД (sqlite: `page_count*page_size`;
+  postgres: `pg_database_size(current_database())`).
+- Миграция `0002_workload_settings` (оба движка):
+  `workload_settings(workload TEXT PRIMARY KEY, enabled BOOL NOT NULL,
+  updated_at TIMESTAMP NOT NULL)`; отсутствие строки = enabled (default).
+  Repo: `WorkloadSettingsRepo{ List, Set }`.
+- **Enforcement**: `SubmitDataset` отклоняет disabled-ворклоад;
+  `/ui/api/workloads` и форма new-job помечают disabled (скрываем из выбора).
 
-1. **Координатор**: URL (например `http://192.168.1.10:8080`) + способ
-   аутентификации: токен (serve) или worker key (кластер);
-2. **Рабочий каталог**: путь + имя машины (WORKER_NAME);
-3. **Проверка**: кнопка «Проверить соединение» — `GET /health` координатора
-   (+ обмен ключа, если key), версии; чек-лист зависимостей (Python 3,
-   scimesh) с командой установки;
-4. **Запуск**: «Запустить воркер» — визард сохраняет `config.json` и
-   запускает `worker-agent --config <path>` отдельным процессом.
+### 3.4 Usecase — `internal/usecase/admin.go`
 
-### 4.3 Статусная страница (та же вкладка после запуска)
+`AdminSystem`, `ListJobsAdmin(status,page)` (+owner emails), `ListWorkersAdmin`,
+`SetWorkerTrust`, `ListUsersAdmin`, `SetUserRole` (через userservice promote/demote),
+`ListWorkerKeysAdmin`, `RevokeWorkerKeyAdmin`, `ListWorkloadsAdmin`,
+`SetWorkloadEnabled`, `AdminMetrics`, `RevealWorkerToken` (читает
+`worker.token`/env, пишет audit-лог).
 
-- состояние: не запущен / запущен, worker id, зарегистрирован ли;
-- статистика: забрано задач, выполнено, ошибок, последний heartbeat;
-- runtime: python, scimesh, capabilities (из каталога);
-- кнопки: Остановить / Запустить / Открыть лог (хвост).
+### 3.5 Шаблон
 
-### 4.4 API визарда (локальный HTTP, 127.0.0.1)
+`templates/admin.html` заменяется на дизайн мокапа: сайдбар (Operate /
+Access / Platform), topbar с env-бейджем (serve/postgres, addr), 7 разделов,
+рендер через JS. Имя ворклоада — реальное `descriptor-batch`.
 
-| Метод | Путь | Назначение |
-| --- | --- | --- |
-| GET | `/api/status` | конфиг (без секрета), состояние, статистика |
-| POST | `/api/config` | сохранить конфигурацию в `config.json` |
-| POST | `/api/test` | проверка соединения с координатором |
-| POST | `/api/start` | запустить воркера (self `--config`) |
-| POST | `/api/stop` | остановить |
-| GET | `/api/logs` | хвост лога воркера |
+## 4. Worker Setup UI (бинарник `worker-agent`)
 
-### 4.5 Изменения в агенте
-
-- `worker-agent setup [--port 12700] [--no-open]` — локальный сервер визарда;
-- `worker-agent --config <path>` — запуск демона из JSON-конфига (URL, токен
-  или ключ, work dir, имя, task runner); env-переменные имеют приоритет;
-- `worker-agent --check [--coordinator-url URL]` — пинг `/health` + версии,
-  exit 0/1 (используется визардом на шаге 3);
-- `config.json` по умолчанию: `~/.scimesh-worker/config.json` (переопределяется
-  через `WORKER_CONFIG`); секрет хранится с правами 0600.
-
-## 5. Компоненты и структура кода
+### 4.1 Новые файлы
 
 ```
-# Coordinator Admin UI (бинарник coordinator)
-coordinator/internal/transport/http/
-  ui_admin.go            # admin-хендлеры + admin.html
-  server.go              # роуты /ui/admin/* (requireAdmin)
-
-coordinator/internal/usecase/
-  admin.go               # AdminSystem/ListJobsAdmin/ListWorkersAdmin/WorkloadSettings
-  ports.go               # + PaginatedJobs(ctx, filter, limit, offset)
-
-coordinator/internal/storage/{sqlite,postgres}/
-  ui_read_repo.go        # + ListJobsPaginated, StorageStats
-  migrations/*.sql       # + workload_settings
-
-# Worker Setup UI (бинарник worker-agent)
 coordinator/internal/agent/
-  setup/                 # локальный визард: сервер, шаблоны, API, config.json
-  setup_ui.go            # worker-agent setup (сервер 127.0.0.1:12700)
-  configfile.go          # --config <path>: JSON-конфиг демона
-  check.go               # --check: пинг /health + версии
+  configfile.go        # ConfigFile (json), Load/Save (0600), путь по умолчанию
+  check.go             # CheckCoordinator(url, auth) — health + версии + python/scimesh
+  setupui/
+    server.go          # локальный HTTP 127.0.0.1:12700, API + запуск/остановка
+    template.html      # визард + статус (по мокапу), go:embed
+coordinator/cmd/worker-agent/main.go   # + setup / --config / --check
 ```
 
-## 6. Милестоуны
+### 4.2 CLI
 
-- **M1. Admin-фундамент**: экран «Система» + таблица джобов (фильтры,
-  пагинация) + storage usage. API + шаблоны + тесты.
-- **M2. Admin-управление**: воркеры (trust), юзеры/ключи (userservice),
-  ворклоады enable/disable (таблица `workload_settings` + миграции обоих
-  движков), настройки (read-only).
-- **M3. Worker Setup (в worker-agent)**: `setup`-сервер с визардом
-  (config/test/start/stop/logs), `--config`, `--check`; E2E: визард запускает
-  реального воркера, тот регистрируется и берёт джоб.
-- **M4. Полировка и верификация**: пустые состояния, mobile, копирование,
-  E2E в браузере (admin-флоу и setup-флоу с реальным worker-agent),
-  обновление mkdocs/standalone.md, CI зелёный.
+- `worker-agent setup [--port 12700] [--no-open]` — визард; печатает URL,
+  открывает браузер.
+- `worker-agent --config <path>` — демон из JSON-конфига; env имеет приоритет.
+- `worker-agent --check [--coordinator-url URL]` — пинг `/health`, auth
+  (token → claim-endpoint 401/200 probe или exchange для ключа), python3 +
+  `import scimesh`; exit 0/1. Используется визардом на шаге 3.
 
-## 7. Тестирование
+### 4.3 config.json
 
-- **Go (unit)**: usecase admin (memstore + sqlite), permission-тесты
-  (admin vs user → 403), фильтры/пагинация, enable/disable ворклоадов;
-  агент: визард API (config persist 0600, test без/с координатором,
-  start/stop), `--config`, `--check` (с/без координатора).
-- **Go (integration, postgres)**: пагинация и storage-метрики на реальной БД.
-- **E2E (браузер)**: вход админом → `/ui/admin` показывает реальную систему;
-  на «голой» машине: `worker-agent setup` → визард → запуск → воркер
-  регистрируется в координаторе и берёт джоб.
-- **CI**: существующие джобы + новые тесты в общем `go test -race`; sqlite и
-  postgres пути одинаково зелёные.
+`~/.scimesh-worker/config.json` (переопределяется `WORKER_CONFIG`), права 0600:
+```json
+{
+  "coordinator_url": "http://192.168.1.10:8080",
+  "token": "…",                     // или
+  "worker_key": "…", "userservice_url": "http://…:8081",
+  "work_dir": "…", "worker_name": "emil-laptop",
+  "cpu_count": 8, "memory_mb": 16384,
+  "task_runner": ["python", "-m", "scimesh.worker.task"]
+}
+```
 
-## 8. Открытые решения
+### 4.4 API визарда (только 127.0.0.1, без auth)
 
-- **enable/disable ворклоадов**: хранить в `workload_settings` (миграции
-  обоих движков); решение принято — таблица добавляется в M2.
-- **Токен в UI**: только админ, с подтверждением; в командах визарда —
-  плейсхолдер, чтобы не светить секрет в логах истории.
-- **`worker-agent --check`**: без регистрации, только health + версии.
-- **Локальный визард без аутентификации**: сервер слушает только
-  `127.0.0.1`; любой локальный процесс может управлять воркером — это
-  сознательное упрощение для одной машины.
-- Скоуп v1: без редактирования конфигурации координатора и без управления
-  миграциями из UI (это задача `setup`/CLI).
+| Метод | Путь | Назначение |
+| --- | --- | --- |
+| GET | `/api/status` | конфиг (секрет маскирован), running (pid alive), статистика из лога, runtime |
+| POST | `/api/config` | валидация + сохранение `config.json` (0600) |
+| POST | `/api/test` | preflight: coordinator reachable, auth ok, python, scimesh |
+| POST | `/api/start` | spawn `worker-agent --config <path>` (лог → `worker.log`, pid-файл) |
+| POST | `/api/stop` | SIGTERM по pid-файлу |
+| GET | `/api/logs?tail=` | хвост `worker.log` |
+
+Статистика — парсинг лога (registered/claimed/completed/failed/heartbeat).
+Spawner — интерфейс, в тестах подменяется.
+
+## 5. Милестоуны
+
+- **M1. Admin-фундамент**: оболочка `admin.html` по мокапу + `GET /system`
+  (storage stats, health, node) + `GET /jobs` (фильтр+пагинация+счётчики) +
+  `GET /metrics`. Тесты: pagination/metrics/storage-stats на sqlite,
+  permission-тесты 403.
+- **M2. Access & Platform**: userservice `ListUsers`/`ListWorkerKeysAll`
+  (mem+sqlite+http), `SetTrust` (оба движка), users/keys/trust API и
+  разделы, `workload_settings` миграция 0002 + enable/disable + enforcement
+  в `SubmitDataset` и форме, settings + token reveal (audit). Тесты на каждый
+  слой.
+- **M3. Worker Setup**: `configfile.go`, `--config`, `--check`, `setupui`
+  (server + шаблон по мокапу, 6 API), тесты (roundtrip конфига, права 0600,
+  check с httptest, API визарда с подменённым spawner).
+- **M4. E2E + docs**: браузерный E2E (admin видит реальные данные; визард
+  запускает реального воркера против тестового координатора → регистрация →
+  джоб), обновить `mkdocs/index.md`, `mkdocs/standalone.md`
+  (`worker-agent setup` вместо ручных export), README, чекбоксы CTX-19/20.
+
+## 6. Тестирование
+
+- **Go unit**: usecase admin (fakes + sqlite), repos обоих движков
+  (SetTrust, pagination, metrics, settings, storage stats), userservice
+  List/ListAll (mem+sqlite), HTTP permission (user → 403 на все `/ui/admin/api/*`),
+  enforcement disabled-ворклоада, configfile/check/setupui агента.
+- **Go integration (postgres)**: миграция 0002 и parity новых методов —
+  через существующий docker-хелпер, skip без docker.
+- **E2E браузер**: M4.
+
+## 7. Открытые решения (зафиксировано)
+
+- Локальный визард без аутентификации — слушает только 127.0.0.1.
+- Settings-раздел v1 — read-only + reveal токена; редактирование конфигурации
+  и prune/reset (danger zone) — v2, в UI помечены как таковые.
+- `owner` джобы: email из userservice по `OwnerID`; при nil — «cluster token».
+- Статистика воркера в визарде — из лога, без новых эндпоинтов координатора.

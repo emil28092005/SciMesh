@@ -1,0 +1,388 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SciMesh · Coordinator Admin</title>
+<style>
+:root{
+  --bg:#0b0e13;--panel:#11151d;--panel-2:#161c27;--border:#1f2634;--border-soft:#181f2b;
+  --text:#e9ecf3;--text-2:#98a2b5;--text-3:#5d6879;
+  --accent:#5b8cff;--accent-soft:#5b8cff1f;--accent-strong:#3f6fe0;
+  --green:#3fce8a;--green-soft:#3fce8a1a;--amber:#e5b64f;--amber-soft:#e5b64f1a;--red:#f2647c;--red-soft:#f2647c1a;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:14px/1.55 Inter,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,select{font:inherit;color:var(--text);background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:8px 11px;outline:none}
+input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+code{font-family:var(--mono);font-size:.86em}
+
+.layout{display:flex;min-height:100vh}
+
+/* ── sidebar ─────────────────────────────── */
+.sidebar{position:sticky;top:0;height:100vh;width:232px;flex:none;display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--border-soft)}
+.brand{display:flex;align-items:center;gap:11px;padding:20px 20px 18px;border-bottom:1px solid var(--border-soft)}
+.brand-mark{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#5b8cff,#7c5cff);box-shadow:0 4px 14px #5b8cff40}
+.brand-mark svg{width:17px;height:17px;stroke:#fff}
+.brand-name{font-weight:700;font-size:14.5px;letter-spacing:-.01em}
+.brand-sub{font-size:11px;color:var(--text-3);letter-spacing:.02em}
+.nav{flex:1;overflow-y:auto;padding:14px 12px}
+.nav-label{margin:16px 10px 6px;font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3)}
+.nav-label:first-child{margin-top:0}
+.nav-item{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:8px;color:var(--text-2);font-weight:500;text-align:left;transition:background .12s,color .12s}
+.nav-item svg{width:16px;height:16px;stroke:currentColor;flex:none}
+.nav-item:hover{background:var(--panel-2);color:var(--text)}
+.nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.nav-item .count{margin-left:auto;font-size:11px;font-weight:600;color:var(--text-3);background:var(--panel-2);border-radius:99px;padding:1px 7px}
+.nav-item.active .count{color:var(--accent);background:#5b8cff26}
+.side-foot{padding:14px;border-top:1px solid var(--border-soft)}
+.user-chip{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:9px;background:var(--panel-2)}
+.avatar{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#3fce8a,#2ea56c);color:#08130d;font-weight:800;font-size:12px;flex:none}
+.user-chip b{display:block;font-size:12.5px;line-height:1.25}
+.user-chip span{display:block;font-size:11px;color:var(--text-3)}
+.back-link{display:block;margin-top:9px;padding:7px 10px;color:var(--text-3);font-size:12.5px;text-decoration:none;border-radius:8px}
+.back-link:hover{color:var(--text);background:var(--panel-2)}
+
+/* ── main ────────────────────────────────── */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 32px;background:#0b0e13e6;backdrop-filter:blur(10px);border-bottom:1px solid var(--border-soft)}
+.topbar h1{font-size:17px;font-weight:700;letter-spacing:-.015em}
+.topbar p{font-size:12.5px;color:var(--text-3);margin-top:1px}
+.env-badge{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:99px;padding:5px 12px;background:var(--panel)}
+.env-badge i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+.content{flex:1;padding:26px 32px 60px;max-width:1120px;width:100%;margin:0 auto}
+.page{display:none}.page.active{display:block;animation:fade .18s ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+
+/* ── shared components ───────────────────── */
+.card{background:var(--panel);border:1px solid var(--border-soft);border-radius:13px}
+.card-pad{padding:20px}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 20px;border-bottom:1px solid var(--border-soft)}
+.card-head h3{font-size:13.5px;font-weight:650}
+.card-head span{font-size:12px;color:var(--text-3)}
+.grid-kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+.kpi{background:var(--panel);border:1px solid var(--border-soft);border-radius:13px;padding:16px 18px}
+.kpi .k-label{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.kpi .k-label svg{width:14px;height:14px;stroke:currentColor}
+.kpi .k-value{margin-top:8px;font-size:26px;font-weight:700;letter-spacing:-.03em;line-height:1}
+.kpi .k-sub{margin-top:6px;font-size:12px;color:var(--text-2)}
+.kpi .k-sub.up{color:var(--green)}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:3px 10px;font-size:11.5px;font-weight:650;white-space:nowrap}
+.pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill-success{background:var(--green-soft);color:var(--green)}
+.pill-active{background:var(--accent-soft);color:var(--accent)}
+.pill-waiting{background:#ffffff12;color:var(--text-2)}
+.pill-danger{background:var(--red-soft);color:var(--red)}
+.pill-amber{background:var(--amber-soft);color:var(--amber)}
+.btn{display:inline-flex;align-items:center;gap:7px;border-radius:8px;padding:8px 14px;font-weight:600;font-size:13px;border:1px solid transparent;transition:filter .12s,background .12s}
+.btn svg{width:14px;height:14px;stroke:currentColor}
+.btn-primary{background:var(--accent);color:#0a1222}
+.btn-primary:hover{background:var(--accent-strong);color:#fff}
+.btn-ghost{background:var(--panel-2);border-color:var(--border);color:var(--text-2)}
+.btn-ghost:hover{color:var(--text);border-color:#2a3446}
+.btn-danger{background:var(--red-soft);color:var(--red)}
+.btn-danger:hover{background:#f2647c2e}
+.btn-sm{padding:5px 10px;font-size:12px;border-radius:7px}
+table{width:100%;border-collapse:collapse}
+th{padding:10px 20px;text-align:left;font-size:11px;font-weight:650;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3);border-bottom:1px solid var(--border-soft)}
+td{padding:12px 20px;border-bottom:1px solid var(--border-soft);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tbody tr{transition:background .1s}
+tbody tr:hover{background:var(--panel-2)}
+.t-main{font-weight:600;font-size:13.5px}
+.t-sub{font-size:11.5px;color:var(--text-3);font-family:var(--mono)}
+.cap{display:inline-block;margin:2px 4px 2px 0;padding:2px 7px;border:1px solid var(--border);border-radius:6px;font:11px var(--mono);color:var(--text-2)}
+.bar{height:5px;width:130px;border-radius:99px;background:#ffffff10;overflow:hidden}
+.bar span{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#5b8cff,#3fce8a)}
+.bar-label{font-size:11.5px;color:var(--text-2);font-family:var(--mono);margin-top:5px}
+.tabs{display:flex;gap:4px;padding:4px;background:var(--panel);border:1px solid var(--border-soft);border-radius:10px;width:max-content;margin-bottom:14px}
+.tab{padding:6px 13px;border-radius:7px;font-size:12.5px;font-weight:600;color:var(--text-2)}
+.tab:hover{color:var(--text)}
+.tab.active{background:var(--panel-2);color:var(--text);box-shadow:inset 0 0 0 1px var(--border)}
+.tab .n{color:var(--text-3);font-weight:500;margin-left:5px}
+.tab.active .n{color:var(--accent)}
+.section-title{margin:26px 0 12px;font-size:13px;font-weight:700;letter-spacing:-.01em;color:var(--text)}
+.section-title:first-child{margin-top:0}
+.section-note{font-size:12px;color:var(--text-3);margin:-8px 0 12px}
+.kv{display:grid;grid-template-columns:210px 1fr;row-gap:0}
+.kv dt{padding:11px 20px;font-size:12.5px;color:var(--text-3);border-bottom:1px solid var(--border-soft)}
+.kv dd{padding:11px 20px;font-size:13px;border-bottom:1px solid var(--border-soft)}
+.kv dt:last-of-type,.kv dd:last-of-type{border-bottom:0}
+.stack{display:grid;gap:14px}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.toggle{position:relative;width:36px;height:20px;border-radius:99px;background:#ffffff17;transition:background .15s;flex:none}
+.toggle:after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#8b95a5;transition:transform .15s,background .15s}
+.toggle.on{background:var(--accent)}
+.toggle.on:after{transform:translateX(16px);background:#fff}
+.storage-bar{display:flex;height:10px;border-radius:99px;overflow:hidden;margin:14px 20px 6px}
+.storage-bar div{height:100%}
+.legend{display:flex;gap:20px;padding:10px 20px 18px;flex-wrap:wrap}
+.legend span{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2)}
+.legend i{width:9px;height:9px;border-radius:3px}
+.footer-row{display:flex;align-items:center;justify-content:space-between;padding:11px 20px;font-size:12px;color:var(--text-3)}
+.pager{display:flex;gap:4px}
+.pager button{width:26px;height:26px;border-radius:7px;font-size:12px;color:var(--text-2)}
+.pager button.cur{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.secret{display:flex;align-items:center;gap:10px}
+.secret code{background:var(--panel-2);border:1px solid var(--border);border-radius:7px;padding:6px 10px;letter-spacing:.08em}
+.chart{width:100%;height:auto;display:block}
+.chart-bar{fill:#2c3a52;rx:4}
+.chart-bar.hot{fill:var(--accent)}
+.chart-grid{stroke:#ffffff08}
+.chart-label{font:10px var(--mono);fill:var(--text-3)}
+.warn-strip{display:flex;gap:10px;align-items:flex-start;background:var(--amber-soft);border:1px solid #e5b64f33;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#eecf8d}
+.warn-strip svg{width:15px;height:15px;stroke:var(--amber);flex:none;margin-top:1px}
+@media(max-width:960px){.sidebar{display:none}.grid-kpi,.split{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="layout">
+
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="7" r="2.4"/><circle cx="12" cy="17" r="2.4"/><path d="M8 7.5l7.6-1M7 8.3l3.7 6.5M16.6 9.2l-3.2 5.6"/></svg></div>
+    <div><div class="brand-name">SciMesh</div><div class="brand-sub">Coordinator Admin</div></div>
+  </div>
+  <nav class="nav" id="nav">
+    <div class="nav-label">Operate</div>
+    <button class="nav-item active" data-page="system"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/></svg>System</button>
+    <button class="nav-item" data-page="jobs"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Jobs<span class="count">26</span></button>
+    <button class="nav-item" data-page="workers"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Workers<span class="count">3</span></button>
+    <div class="nav-label">Access</div>
+    <button class="nav-item" data-page="users"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.7-3 2.9-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.6c2.6.2 4.3 1.7 5 4.4"/></svg>Users &amp; keys</button>
+    <div class="nav-label">Platform</div>
+    <button class="nav-item" data-page="workloads"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Workloads</button>
+    <button class="nav-item" data-page="metrics"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><path d="M4 19V5M4 19h16"/><path d="M8 15v-4M12 15V7M16 15v-6M20 15V9"/></svg>Metrics</button>
+    <button class="nav-item" data-page="settings"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2z"/></svg>Settings</button>
+  </nav>
+  <div class="side-foot">
+    <div class="user-chip"><div class="avatar">A</div><div><b>admin@scimesh.local</b><span>admin · serve bootstrap</span></div></div>
+    <a class="back-link" href="#">← Back to control room</a>
+  </div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <div><h1 id="page-title">System</h1><p id="page-sub">Cluster state and node information</p></div>
+    <div class="env-badge"><i></i>serve mode · sqlite · 127.0.0.1:8080</div>
+  </header>
+  <div class="content">
+
+  <!-- ═══ SYSTEM ═══ -->
+  <section class="page active" id="page-system">
+    <div class="grid-kpi">
+      <div class="kpi"><div class="k-label"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg>Version</div><div class="k-value">1.1.0</div><div class="k-sub">alpha.1 · linux/amd64</div></div>
+      <div class="kpi"><div class="k-label"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Uptime</div><div class="k-value">3d 14h</div><div class="k-sub">since Jul 30, 09:12</div></div>
+      <div class="kpi"><div class="k-label"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Active jobs</div><div class="k-value">2</div><div class="k-sub up">1 running · 1 waiting</div></div>
+      <div class="kpi"><div class="k-label"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8"/></svg>Workers online</div><div class="k-value">3<span style="font-size:15px;color:var(--text-3);font-weight:500"> / 5</span></div><div class="k-sub">2 busy · 1 idle</div></div>
+    </div>
+    <div class="split">
+      <div class="card">
+        <div class="card-head"><h3>Storage usage</h3><span>2.1 GB total</span></div>
+        <div class="storage-bar"><div style="width:38%;background:#5b8cff"></div><div style="width:57%;background:#7c5cff"></div><div style="width:5%;background:#3fce8a"></div></div>
+        <div class="legend">
+          <span><i style="background:#5b8cff"></i>Datasets · 812 MB</span>
+          <span><i style="background:#7c5cff"></i>Artifacts · 1.2 GB</span>
+          <span><i style="background:#3fce8a"></i>Database · 34 MB</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Health</h3><span>all checks pass</span></div>
+        <dl class="kv">
+          <dt>Database</dt><dd><span class="pill pill-success"><i></i>Connected</span> <span style="color:var(--text-3);font-size:12px">sqlite · wal</span></dd>
+          <dt>Userservice</dt><dd><span class="pill pill-success"><i></i>Embedded</span> <span style="color:var(--text-3);font-size:12px">127.0.0.1:41273</span></dd>
+          <dt>Reducer</dt><dd><span class="pill pill-waiting"><i></i>Idle</span> <span style="color:var(--text-3);font-size:12px">last merge 12 min ago</span></dd>
+        </dl>
+      </div>
+    </div>
+    <div class="section-title">Node information</div>
+    <div class="card">
+      <dl class="kv">
+        <dt>Binary</dt><dd><code>/usr/local/bin/coordinator</code></dd>
+        <dt>Listen address</dt><dd><code>127.0.0.1:8080</code></dd>
+        <dt>Data directory</dt><dd><code>~/.scimesh</code> <span style="color:var(--text-3)">(jwt.secret · worker.token · venv)</span></dd>
+        <dt>Database engine</dt><dd>sqlite · <code>~/.scimesh/scimesh.db</code></dd>
+        <dt>Public URL</dt><dd><code>http://192.168.1.10:8080</code></dd>
+      </dl>
+    </div>
+  </section>
+
+  <!-- ═══ JOBS ═══ -->
+  <section class="page" id="page-jobs">
+    <div class="tabs">
+      <button class="tab active">All<span class="n">26</span></button>
+      <button class="tab">Running<span class="n">1</span></button>
+      <button class="tab">Waiting<span class="n">1</span></button>
+      <button class="tab">Completed<span class="n">21</span></button>
+      <button class="tab">Failed<span class="n">2</span></button>
+      <button class="tab">Cancelled<span class="n">1</span></button>
+    </div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Job</th><th>Workload</th><th>Owner</th><th>Status</th><th>Progress</th><th>Submitted</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><div class="t-main">kinase-inhibitors-topk</div><div class="t-sub">7f3a…c91e</div></td><td><code style="color:var(--text-2)">similarity-search</code></td><td style="color:var(--text-2)">alice@lab.org</td><td><span class="pill pill-active"><i></i>Running</span></td><td><div class="bar"><span style="width:62%"></span></div><div class="bar-label">124 / 200 shards</div></td><td style="color:var(--text-2);font-size:12.5px">12 min ago</td><td><button class="btn btn-ghost btn-sm">Open</button></td></tr>
+          <tr><td><div class="t-main">chembl-2d-descriptors</div><div class="t-sub">a102…77bd</div></td><td><code style="color:var(--text-2)">descriptors</code></td><td style="color:var(--text-2)">bob@lab.org</td><td><span class="pill pill-waiting"><i></i>Waiting</span></td><td><div class="bar"><span style="width:0%"></span></div><div class="bar-label">0 / 48 shards</div></td><td style="color:var(--text-2);font-size:12.5px">4 min ago</td><td><button class="btn btn-ghost btn-sm">Open</button></td></tr>
+          <tr><td><div class="t-main">fragment-library-graph</div><div class="t-sub">55e0…0a3f</div></td><td><code style="color:var(--text-2)">similarity-graph</code></td><td style="color:var(--text-2)">alice@lab.org</td><td><span class="pill pill-success"><i></i>Completed</span></td><td><div class="bar"><span style="width:100%"></span></div><div class="bar-label">96 / 96 shards · 3m 41s</div></td><td style="color:var(--text-2);font-size:12.5px">1 h ago</td><td><button class="btn btn-ghost btn-sm">Open</button></td></tr>
+          <tr><td><div class="t-main">leadopt-molwt-450</div><div class="t-sub">9b41…e2c8</div></td><td><code style="color:var(--text-2)">molwt-filter</code></td><td style="color:var(--text-2)">admin@scimesh.local</td><td><span class="pill pill-success"><i></i>Completed</span></td><td><div class="bar"><span style="width:100%"></span></div><div class="bar-label">12 / 12 shards · 24s</div></td><td style="color:var(--text-2);font-size:12.5px">3 h ago</td><td><button class="btn btn-ghost btn-sm">Open</button></td></tr>
+          <tr><td><div class="t-main">hts-plate-14-search</div><div class="t-sub">c7d9…4b60</div></td><td><code style="color:var(--text-2)">similarity-search</code></td><td style="color:var(--text-2)">bob@lab.org</td><td><span class="pill pill-danger"><i></i>Failed</span></td><td><div class="bar"><span style="width:34%;background:linear-gradient(90deg,#5b8cff,#f2647c)"></span></div><div class="bar-label">18 / 53 shards · 2 failed</div></td><td style="color:var(--text-2);font-size:12.5px">yesterday</td><td><button class="btn btn-ghost btn-sm">Open</button></td></tr>
+        </tbody>
+      </table>
+      <div class="footer-row"><span>1–5 of 26 jobs</span><div class="pager"><button>‹</button><button class="cur">1</button><button>2</button><button>3</button><button>›</button></div></div>
+    </div>
+  </section>
+
+  <!-- ═══ WORKERS ═══ -->
+  <section class="page" id="page-workers">
+    <div class="section-note">Workers register themselves. Trust controls whether a machine may claim tasks from this cluster.</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Worker</th><th>Status</th><th>Capabilities</th><th>Trust</th><th>Completed</th><th>Last signal</th></tr></thead>
+        <tbody>
+          <tr><td><div class="t-main">lab-node-01</div><div class="t-sub">w-01HZZ…a4</div></td><td><span class="pill pill-active"><i></i>Busy</span></td><td><span class="cap">similarity-search</span><span class="cap">similarity-graph</span></td><td><select><option selected>Trusted</option><option>Untrusted</option></select></td><td style="font-family:var(--mono);font-size:12.5px">341</td><td style="color:var(--text-2);font-size:12.5px">4 s ago</td></tr>
+          <tr><td><div class="t-main">emil-laptop</div><div class="t-sub">w-01HZZ…9c</div></td><td><span class="pill pill-success"><i></i>Idle</span></td><td><span class="cap">similarity-search</span><span class="cap">descriptors</span><span class="cap">molwt-filter</span></td><td><select><option selected>Trusted</option><option>Untrusted</option></select></td><td style="font-family:var(--mono);font-size:12.5px">87</td><td style="color:var(--text-2);font-size:12.5px">2 s ago</td></tr>
+          <tr><td><div class="t-main">lab-node-02</div><div class="t-sub">w-01HZZ…d1</div></td><td><span class="pill pill-active"><i></i>Busy</span></td><td><span class="cap">similarity-search</span></td><td><select><option>Trusted</option><option selected>Untrusted</option></select></td><td style="font-family:var(--mono);font-size:12.5px">12</td><td style="color:var(--text-2);font-size:12.5px">6 s ago</td></tr>
+          <tr><td><div class="t-main">old-workstation</div><div class="t-sub">w-01HZX…7f</div></td><td><span class="pill pill-waiting"><i></i>Offline</span></td><td><span class="cap">similarity-search</span></td><td><select><option selected>Trusted</option><option>Untrusted</option></select></td><td style="font-family:var(--mono);font-size:12.5px">1 204</td><td style="color:var(--text-2);font-size:12.5px">2 days ago</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══ USERS & KEYS ═══ -->
+  <section class="page" id="page-users">
+    <div class="section-title">Users</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Email</th><th>Role</th><th>Jobs</th><th>Created</th><th>Last active</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><div class="t-main">admin@scimesh.local</div></td><td><span class="pill pill-amber"><i></i>admin</span></td><td style="font-family:var(--mono);font-size:12.5px">9</td><td style="color:var(--text-2);font-size:12.5px">Jul 30</td><td style="color:var(--text-2);font-size:12.5px">now</td><td><button class="btn btn-ghost btn-sm">Edit</button></td></tr>
+          <tr><td><div class="t-main">alice@lab.org</div></td><td><select><option selected>user</option><option>admin</option></select></td><td style="font-family:var(--mono);font-size:12.5px">11</td><td style="color:var(--text-2);font-size:12.5px">Jul 30</td><td style="color:var(--text-2);font-size:12.5px">12 min ago</td><td><button class="btn btn-ghost btn-sm">Edit</button></td></tr>
+          <tr><td><div class="t-main">bob@lab.org</div></td><td><select><option selected>user</option><option>admin</option></select></td><td style="font-family:var(--mono);font-size:12.5px">6</td><td style="color:var(--text-2);font-size:12.5px">Jul 31</td><td style="color:var(--text-2);font-size:12.5px">1 h ago</td><td><button class="btn btn-ghost btn-sm">Edit</button></td></tr>
+        </tbody>
+      </table>
+      <div class="footer-row"><span>3 users · bootstrap admin cannot be demoted</span><button class="btn btn-ghost btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Invite user</button></div>
+    </div>
+    <div class="section-title">Worker keys</div>
+    <div class="section-note">Keys let lab machines register as workers under a user account. Served instances can also use the cluster token.</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Label</th><th>Key prefix</th><th>Owner</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+        <tbody>
+          <tr><td class="t-main">lab-node-01</td><td><code style="color:var(--text-2)">smk_7f3a…</code></td><td style="color:var(--text-2)">alice@lab.org</td><td style="color:var(--text-2);font-size:12.5px">Jul 30</td><td style="color:var(--text-2);font-size:12.5px">4 s ago</td><td><button class="btn btn-danger btn-sm">Revoke</button></td></tr>
+          <tr><td class="t-main">emil-laptop</td><td><code style="color:var(--text-2)">smk_b291…</code></td><td style="color:var(--text-2)">admin@scimesh.local</td><td style="color:var(--text-2);font-size:12.5px">Jul 31</td><td style="color:var(--text-2);font-size:12.5px">2 s ago</td><td><button class="btn btn-danger btn-sm">Revoke</button></td></tr>
+          <tr><td class="t-main" style="color:var(--text-3)">old-workstation</td><td><code style="color:var(--text-3)">smk_44cd…</code></td><td style="color:var(--text-3)">alice@lab.org</td><td style="color:var(--text-3);font-size:12.5px">Jul 30</td><td style="color:var(--text-3);font-size:12.5px">2 days ago</td><td><span class="pill pill-danger"><i></i>Revoked</span></td></tr>
+        </tbody>
+      </table>
+      <div class="footer-row"><span>2 active keys</span><button class="btn btn-primary btn-sm"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Issue key</button></div>
+    </div>
+  </section>
+
+  <!-- ═══ WORKLOADS ═══ -->
+  <section class="page" id="page-workloads">
+    <div class="section-note">Disabled workloads are rejected at submit time and hidden from the job form. The catalog is compiled into the binary; settings persist in the database.</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Workload</th><th>Reduction</th><th>Parameters</th><th>Dataset upload</th><th>Enabled</th></tr></thead>
+        <tbody>
+          <tr><td><div class="t-main">similarity-search</div><div class="t-sub">top-k Tanimoto search over a TSV of SMILES</div></td><td><span class="pill pill-active"><i></i>top-k</span></td><td style="color:var(--text-2);font-size:12.5px">4 declared</td><td><span class="pill pill-success"><i></i>ready</span></td><td><button class="toggle on" aria-label="enabled"></button></td></tr>
+          <tr><td><div class="t-main">similarity-graph</div><div class="t-sub">threshold graph edges between all pairs</div></td><td><span class="pill pill-active"><i></i>ordered-concat</span></td><td style="color:var(--text-2);font-size:12.5px">2 declared</td><td><span class="pill pill-success"><i></i>ready</span></td><td><button class="toggle on" aria-label="enabled"></button></td></tr>
+          <tr><td><div class="t-main">descriptors</div><div class="t-sub">2D RDKit descriptors per molecule</div></td><td><span class="pill pill-active"><i></i>ordered-concat</span></td><td style="color:var(--text-2);font-size:12.5px">1 declared</td><td><span class="pill pill-success"><i></i>ready</span></td><td><button class="toggle" aria-label="disabled"></button></td></tr>
+          <tr><td><div class="t-main">molwt-filter</div><div class="t-sub">keep molecules inside a weight window</div></td><td><span class="pill pill-active"><i></i>ordered-concat</span></td><td style="color:var(--text-2);font-size:12.5px">2 declared</td><td><span class="pill pill-success"><i></i>ready</span></td><td><button class="toggle on" aria-label="enabled"></button></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ═══ METRICS ═══ -->
+  <section class="page" id="page-metrics">
+    <div class="grid-kpi">
+      <div class="kpi"><div class="k-label">Jobs · 7 days</div><div class="k-value">26</div><div class="k-sub up">+8 vs previous week</div></div>
+      <div class="kpi"><div class="k-label">Shards completed</div><div class="k-value">1 644</div><div class="k-sub">across 5 workers</div></div>
+      <div class="kpi"><div class="k-label">Avg shard time</div><div class="k-value">2.3s</div><div class="k-sub up">−0.4s this week</div></div>
+      <div class="kpi"><div class="k-label">Failure rate</div><div class="k-value" style="color:var(--amber)">1.2%</div><div class="k-sub">20 failed shards</div></div>
+    </div>
+    <div class="split">
+      <div class="card">
+        <div class="card-head"><h3>Jobs per day</h3><span>last 7 days</span></div>
+        <div style="padding:16px 20px 10px">
+          <svg class="chart" viewBox="0 0 460 150">
+            <line class="chart-grid" x1="0" y1="30" x2="460" y2="30"/><line class="chart-grid" x1="0" y1="70" x2="460" y2="70"/><line class="chart-grid" x1="0" y1="110" x2="460" y2="110"/>
+            <rect class="chart-bar" x="18"  y="70"  width="44" height="60"/><rect class="chart-bar" x="82"  y="50"  width="44" height="80"/>
+            <rect class="chart-bar" x="146" y="90"  width="44" height="40"/><rect class="chart-bar" x="210" y="40"  width="44" height="90"/>
+            <rect class="chart-bar hot" x="274" y="20"  width="44" height="110"/><rect class="chart-bar" x="338" y="60"  width="44" height="70"/>
+            <rect class="chart-bar" x="402" y="80"  width="44" height="50"/>
+            <text class="chart-label" x="18"  y="145">Mon</text><text class="chart-label" x="82"  y="145">Tue</text><text class="chart-label" x="146" y="145">Wed</text>
+            <text class="chart-label" x="210" y="145">Thu</text><text class="chart-label" x="274" y="145">Fri</text><text class="chart-label" x="338" y="145">Sat</text>
+            <text class="chart-label" x="402" y="145">Sun</text>
+          </svg>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Jobs by workload</h3><span>all time</span></div>
+        <dl class="kv">
+          <dt>similarity-search</dt><dd><div class="bar" style="width:100%"><span style="width:78%"></span></div></dd>
+          <dt>similarity-graph</dt><dd><div class="bar" style="width:100%"><span style="width:41%"></span></div></dd>
+          <dt>molwt-filter</dt><dd><div class="bar" style="width:100%"><span style="width:22%"></span></div></dd>
+          <dt>descriptors</dt><dd><div class="bar" style="width:100%"><span style="width:9%"></span></div></dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SETTINGS ═══ -->
+  <section class="page" id="page-settings">
+    <div class="warn-strip"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 9v4M12 17h.01M10.3 3.9L2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><div>The cluster token below authenticates <b>any</b> worker. Reveal it only on a trusted machine, and rotate it if it may have leaked.</div></div>
+    <div class="section-title">Cluster</div>
+    <div class="card">
+      <dl class="kv">
+        <dt>Worker token</dt><dd><div class="secret"><code id="tok">••••••••••••••••••••••••</code><button class="btn btn-ghost btn-sm" id="reveal">Reveal</button><button class="btn btn-ghost btn-sm">Rotate…</button></div></dd>
+        <dt>Public URL</dt><dd><input value="http://192.168.1.10:8080" style="width:320px"></dd>
+        <dt>Listen address</dt><dd><input value="127.0.0.1:8080" style="width:200px"> <span style="color:var(--text-3);font-size:12px">takes effect after restart</span></dd>
+      </dl>
+    </div>
+    <div class="section-title">Storage</div>
+    <div class="card">
+      <dl class="kv">
+        <dt>Data directory</dt><dd><code>~/.scimesh</code></dd>
+        <dt>Database engine</dt><dd><select><option selected>sqlite (embedded)</option><option>postgres (external)</option></select></dd>
+        <dt>Auto-migrate on start</dt><dd><button class="toggle on"></button></dd>
+      </dl>
+      <div class="footer-row"><span></span><button class="btn btn-primary btn-sm">Save changes</button></div>
+    </div>
+    <div class="section-title" style="color:var(--red)">Danger zone</div>
+    <div class="card" style="border-color:#f2647c33">
+      <dl class="kv">
+        <dt>Prune artifacts</dt><dd style="display:flex;justify-content:space-between;align-items:center"><span style="color:var(--text-2);font-size:12.5px">Delete results of completed jobs older than 30 days · frees ~400 MB</span><button class="btn btn-ghost btn-sm">Prune…</button></dd>
+        <dt>Reset cluster</dt><dd style="display:flex;justify-content:space-between;align-items:center"><span style="color:var(--text-2);font-size:12.5px">Drop all jobs, workers and keys. Users are kept.</span><button class="btn btn-danger btn-sm">Reset…</button></dd>
+      </dl>
+    </div>
+  </section>
+
+  </div>
+</div>
+</div>
+
+<script>
+const titles={system:['System','Cluster state and node information'],jobs:['Jobs','Every computation, filterable and paginated'],workers:['Workers','Fleet overview and trust management'],users:['Users & keys','Accounts, roles and worker keys'],workloads:['Workloads','Catalog entries and availability'],metrics:['Metrics','Throughput and reliability, last 7 days'],settings:['Settings','Cluster, storage and security']};
+document.querySelectorAll('.nav-item').forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('page-'+btn.dataset.page).classList.add('active');
+  const [t,s]=titles[btn.dataset.page];
+  document.getElementById('page-title').textContent=t;
+  document.getElementById('page-sub').textContent=s;
+}));
+document.querySelectorAll('.toggle').forEach(t=>t.addEventListener('click',()=>t.classList.toggle('on')));
+document.getElementById('reveal').addEventListener('click',e=>{
+  const tok=document.getElementById('tok');
+  const shown=tok.textContent.startsWith('•');
+  tok.textContent=shown?'sm_live_9f2c7ab41d06e8f3c5a7':'••••••••••••••••••••••••';
+  e.target.textContent=shown?'Hide':'Reveal';
+});
+</script>
+</body>
+</html>

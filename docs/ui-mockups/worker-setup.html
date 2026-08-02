@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SciMesh Worker · Setup</title>
+<style>
+:root{
+  --bg:#0b0e13;--panel:#11151d;--panel-2:#161c27;--border:#1f2634;--border-soft:#181f2b;
+  --text:#e9ecf3;--text-2:#98a2b5;--text-3:#5d6879;
+  --accent:#5b8cff;--accent-soft:#5b8cff1f;--accent-strong:#3f6fe0;
+  --green:#3fce8a;--green-soft:#3fce8a1a;--amber:#e5b64f;--amber-soft:#e5b64f1a;--red:#f2647c;--red-soft:#f2647c1a;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:radial-gradient(900px 500px at 50% -180px,#16233d66,transparent),var(--bg);color:var(--text);font:14px/1.55 Inter,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input{font:inherit;color:var(--text);background:var(--panel-2);border:1px solid var(--border);border-radius:9px;padding:10px 13px;width:100%;outline:none;transition:border-color .12s,box-shadow .12s}
+input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+input::placeholder{color:var(--text-3)}
+code{font-family:var(--mono);font-size:.86em}
+
+.shell{max-width:660px;margin:0 auto;padding:44px 22px 70px}
+.brand{display:flex;align-items:center;justify-content:center;gap:11px;margin-bottom:8px}
+.brand-mark{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,#5b8cff,#7c5cff);box-shadow:0 4px 16px #5b8cff40}
+.brand-mark svg{width:18px;height:18px;stroke:#fff}
+.brand-name{font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand-name span{color:var(--text-3);font-weight:500}
+.tagline{text-align:center;color:var(--text-3);font-size:12.5px;margin-bottom:34px}
+.tagline code{color:var(--text-2)}
+
+/* step indicator */
+.steps{display:flex;align-items:center;justify-content:center;gap:0;margin-bottom:30px}
+.step{display:flex;flex-direction:column;align-items:center;gap:7px;width:96px}
+.step-dot{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;border:1.5px solid var(--border);background:var(--panel);color:var(--text-3);font-size:12.5px;font-weight:700;transition:all .2s}
+.step-label{font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:.02em}
+.step.active .step-dot{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);box-shadow:0 0 0 4px #5b8cff14}
+.step.active .step-label{color:var(--text)}
+.step.done .step-dot{border-color:var(--green);background:var(--green-soft);color:var(--green)}
+.step.done .step-label{color:var(--text-2)}
+.step-line{flex:1;max-width:44px;height:1.5px;background:var(--border);margin:0 6px 22px;position:relative;overflow:hidden}
+.step-line.done:after{content:"";position:absolute;inset:0;background:var(--green)}
+
+.card{background:var(--panel);border:1px solid var(--border-soft);border-radius:15px;padding:26px 28px;box-shadow:0 24px 60px #0000004d}
+.card h1{font-size:18px;font-weight:700;letter-spacing:-.02em;margin-bottom:4px}
+.card .sub{color:var(--text-2);font-size:13px;margin-bottom:22px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:650;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);margin-bottom:7px}
+.field .hint{margin-top:6px;font-size:12px;color:var(--text-3)}
+.field .hint code{color:var(--text-2)}
+
+.radio-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.radio-card{border:1px solid var(--border);border-radius:11px;padding:13px 14px;cursor:pointer;transition:all .13s;background:var(--panel-2)}
+.radio-card:hover{border-color:#2a3446}
+.radio-card.sel{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 3px #5b8cff14}
+.radio-card b{display:flex;align-items:center;gap:8px;font-size:13.5px}
+.radio-card b svg{width:15px;height:15px;stroke:var(--accent)}
+.radio-card p{margin-top:4px;font-size:12px;color:var(--text-2)}
+
+.check-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--border-soft);border-radius:10px;margin-bottom:9px;background:var(--panel-2)}
+.check-ic{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;flex:none}
+.check-ic svg{width:13px;height:13px;stroke-width:2.6}
+.check-ok{background:var(--green-soft)}.check-ok svg{stroke:var(--green)}
+.check-bad{background:var(--red-soft)}.check-bad svg{stroke:var(--red)}
+.check-wait{background:#ffffff10}.check-wait svg{stroke:var(--text-3)}
+.check-row b{font-size:13.5px;font-weight:600}
+.check-row span{display:block;font-size:12px;color:var(--text-3)}
+.check-row .ms{margin-left:auto;font:11.5px var(--mono);color:var(--text-3)}
+
+.actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:24px}
+.btn{display:inline-flex;align-items:center;gap:8px;border-radius:9px;padding:10px 18px;font-weight:650;font-size:13.5px;border:1px solid transparent;transition:all .13s}
+.btn svg{width:15px;height:15px;stroke:currentColor}
+.btn-primary{background:var(--accent);color:#0a1222}
+.btn-primary:hover{background:var(--accent-strong);color:#fff}
+.btn-ghost{border-color:var(--border);color:var(--text-2);background:var(--panel-2)}
+.btn-ghost:hover{color:var(--text);border-color:#2a3446}
+.btn-danger{background:var(--red-soft);color:var(--red)}
+.btn-lg{padding:12px 24px;font-size:14.5px;border-radius:10px}
+.link{color:var(--text-3);font-size:13px}
+.link:hover{color:var(--text)}
+
+/* status view */
+.status-head{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+.pulse{position:relative;width:12px;height:12px;border-radius:50%;background:var(--green);flex:none}
+.pulse:after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--green);opacity:.5;animation:ping 1.6s ease-out infinite}
+@keyframes ping{from{transform:scale(.6);opacity:.7}to{transform:scale(1.4);opacity:0}}
+.status-head h1{font-size:19px}
+.status-head .sub{font-size:12.5px;color:var(--text-3)}
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
+.stat{background:var(--panel-2);border:1px solid var(--border-soft);border-radius:11px;padding:12px 14px}
+.stat b{display:block;font-size:20px;font-weight:700;letter-spacing:-.02em}
+.stat span{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3)}
+.stat.bad b{color:var(--red)}
+.logbox{background:#0a0d12;border:1px solid var(--border-soft);border-radius:11px;padding:14px 16px;font:12px/1.7 var(--mono);color:#8fa3bf;max-height:190px;overflow-y:auto}
+.logbox .t{color:var(--text-3)}
+.logbox .ok{color:var(--green)}
+.logbox .hl{color:#c9d6ea}
+.meta-line{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:99px;padding:4px 11px;font-size:12px;color:var(--text-2);background:var(--panel-2)}
+.chip svg{width:12px;height:12px;stroke:var(--text-3)}
+
+.wizard-page{display:none}.wizard-page.active{display:block;animation:fade .18s ease}
+@keyframes fade{from{opacity:0;transform:translateY(5px)}to{opacity:1}}
+.demo-toggle{position:fixed;bottom:14px;right:16px;font-size:11.5px;color:var(--text-3);background:var(--panel);border:1px solid var(--border);border-radius:99px;padding:6px 13px;opacity:.8}
+.demo-toggle:hover{color:var(--text)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="brand">
+    <div class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="7" r="2.4"/><circle cx="12" cy="17" r="2.4"/><path d="M8 7.5l7.6-1M7 8.3l3.7 6.5M16.6 9.2l-3.2 5.6"/></svg></div>
+    <div class="brand-name">SciMesh <span>· Worker setup</span></div>
+  </div>
+  <p class="tagline">Local wizard served by <code>worker-agent setup</code> · <code>127.0.0.1:12700</code></p>
+
+  <!-- ═══ WIZARD VIEW ═══ -->
+  <div id="view-wizard">
+    <div class="steps">
+      <div class="step done" id="st1"><div class="step-dot">✓</div><div class="step-label">Connect</div></div>
+      <div class="step-line done" id="sl1"></div>
+      <div class="step active" id="st2"><div class="step-dot">2</div><div class="step-label">Machine</div></div>
+      <div class="step-line" id="sl2"></div>
+      <div class="step" id="st3"><div class="step-dot">3</div><div class="step-label">Check</div></div>
+      <div class="step-line" id="sl3"></div>
+      <div class="step" id="st4"><div class="step-dot">4</div><div class="step-label">Run</div></div>
+    </div>
+
+    <!-- step 1 (kept in DOM for the mockup; step 2 shown) -->
+    <div class="wizard-page" id="wp1">
+      <div class="card">
+        <h1>Connect to a coordinator</h1>
+        <p class="sub">The coordinator hands out work and collects results. Ask your cluster admin for its address.</p>
+        <div class="field"><label>Coordinator URL</label><input value="http://192.168.1.10:8080" placeholder="http://192.168.1.10:8080"><p class="hint">For a served instance this is the address printed by <code>coordinator serve</code>.</p></div>
+        <div class="field"><label>Authentication</label>
+          <div class="radio-grid">
+            <div class="radio-card sel"><b><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Cluster token</b><p>Serve instances: one token for every worker.</p></div>
+            <div class="radio-card"><b><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="8" cy="14" r="4"/><path d="M10.8 11.2L20 2M15 4l3 3"/></svg>Worker key</b><p>Shared clusters: a key tied to your account.</p></div>
+          </div>
+        </div>
+        <div class="field"><label>Token</label><input type="password" value="sm_live_9f2c7ab41d06e8f3c5a7"><p class="hint">The admin can copy it from <code>coordinator token</code> on the server.</p></div>
+        <div class="actions"><span class="link">Step 1 of 4</span><button class="btn btn-primary" onclick="goto(2)">Continue →</button></div>
+      </div>
+    </div>
+
+    <!-- step 2 -->
+    <div class="wizard-page active" id="wp2">
+      <div class="card">
+        <h1>This machine</h1>
+        <p class="sub">Where tasks run and how the machine appears in the cluster.</p>
+        <div class="field"><label>Worker name</label><input value="emil-laptop"><p class="hint">Shown in the coordinator’s worker list.</p></div>
+        <div class="field"><label>Work directory</label><input value="/home/emil/scimesh-worker"><p class="hint">Datasets and shard results live here. ~1 GB free space recommended.</p></div>
+        <div class="field"><label>Compute resources advertised</label>
+          <div class="radio-grid">
+            <div class="radio-card sel"><b>8 CPUs · 16 GB</b><p>Detected automatically.</p></div>
+            <div class="radio-card"><b>Custom…</b><p>Limit what this machine advertises.</p></div>
+          </div>
+        </div>
+        <div class="actions"><button class="btn btn-ghost" onclick="goto(1)">← Back</button><button class="btn btn-primary" onclick="goto(3)">Continue →</button></div>
+      </div>
+    </div>
+
+    <!-- step 3 -->
+    <div class="wizard-page" id="wp3">
+      <div class="card">
+        <h1>Preflight check</h1>
+        <p class="sub">Making sure this machine can reach the coordinator and run SciMesh workloads.</p>
+        <div class="check-row"><div class="check-ic check-ok"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><path d="M4 12l5 5L20 6"/></svg></div><div><b>Coordinator reachable</b><span>http://192.168.1.10:8080 · coordinator 1.1.0-alpha.1</span></div><span class="ms">34 ms</span></div>
+        <div class="check-row"><div class="check-ic check-ok"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><path d="M4 12l5 5L20 6"/></svg></div><div><b>Token accepted</b><span>authenticated as cluster worker</span></div><span class="ms">51 ms</span></div>
+        <div class="check-row"><div class="check-ic check-ok"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><path d="M4 12l5 5L20 6"/></svg></div><div><b>Python 3.12 found</b><span>/usr/bin/python3</span></div><span class="ms">8 ms</span></div>
+        <div class="check-row"><div class="check-ic check-bad"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></div><div><b>scimesh package missing</b><span>run: pip install scimesh — or let the wizard install it</span></div><button class="btn btn-ghost" style="margin-left:auto;padding:6px 12px;font-size:12px">Install</button></div>
+        <div class="actions"><button class="btn btn-ghost" onclick="goto(2)">← Back</button><button class="btn btn-primary" onclick="goto(4)">Continue anyway →</button></div>
+      </div>
+    </div>
+
+    <!-- step 4 -->
+    <div class="wizard-page" id="wp4">
+      <div class="card" style="text-align:center;padding:40px 28px">
+        <div class="brand-mark" style="margin:0 auto 18px;width:46px;height:46px;border-radius:13px"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px"><path d="M6 4l14 8-14 8V4z"/></svg></div>
+        <h1 style="font-size:20px">Ready to join the cluster</h1>
+        <p class="sub" style="max-width:380px;margin:8px auto 26px">The wizard will save your configuration to <code>~/.scimesh-worker/config.json</code> and start the worker as a background process.</p>
+        <div class="meta-line" style="justify-content:center">
+          <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>emil-laptop</span>
+          <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>8 CPUs · 16 GB</span>
+          <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/></svg>4 workloads</span>
+        </div>
+        <div class="actions" style="justify-content:space-between;margin-top:30px"><button class="btn btn-ghost" onclick="goto(3)">← Back</button><button class="btn btn-primary btn-lg" onclick="showStatus()">Start worker</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ STATUS VIEW ═══ -->
+  <div id="view-status" style="display:none">
+    <div class="card">
+      <div class="status-head">
+        <div class="pulse"></div>
+        <div><h1>emil-laptop is working</h1><div class="sub">worker id <code>w-01HZZ4T9C6</code> · registered with 192.168.1.10:8080 · up 42 min</div></div>
+        <button class="btn btn-danger" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Stop</button>
+      </div>
+      <div class="stat-row">
+        <div class="stat"><b>14</b><span>claimed</span></div>
+        <div class="stat"><b>12</b><span>completed</span></div>
+        <div class="stat bad"><b>0</b><span>failed</span></div>
+        <div class="stat"><b>2.1s</b><span>avg shard</span></div>
+      </div>
+      <div class="meta-line">
+        <span class="chip">similarity-search</span><span class="chip">similarity-graph</span><span class="chip">descriptors</span><span class="chip">molwt-filter</span>
+        <span class="chip" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>heartbeat 2 s ago</span>
+      </div>
+      <div class="logbox">
+        <div><span class="t">14:02:11</span> agent 1.1.0-alpha.1 · config ~/.scimesh-worker/config.json</div>
+        <div><span class="t">14:02:11</span> coordinator http://192.168.1.10:8080 · token auth</div>
+        <div><span class="t">14:02:12</span> <span class="ok">registered</span> as <span class="hl">emil-laptop</span> (w-01HZZ4T9C6)</div>
+        <div><span class="t">14:02:12</span> capabilities: similarity-search, similarity-graph, descriptors, molwt-filter</div>
+        <div><span class="t">14:03:40</span> claimed task <span class="hl">7f3a…c91e/007</span> · similarity-search</div>
+        <div><span class="t">14:03:42</span> <span class="ok">completed</span> 7f3a…c91e/007 · uploaded shard (2.1s)</div>
+        <div><span class="t">14:05:03</span> claimed task <span class="hl">7f3a…c91e/031</span> · similarity-search</div>
+        <div><span class="t">14:05:05</span> <span class="ok">completed</span> 7f3a…c91e/031 · uploaded shard (1.9s)</div>
+      </div>
+      <div class="actions"><span class="link">Configuration: <code>~/.scimesh-worker/config.json</code></span><button class="btn btn-ghost" onclick="showWizard()">Reconfigure…</button></div>
+    </div>
+  </div>
+</div>
+
+<button class="demo-toggle" onclick="toggleView()">mockup · toggle wizard / status</button>
+
+<script>
+const pages=['wp1','wp2','wp3','wp4'];
+function goto(n){
+  pages.forEach((id,i)=>document.getElementById(id).classList.toggle('active',i===n-1));
+  for(let i=1;i<=4;i++){
+    const st=document.getElementById('st'+i);
+    st.classList.toggle('done',i<n);st.classList.toggle('active',i===n);
+    st.querySelector('.step-dot').textContent=i<n?'✓':i;
+    if(i<4)document.getElementById('sl'+i).classList.toggle('done',i<n);
+  }
+}
+function showStatus(){document.getElementById('view-wizard').style.display='none';document.getElementById('view-status').style.display='block'}
+function showWizard(){document.getElementById('view-wizard').style.display='block';document.getElementById('view-status').style.display='none'}
+function toggleView(){document.getElementById('view-status').style.display==='none'?showStatus():showWizard()}
+document.querySelectorAll('.radio-grid').forEach(g=>g.querySelectorAll('.radio-card').forEach(c=>c.addEventListener('click',()=>{g.querySelectorAll('.radio-card').forEach(x=>x.classList.remove('sel'));c.classList.add('sel')})));
+</script>
+</body>
+</html>
