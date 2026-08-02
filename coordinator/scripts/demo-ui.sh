@@ -201,7 +201,7 @@ SciMesh manual demo is ready.
 
 Sign in with the admin above, or register a new account from the login page.
 The admin sees every job; a plain user sees only their own. Upload a small
-ChEMBL TSV through “New similarity search”, then watch the job page update.
+ChEMBL TSV through the "New computation" form, then watch the job page update.
 Worker logs are in $logs_dir. Stop everything with:
 
   make demo-down

@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 // Config is read only from the environment, mirroring the former Python
@@ -99,7 +101,7 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	if len(capabilities) == 0 {
-		capabilities = []string{"similarity-search", "similarity_search"}
+		capabilities = defaultCapabilities()
 	}
 	runner, err := envList("TASK_RUNNER")
 	if err != nil {
@@ -156,4 +158,20 @@ func durationEnv(name string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("%s must be a non-negative duration", name)
 	}
 	return parsed, nil
+}
+
+// defaultCapabilities derives the worker's advertised capabilities from the
+// embedded workload catalog, so an agent is workload-agnostic out of the box:
+// it claims whatever enabled workloads the coordinator library declares.
+// Explicit CAPABILITIES still overrides this for operators who want a subset.
+func defaultCapabilities() []string {
+	catalog, err := workloads.Load()
+	if err != nil {
+		return []string{"similarity-search"}
+	}
+	names := make([]string, 0, len(catalog.Enabled()))
+	for _, workload := range catalog.Enabled() {
+		names = append(names, workload.Name)
+	}
+	return names
 }
