@@ -1056,6 +1056,37 @@ no PostgreSQL, no Docker, no Python setup.
 
 ---
 
+### CTX-19 — Coordinator Admin UI
+
+**Goal:** Replace the demo-level operator pages with a real admin console
+(`/ui/admin`): system overview, job management with filters and pagination,
+worker management (trust, capabilities), users/roles and worker keys,
+workload enable/disable, settings (read-only), and storage metrics.
+
+**Depends on:** CTX-11 (UI patterns, session/roles), CTX-15 (userservice
+proxy), the sqlite/postgres storage pair.
+
+**Acceptance criteria:** full plan in
+[`docs/ui-admin-worker-plan.md`](docs/ui-admin-worker-plan.md) (section 3);
+all `/ui/admin/*` routes are admin-only, bounded read model, both engines
+supported, unit + permission + integration tests green.
+
+### CTX-20 — Worker Setup UI
+
+**Goal:** A four-step wizard (`/ui/workers/setup`) that turns any machine into
+a worker: platform detection, auth choice (serve token or worker key), a
+ready-to-run command, and a `worker-agent --check` verification step.
+
+**Depends on:** CTX-19 (admin API for token reveal), the existing worker-key
+API, the agent.
+
+**Acceptance criteria:** full plan in
+[`docs/ui-admin-worker-plan.md`](docs/ui-admin-worker-plan.md) (section 4);
+end-to-end in the browser: generated command starts a real worker that
+registers and completes a job.
+
+---
+
 ## 10. Suggested assignment bundles
 
 These bundles minimize overlap. Do not run tasks from the same bundle in
