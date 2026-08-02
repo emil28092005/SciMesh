@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # SciMesh installer: downloads a binary for this OS/architecture from the
-# newest GitHub release and installs it locally. One command, no picking from
-# a list of files:
+# newest GitHub release, installs it locally, then starts it and opens its UI
+# in the browser (SCIMESH_AUTO_START=0 installs only). One command:
 #
 #   curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash
 #   curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash -s worker
 #
 # The first form installs the coordinator (the whole platform in one binary:
-# databases, userservice, local workers). The second installs a standalone
-# worker agent that joins an existing coordinator. Installed to ~/.local/bin
+# databases, userservice, local workers) and opens the admin console. The
+# second installs a standalone worker agent that joins an existing
+# coordinator, and opens its local setup wizard. Installed to ~/.local/bin
 # (Linux/macOS) or %LOCALAPPDATA%\SciMesh (Windows).
 set -eu
 

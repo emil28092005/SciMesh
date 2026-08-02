@@ -49,18 +49,21 @@ checksums), the installer scripts, and the `coordinator` image on GHCR:
 docker pull ghcr.io/emil28092005/SciMesh/coordinator:latest
 ```
 
-For scientists: one command downloads the right binary and prints the start
-instructions:
+For scientists: one command downloads the right binary, starts it, and opens
+the UI in the browser:
 
 ```bash
-# Linux / macOS
+# Linux / macOS — installs, starts and opens the admin console automatically
 curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash
-coordinator serve --open
 
 # Windows (PowerShell)
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.ps1 | iex"
-coordinator serve --open
 ```
+
+Set `SCIMESH_AUTO_START=0` to install without starting anything. A standalone
+worker is installed the same way (`bash -s worker`, or
+`SCIMESH_COMPONENT=worker` on Windows); its installer opens the local setup
+wizard (`worker-agent setup`) in the browser automatically.
 
 `coordinator serve` is the single-binary mode: it embeds SQLite (coordinator +
 userservice databases), the userservice itself, and local worker agents
@@ -73,12 +76,14 @@ wheel to install it automatically.
 The coordinator serves two operator surfaces: the **control room** (jobs,
 workloads, docs) and the **admin console** at `/ui/admin` — cluster health
 and storage, paginated job table, worker fleet with trust controls, users and
-worker keys, workload enable/disable, metrics and the worker token. The
-**worker** binary (`worker-agent`) carries its own local setup wizard for
-machines that run only a worker: `worker-agent setup` opens a browser wizard
-at `127.0.0.1` that collects the coordinator URL and credential, runs a
-preflight check, saves `~/.scimesh-worker/config.json` and starts/stops the
-worker with a live log (see the [standalone docs](mkdocs/standalone.md)).
+worker keys, workload enable/disable, metrics and the worker token
+(`serve --open` lands on the admin console; login returns you to the page you
+asked for). The **worker** binary (`worker-agent`) carries its own local setup
+wizard for machines that run only a worker: `worker-agent setup` opens a
+browser wizard at `127.0.0.1` that collects the coordinator URL and
+credential, runs a preflight check, saves `~/.scimesh-worker/config.json` and
+starts/stops the worker with a live log (see the
+[standalone docs](mkdocs/standalone.md)).
 
 Manual download and run of a release binary:
 
