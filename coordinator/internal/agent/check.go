@@ -85,8 +85,10 @@ func CheckEnvironment(ctx context.Context) CheckReport {
 	out, err := cmd.Output()
 	if err != nil {
 		// The worker executes workloads by spawning scimesh's task runner, so
-		// the package is a hard requirement, not an optimisation.
-		report.Scimesh = CheckItem{Name: "scimesh", OK: false, Detail: "the worker runs workloads through scimesh — install with: pip install scimesh"}
+		// the package is a hard requirement, not an optimisation. The PyPI
+		// name belongs to a different project, so the wizard installs from
+		// SCIMESH_PIP_PACKAGE instead of suggesting a bare pip install.
+		report.Scimesh = CheckItem{Name: "scimesh", OK: false, Detail: "the worker runs workloads through scimesh — install it from your wheel or index (SCIMESH_PIP_PACKAGE)"}
 		return report
 	}
 	report.Scimesh = CheckItem{Name: "scimesh", OK: true, Detail: strings.TrimSpace(string(out))}

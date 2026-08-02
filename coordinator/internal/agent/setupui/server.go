@@ -450,7 +450,13 @@ func (s *Server) handleInstallRuntime(w http.ResponseWriter, r *http.Request) {
 		pkg = os.Getenv("SCIMESH_PIP_PACKAGE")
 	}
 	if pkg == "" {
-		pkg = "scimesh"
+		// No PyPI default on purpose: the PyPI name "scimesh" belongs to an
+		// unrelated project, so a silent `pip install scimesh` would install
+		// the wrong software.
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "no scimesh source configured: set SCIMESH_PIP_PACKAGE to your wheel, checkout or index, then retry",
+		})
+		return
 	}
 
 	python3, err := exec.LookPath("python3")

@@ -311,15 +311,32 @@ func TestInstallRuntimeCreatesVenvAndReportsPython(t *testing.T) {
 		return nil
 	})
 
-	rec, data := postJSON(t, base, "/api/runtime/install", map[string]any{})
+	rec, data := postJSON(t, base, "/api/runtime/install", map[string]any{"scimesh_package": "/wheels/scimesh.whl"})
 	if rec.Code != http.StatusOK || data["ok"] != true {
 		t.Fatalf("install: got %d %v, want 200 ok", rec.Code, data)
 	}
-	if installedPkg != "scimesh" {
-		t.Errorf("package = %q, want the default scimesh", installedPkg)
+	if installedPkg != "/wheels/scimesh.whl" {
+		t.Errorf("package = %q, want the requested wheel", installedPkg)
 	}
 	if !strings.HasSuffix(data["python"].(string), "venv/bin/python") {
 		t.Errorf("python = %v, want the venv python", data["python"])
+	}
+}
+
+func TestInstallRuntimeRequiresASource(t *testing.T) {
+	sup := &fakeSup{}
+	_, base := newTestServerWithInstall(t, sup, func(ctx context.Context, venvPython, pkg string) error {
+		t.Fatal("install must not run without a package source")
+		return nil
+	})
+	// No source anywhere (SCIMESH_PIP_PACKAGE unset, request empty): 409 with
+	// guidance. The PyPI name is another project, so no silent fallback.
+	rec, data := postJSON(t, base, "/api/runtime/install", map[string]any{})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("install without source: got %d, want 409", rec.Code)
+	}
+	if !strings.Contains(data["error"].(string), "SCIMESH_PIP_PACKAGE") {
+		t.Errorf("error = %v, want a hint about SCIMESH_PIP_PACKAGE", data["error"])
 	}
 }
 

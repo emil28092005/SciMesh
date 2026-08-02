@@ -97,6 +97,7 @@ if ($Component -eq "coordinator") {
         Write-Host "For a coordinator started with 'coordinator serve', the worker token is"
         Write-Host "in ~\.scimesh\worker.token on that machine. Set SCIMESH_PIP_PACKAGE to"
         Write-Host "install scimesh into a managed venv, or install it yourself:"
-        Write-Host "  pip install scimesh"
+        Write-Host "  set SCIMESH_PIP_PACKAGE=<your wheel or index>"
+        Write-Host "  $Target setup"
     }
 }

@@ -113,10 +113,12 @@ chmod +x coordinator
   ```
 
   It spawns `python -m scimesh.worker.task`, so the machine needs Python 3
-  with the `scimesh` package (`pip install scimesh`, or let the managed venv
-  do it via `SCIMESH_PIP_PACKAGE`). For a `coordinator serve` instance, the
-  worker token is in `~/.scimesh/worker.token`. On Windows set
-  `SCIMESH_COMPONENT=worker` for `install.ps1`.
+  with the `scimesh` package. The wizard installs it into its own venv; the
+  package must come from your wheel, checkout or index — point
+  `SCIMESH_PIP_PACKAGE` at it (the PyPI name `scimesh` belongs to an unrelated
+  project). For a `coordinator serve` instance, the worker token is in
+  `~/.scimesh/worker.token`. On Windows set `SCIMESH_COMPONENT=worker` for
+  `install.ps1`.
 - **coordinator** needs no external services at all in its default mode:
   `coordinator serve` embeds SQLite (both databases), the userservice, and
   local workers. The `SCIMESH_DB=postgres` engine remains for cluster

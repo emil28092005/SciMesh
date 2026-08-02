@@ -112,5 +112,5 @@ else
   echo "For a coordinator started with 'coordinator serve', the worker token is"
   echo "in ~/.scimesh/worker.token on that machine. Set SCIMESH_PIP_PACKAGE to"
   echo "install scimesh into a managed venv, or install it yourself:"
-  echo "  pip install scimesh"
+  echo "  SCIMESH_PIP_PACKAGE=<your wheel or index> worker-agent setup"
 fi
