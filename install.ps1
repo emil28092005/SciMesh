@@ -23,11 +23,23 @@ $Arch = switch ($env:PROCESSOR_ARCHITECTURE) {
 }
 
 if ($Version -eq "latest") {
-    Write-Host "Resolving the latest SciMesh release..."
-    $Url = "https://github.com/$Repo/releases/latest/download/coordinator-windows-$Arch.exe"
-} else {
-    $Url = "https://github.com/$Repo/releases/download/$Version/coordinator-windows-$Arch.exe"
+    Write-Host "Resolving the newest SciMesh release (including pre-releases)..."
+    # /releases/latest only sees stable releases; the API list is newest-first
+    # across all channels.
+    try {
+        $Releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases?per_page=1"
+        if ($Releases -and $Releases[0].tag_name) {
+            $Version = $Releases[0].tag_name
+            Write-Host "  -> $Version"
+        } else {
+            Write-Host "  -> falling back to the stable latest release"
+        }
+    } catch {
+        Write-Host "  -> falling back to the stable latest release"
+    }
 }
+
+$Url = "https://github.com/$Repo/releases/download/$Version/coordinator-windows-$Arch.exe"
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 $Target = Join-Path $InstallDir "coordinator.exe"

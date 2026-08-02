@@ -27,15 +27,23 @@ case "$(uname -m)" in
 esac
 
 if [ "$VERSION" = "latest" ]; then
-  echo "Resolving the latest SciMesh release..."
-  URL="https://github.com/${REPO}/releases/latest/download/coordinator-${OS}-${ARCH}"
-else
-  URL="https://github.com/${REPO}/releases/download/${VERSION}/coordinator-${OS}-${ARCH}"
+  echo "Resolving the newest SciMesh release (including pre-releases)..."
+  # GitHub's /releases/latest only sees stable releases; the API list is
+  # newest-first across all channels. Without jq, pull the first tag_name.
+  RESOLVED=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases?per_page=1" \
+    | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+  if [ -n "$RESOLVED" ]; then
+    VERSION="$RESOLVED"
+    echo "  -> $VERSION"
+  else
+    echo "  -> falling back to the stable latest release"
+  fi
 fi
 
 mkdir -p "$INSTALL_DIR"
 TARGET="$INSTALL_DIR/coordinator"
 
+URL="https://github.com/${REPO}/releases/download/${VERSION}/coordinator-${OS}-${ARCH}"
 echo "Downloading $URL"
 curl -fsSL -o "$TARGET.tmp" "$URL"
 chmod +x "$TARGET.tmp"
