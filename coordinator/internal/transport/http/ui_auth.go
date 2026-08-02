@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
@@ -53,7 +55,7 @@ type tokenVerifier interface {
 }
 
 func (s *Server) handleUILoginForm(w http.ResponseWriter, r *http.Request) {
-	s.renderUI(w, "login.html", map[string]any{"Error": r.URL.Query().Get("error")})
+	s.renderUI(w, "login.html", map[string]any{"Error": r.URL.Query().Get("error"), "Next": r.URL.Query().Get("next")})
 }
 
 func (s *Server) handleUIRegisterForm(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +87,13 @@ func (s *Server) handleUILogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, r, resp.Token)
-	http.Redirect(w, r, "/ui", http.StatusSeeOther)
+	// Land back where the user was headed (e.g. /ui/admin); never follow a
+	// value that escapes the UI prefix — that would be an open redirect.
+	next := strings.TrimSpace(r.FormValue("next"))
+	if next == "" || !strings.HasPrefix(next, "/ui/") {
+		next = "/ui"
+	}
+	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 
 // handleUIRegister creates an account through the userservice, then sends the
@@ -167,5 +175,15 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 }
 
 func redirectToLogin(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/ui/login", http.StatusSeeOther)
+	// Remember where the user was headed so a successful login lands back
+	// there (e.g. /ui/admin) instead of the control room.
+	next := r.URL.Path
+	if !strings.HasPrefix(next, "/ui/") {
+		next = ""
+	}
+	target := "/ui/login"
+	if next != "" {
+		target += "?next=" + url.QueryEscape(next)
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }

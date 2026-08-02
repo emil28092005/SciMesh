@@ -173,3 +173,56 @@ func TestHandleUILogoutClearsCookie(t *testing.T) {
 		t.Error("logout must clear the session cookie")
 	}
 }
+
+func TestHandleUILoginRedirectsToNext(t *testing.T) {
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"token":"t"}`))
+	}))
+	defer stub.Close()
+	s := newLoginServer(stub)
+
+	// A UI-scoped next is honoured: the admin lands back on the console.
+	rec := httptest.NewRecorder()
+	s.handleUILogin(rec, postForm("/ui/login", url.Values{"email": {"a@b.com"}, "password": {"p"}, "next": {"/ui/admin"}}))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui/admin" {
+		t.Errorf("got %d -> %q, want 303 -> /ui/admin", rec.Code, rec.Header().Get("Location"))
+	}
+
+	// Anything outside the UI prefix must not become a redirect target.
+	for _, next := range []string{"https://evil.example", "/", "//evil.example", "/api/jobs"} {
+		rec = httptest.NewRecorder()
+		s.handleUILogin(rec, postForm("/ui/login", url.Values{"email": {"a@b.com"}, "password": {"p"}, "next": {next}}))
+		if loc := rec.Header().Get("Location"); loc != "/ui" {
+			t.Errorf("next=%q landed on %q, want /ui (no open redirect)", next, loc)
+		}
+	}
+}
+
+func TestRedirectToLoginCarriesNext(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := newReq(http.MethodGet, "/ui/admin", nil)
+	redirectToLogin(rec, req)
+	if loc := rec.Header().Get("Location"); loc != "/ui/login?next=%2Fui%2Fadmin" {
+		t.Errorf("location = %q, want /ui/login?next=%%2Fui%%2Fadmin", loc)
+	}
+
+	// Paths outside the UI stay on the plain login.
+	rec = httptest.NewRecorder()
+	req = newReq(http.MethodGet, "/health", nil)
+	redirectToLogin(rec, req)
+	if loc := rec.Header().Get("Location"); loc != "/ui/login" {
+		t.Errorf("location = %q, want /ui/login", loc)
+	}
+}
+
+func TestLoginFormRendersNext(t *testing.T) {
+	html := render(t, "login.html", map[string]any{"Next": "/ui/admin"})
+	if !strings.Contains(html, `name="next" value="/ui/admin"`) {
+		t.Error("login form must carry the next field")
+	}
+	html = render(t, "login.html", map[string]any{})
+	if strings.Contains(html, `name="next"`) {
+		t.Error("login form must not render next when absent")
+	}
+}

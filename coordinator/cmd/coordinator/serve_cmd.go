@@ -130,7 +130,7 @@ func runServe(args []string) error {
 		AutoMigrate:          true,
 	}
 	if *open {
-		openBrowser("http://" + *addr + "/ui")
+		openBrowser("http://" + *addr + "/ui/admin")
 	}
 
 	// Print the login once the server is about to start.
