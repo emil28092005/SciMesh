@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -82,6 +83,12 @@ type Config struct {
 	// On by default so a downloaded binary provisions its own database; set
 	// AUTO_MIGRATE=false when an operator manages migrations out of band.
 	AutoMigrate bool
+	// DatabaseEngine selects the storage backend: "sqlite" (embedded, the
+	// single-binary default) or "postgres" (cluster deployments). The
+	// postgres engine requires DATABASE_URL.
+	DatabaseEngine string
+	// DBPath is the sqlite database file (engine=sqlite only).
+	DBPath string
 }
 
 // Load reads the environment and fails fast on anything required-but-missing
@@ -128,8 +135,16 @@ func LoadConfig() (Config, error) {
 		WorkerOfflineAfter:   1 * time.Minute,
 	}
 
-	if cfg.DatabaseURL == "" {
-		return Config{}, fmt.Errorf("DATABASE_URL is required")
+	cfg.DatabaseEngine = getEnv("SCIMESH_DB", "sqlite")
+	switch cfg.DatabaseEngine {
+	case "sqlite", "postgres":
+	default:
+		return Config{}, fmt.Errorf("SCIMESH_DB must be sqlite or postgres")
+	}
+	cfg.DBPath = getEnv("SCIMESH_DB_PATH", filepath.Join(cfg.StorageDir, "scimesh.db"))
+
+	if cfg.DatabaseEngine == "postgres" && cfg.DatabaseURL == "" {
+		return Config{}, fmt.Errorf("DATABASE_URL is required for the postgres engine")
 	}
 	if cfg.UIToken != "" && cfg.Token != "" && cfg.UIToken == cfg.Token {
 		return Config{}, fmt.Errorf("UI_AUTH_TOKEN must differ from the worker auth token")
@@ -185,7 +200,6 @@ func LoadConfig() (Config, error) {
 		}
 		cfg.AutoMigrate = parsed
 	}
-
 	return cfg, nil
 }
 

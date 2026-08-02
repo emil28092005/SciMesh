@@ -14,6 +14,7 @@ import (
 	"github.com/emil28092005/SciMesh/coordinator/internal/metrics"
 	"github.com/emil28092005/SciMesh/coordinator/internal/storage/blob"
 	"github.com/emil28092005/SciMesh/coordinator/internal/storage/postgres"
+	"github.com/emil28092005/SciMesh/coordinator/internal/storage/sqlite"
 	httptransport "github.com/emil28092005/SciMesh/coordinator/internal/transport/http"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
 	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
@@ -44,6 +45,24 @@ func main() {
 	}
 }
 
+// storageDeps carries the engine-specific database handles and the repository
+// implementations. The usecases below only ever see the ports.
+type storageDeps struct {
+	tx             usecase.TxManager
+	taskRepo       usecase.TaskRepository
+	jobRepo        usecase.JobRepository
+	workerRepo     usecase.WorkerRepository
+	artifactRepo   usecase.ArtifactRepository
+	uiReadRepo     usecase.UIReadRepository
+	taskResultRepo usecase.TaskResultRepository
+	statsRepo      interface {
+		Counts(ctx context.Context) (tasks, jobs, workers map[string]int, err error)
+	}
+	ready   func(ctx context.Context) error
+	migrate func(ctx context.Context, log *slog.Logger) error
+	close   func()
+}
+
 func run() error {
 	// Bootstrap logger, used only until config says where logs should go. It
 	// writes to stderr so it never contaminates the configured stdout stream.
@@ -66,17 +85,25 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := infra.NewPool(ctx, cfg, log)
+	var deps *storageDeps
+	switch cfg.DatabaseEngine {
+	case "sqlite":
+		deps, err = openSQLite(ctx, cfg, log)
+	case "postgres":
+		deps, err = openPostgres(ctx, cfg, log)
+	default:
+		err = fmt.Errorf("SCIMESH_DB must be sqlite or postgres")
+	}
 	if err != nil {
-		log.Error("connect database", "err", err)
+		log.Error("init storage", "err", err)
 		return err
 	}
-	defer pool.Close()
+	defer deps.close()
 
 	// A downloaded binary provisions its own schema; AUTO_MIGRATE=false keeps
 	// out-of-band migration workflows (the migrate CLI, CI, managed databases).
 	if cfg.AutoMigrate {
-		if err := postgres.Migrate(ctx, cfg.DatabaseURL, log); err != nil {
+		if err := deps.migrate(ctx, log); err != nil {
 			log.Error("apply migrations", "err", err)
 			return err
 		}
@@ -88,16 +115,9 @@ func run() error {
 		return err
 	}
 
-	var (
-		clk            = infra.NewClock()
-		tx             = postgres.NewTxManager(pool)
-		taskRepo       = postgres.NewTaskRepo(pool)
-		jobRepo        = postgres.NewJobRepo(pool)
-		workerRepo     = postgres.NewWorkerRepo(pool)
-		artifactRepo   = postgres.NewArtifactRepo(pool)
-		uiReadRepo     = postgres.NewUIReadRepo(pool)
-		taskResultRepo = postgres.NewTaskResultRepo(pool)
-	)
+	clk := infra.NewClock()
+	tx, taskRepo, jobRepo, workerRepo, artifactRepo, uiReadRepo, taskResultRepo :=
+		deps.tx, deps.taskRepo, deps.jobRepo, deps.workerRepo, deps.artifactRepo, deps.uiReadRepo, deps.taskResultRepo
 
 	catalog, err := workloads.Load()
 	if err != nil {
@@ -125,7 +145,7 @@ func run() error {
 	}
 
 	// Background reapers are tracked so shutdown can wait for them. Without this
-	// the process would exit mid-UPDATE, and the deferred pool.Close() would pull
+	// the process would exit mid-UPDATE, and the deferred close() would pull
 	// connections out from under them.
 	expireLeases := usecase.NewExpireLeases(taskRepo, jobRepo, tx, clk, catalog)
 	markOffline := usecase.NewMarkWorkersOffline(workerRepo, clk, cfg.WorkerOfflineAfter)
@@ -147,16 +167,15 @@ func run() error {
 
 	// Business metrics: gauges of tasks/jobs/workers by status, sampled from the
 	// database on every Prometheus scrape.
-	statsRepo := postgres.NewStatsRepo(pool)
 	m := metrics.New()
 	m.RegisterBusiness(func(ctx context.Context) (metrics.Stats, error) {
-		tasks, jobs, workers, err := statsRepo.Counts(ctx)
+		tasks, jobs, workers, err := deps.statsRepo.Counts(ctx)
 		return metrics.Stats{Tasks: tasks, Jobs: jobs, Workers: workers}, err
 	})
 
-	// pool.Ping backs /health: readiness means the database answers, not just
+	// deps.ready backs /health: readiness means the database answers, not just
 	// that the process is alive.
-	api := httptransport.NewServer(useCases, log, cfg.RequestTimeout, cfg.HeartbeatInterval, cfg.MaxUploadBytes, cfg.JWTSecret, cfg.UserserviceURL, m, pool.Ping, cfg.PublicCoordinatorURL, cfg.PublicUserserviceURL, cfg.DocsDir)
+	api := httptransport.NewServer(useCases, log, cfg.RequestTimeout, cfg.HeartbeatInterval, cfg.MaxUploadBytes, cfg.JWTSecret, cfg.UserserviceURL, m, deps.ready, cfg.PublicCoordinatorURL, cfg.PublicUserserviceURL, cfg.DocsDir)
 	err = infra.RunServer(ctx, log, cfg.Addr, api.Handler(cfg.Token, cfg.UIToken))
 
 	// Shutdown order matters, and defers alone cannot express it (they run
@@ -164,7 +183,7 @@ func run() error {
 	//
 	//   1. stop()    cancel the context, telling the reaper to finish
 	//   2. wg.Wait() let it return from its current tick
-	//   3. deferred pool.Close() closes an idle pool, not a busy one
+	//   3. deferred close() closes an idle pool, not a busy one
 	//
 	// Calling stop() here also covers the path where RunServer failed on its
 	// own: the context would never be cancelled otherwise and wg.Wait()
@@ -174,4 +193,51 @@ func run() error {
 	log.Info("shutdown complete")
 
 	return err
+}
+
+// openSQLite opens the embedded database and builds the sqlite repositories.
+func openSQLite(ctx context.Context, cfg infra.Config, log *slog.Logger) (*storageDeps, error) {
+	if err := os.MkdirAll(cfg.StorageDir, 0o750); err != nil {
+		return nil, fmt.Errorf("create storage dir: %w", err)
+	}
+	db, err := sqlite.Open(cfg.DBPath)
+	if err != nil {
+		return nil, err
+	}
+	closeOnce := &sync.Once{}
+	return &storageDeps{
+		tx:             sqlite.NewTxManager(db),
+		taskRepo:       sqlite.NewTaskRepo(db),
+		jobRepo:        sqlite.NewJobRepo(db),
+		workerRepo:     sqlite.NewWorkerRepo(db),
+		artifactRepo:   sqlite.NewArtifactRepo(db),
+		uiReadRepo:     sqlite.NewUIReadRepo(db),
+		taskResultRepo: sqlite.NewTaskResultRepo(db),
+		statsRepo:      sqlite.NewStatsRepo(db),
+		ready:          func(ctx context.Context) error { return db.PingContext(ctx) },
+		migrate:        func(ctx context.Context, log *slog.Logger) error { return sqlite.Migrate(ctx, db, log) },
+		close:          func() { closeOnce.Do(func() { _ = db.Close() }) },
+	}, nil
+}
+
+// openPostgres connects to PostgreSQL and builds the postgres repositories.
+func openPostgres(ctx context.Context, cfg infra.Config, log *slog.Logger) (*storageDeps, error) {
+	pool, err := infra.NewPool(ctx, cfg, log)
+	if err != nil {
+		return nil, err
+	}
+	closeOnce := &sync.Once{}
+	return &storageDeps{
+		tx:             postgres.NewTxManager(pool),
+		taskRepo:       postgres.NewTaskRepo(pool),
+		jobRepo:        postgres.NewJobRepo(pool),
+		workerRepo:     postgres.NewWorkerRepo(pool),
+		artifactRepo:   postgres.NewArtifactRepo(pool),
+		uiReadRepo:     postgres.NewUIReadRepo(pool),
+		taskResultRepo: postgres.NewTaskResultRepo(pool),
+		statsRepo:      postgres.NewStatsRepo(pool),
+		ready:          func(ctx context.Context) error { return pool.Ping(ctx) },
+		migrate:        func(ctx context.Context, log *slog.Logger) error { return postgres.Migrate(ctx, cfg.DatabaseURL, log) },
+		close:          func() { closeOnce.Do(pool.Close) },
+	}, nil
 }
