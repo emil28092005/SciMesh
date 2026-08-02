@@ -39,6 +39,7 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 	work := memstore.NewWorkerRepo()
 	arts := memstore.NewArtifactRepo()
 	blobs := memstore.NewBlobStore()
+	settings := memstoreSettings{}
 	clk := memstore.NewClock(time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC))
 	tx := memstore.Tx{}
 	lease := 2 * time.Minute
@@ -47,7 +48,7 @@ func newEnvWithUIToken(t *testing.T, ready func(context.Context) error, configur
 	uc := coordhttp.UseCases{
 		RegisterWorker:   usecase.NewRegisterWorker(work, clk),
 		CreateJob:        usecase.NewCreateJob(jobs, tasks, tx, clk),
-		SubmitDataset:    usecase.NewSubmitDataset(blobs, arts, jobs, tasks, tx, clk, 3, testCatalog()),
+		SubmitDataset:    usecase.NewSubmitDataset(blobs, arts, jobs, tasks, tx, clk, 3, testCatalog(), settings),
 		ClaimTask:        usecase.NewClaimTask(tasks, jobs, work, tx, clk, lease, testCatalog()),
 		RenewLease:       usecase.NewRenewLease(tasks, work, tx, clk, lease),
 		CompleteTask:     usecase.NewCompleteTask(tasks, jobs, arts, work, memstore.NewTaskResultRepo(), tx, clk, 2, testCatalog()),
@@ -739,3 +740,22 @@ func (e *env) uploadDataset(t *testing.T, workload string, rows int, tsv string)
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// memstoreSettings is an in-memory WorkloadSettingsRepository for tests.
+type memstoreSettings struct{ overrides map[string]bool }
+
+func (m memstoreSettings) GetEnabled(ctx context.Context, workload string) (bool, error) {
+	if enabled, ok := m.overrides[workload]; ok {
+		return enabled, nil
+	}
+	return true, nil
+}
+
+func (m memstoreSettings) List(ctx context.Context) ([]usecase.WorkloadSetting, error) {
+	return nil, nil
+}
+
+func (m memstoreSettings) SetEnabled(ctx context.Context, workload string, enabled bool, now time.Time) error {
+	m.overrides[workload] = enabled
+	return nil
+}

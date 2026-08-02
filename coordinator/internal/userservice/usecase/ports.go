@@ -28,6 +28,10 @@ type UserRepository interface {
 	// SetRole changes a user's role, returning ErrUserNotFound if no such user
 	// exists.
 	SetRole(ctx context.Context, id uuid.UUID, role domain.Role) error
+	// ListUsers returns every account, oldest first. Admin-only: used by the
+	// coordinator admin console; the response must never carry password hashes
+	// (the caller projects the entity).
+	ListUsers(ctx context.Context) ([]*domain.User, error)
 }
 
 // WorkerKeyRepository persists and looks up the long-lived worker keys a user
@@ -38,12 +42,18 @@ type WorkerKeyRepository interface {
 	Insert(ctx context.Context, k *domain.WorkerKey) error
 	// ListByUser returns a user's live (non-revoked) keys, newest first.
 	ListByUser(ctx context.Context, userID uuid.UUID) ([]*domain.WorkerKey, error)
+	// ListAll returns every key (revoked included), newest first. Admin-only:
+	// backs the coordinator admin console's key table.
+	ListAll(ctx context.Context) ([]*domain.WorkerKey, error)
 	// GetActiveByHash returns the non-revoked key with the given hash, or
 	// ErrWorkerKeyNotFound.
 	GetActiveByHash(ctx context.Context, tokenHash string) (*domain.WorkerKey, error)
 	// Revoke retires a key the user owns, returning ErrWorkerKeyNotFound when no
 	// live key with that id belongs to the user.
 	Revoke(ctx context.Context, id, userID uuid.UUID) error
+	// RevokeAny retires a key by id regardless of its owner. Admin-only; the
+	// coordinator admin console uses it to cut a key immediately.
+	RevokeAny(ctx context.Context, id uuid.UUID) error
 	// TouchLastUsed records a successful exchange. Best-effort: a failure here
 	// must not fail the exchange itself.
 	TouchLastUsed(ctx context.Context, id uuid.UUID) error

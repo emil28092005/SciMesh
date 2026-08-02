@@ -90,3 +90,20 @@ func (r *WorkerRepo) MarkStaleOffline(ctx context.Context, cutoff time.Time) (in
 	}
 	return res.RowsAffected()
 }
+
+func (r *WorkerRepo) SetTrust(ctx context.Context, id uuid.UUID, trust domain.WorkerTrust) error {
+	res, err := conn(ctx, r.db).ExecContext(ctx,
+		"UPDATE workers SET trust_level = ?, updated_at = ? WHERE id = ?",
+		string(trust), encodeTime(time.Now()), id.String())
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return domain.ErrWorkerNotFound
+	}
+	return nil
+}

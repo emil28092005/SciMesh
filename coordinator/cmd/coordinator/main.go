@@ -77,6 +77,7 @@ type storageDeps struct {
 	artifactRepo   usecase.ArtifactRepository
 	uiReadRepo     usecase.UIReadRepository
 	adminReadRepo  usecase.AdminReadRepository
+	settingsRepo   usecase.WorkloadSettingsRepository
 	taskResultRepo usecase.TaskResultRepository
 	statsRepo      interface {
 		Counts(ctx context.Context) (tasks, jobs, workers map[string]int, err error)
@@ -159,7 +160,7 @@ func runWithConfig(cfg infra.Config) error {
 	useCases := httptransport.UseCases{
 		RegisterWorker:   usecase.NewRegisterWorker(workerRepo, clk),
 		CreateJob:        usecase.NewCreateJob(jobRepo, taskRepo, tx, clk),
-		SubmitDataset:    usecase.NewSubmitDataset(blobStore, artifactRepo, jobRepo, taskRepo, tx, clk, cfg.DefaultMaxAttempts, catalog),
+		SubmitDataset:    usecase.NewSubmitDataset(blobStore, artifactRepo, jobRepo, taskRepo, tx, clk, cfg.DefaultMaxAttempts, catalog, deps.settingsRepo),
 		ClaimTask:        usecase.NewClaimTask(taskRepo, jobRepo, workerRepo, tx, clk, cfg.LeaseDuration, catalog),
 		RenewLease:       usecase.NewRenewLease(taskRepo, workerRepo, tx, clk, cfg.LeaseDuration),
 		CompleteTask:     usecase.NewCompleteTask(taskRepo, jobRepo, artifactRepo, workerRepo, taskResultRepo, tx, clk, cfg.QuorumSize, catalog),
@@ -173,16 +174,21 @@ func runWithConfig(cfg infra.Config) error {
 		GetTaskInput:     usecase.NewGetTaskInput(taskRepo, artifactRepo, blobStore),
 		Dashboard:        usecase.NewDashboard(uiReadRepo, catalog),
 		PreviewArtifact:  usecase.NewPreviewArtifact(uiReadRepo, blobStore),
-		Admin: usecase.NewAdmin(deps.adminReadRepo, uiReadRepo, usecase.AdminNodeInfo{
-			Version:     version,
-			StartedAt:   clk.Now(),
-			Binary:      executablePath(),
-			Addr:        cfg.Addr,
-			DataDir:     cfg.StorageDir,
-			DBEngine:    cfg.DatabaseEngine,
-			PublicURL:   cfg.PublicCoordinatorURL,
-			Userservice: cfg.UserserviceURL,
-		}, deps.ready, clk.Now),
+		Admin: usecase.NewAdmin(deps.adminReadRepo, uiReadRepo, workerRepo, deps.settingsRepo, catalog,
+			usecase.AdminNodeInfo{
+				Version:     version,
+				StartedAt:   clk.Now(),
+				Binary:      executablePath(),
+				Addr:        cfg.Addr,
+				DataDir:     cfg.StorageDir,
+				DBEngine:    cfg.DatabaseEngine,
+				PublicURL:   cfg.PublicCoordinatorURL,
+				Userservice: cfg.UserserviceURL,
+				WorkerToken: func() string { return cfg.Token },
+			}, deps.ready, clk.Now).
+			WithAuditLog(log, func(ctx context.Context, action, detail string) {
+				log.Info("admin audit", "action", action, "detail", detail)
+			}),
 	}
 
 	// Background reapers are tracked so shutdown can wait for them. Without this
@@ -264,6 +270,7 @@ func openSQLite(ctx context.Context, cfg infra.Config, log *slog.Logger) (*stora
 		artifactRepo:   sqlite.NewArtifactRepo(db),
 		uiReadRepo:     sqlite.NewUIReadRepo(db),
 		adminReadRepo:  sqlite.NewAdminReadRepo(db),
+		settingsRepo:   sqlite.NewWorkloadSettingsRepo(db),
 		taskResultRepo: sqlite.NewTaskResultRepo(db),
 		statsRepo:      sqlite.NewStatsRepo(db),
 		ready:          func(ctx context.Context) error { return db.PingContext(ctx) },
@@ -287,6 +294,7 @@ func openPostgres(ctx context.Context, cfg infra.Config, log *slog.Logger) (*sto
 		artifactRepo:   postgres.NewArtifactRepo(pool),
 		uiReadRepo:     postgres.NewUIReadRepo(pool),
 		adminReadRepo:  postgres.NewAdminReadRepo(pool),
+		settingsRepo:   postgres.NewWorkloadSettingsRepo(pool),
 		taskResultRepo: postgres.NewTaskResultRepo(pool),
 		statsRepo:      postgres.NewStatsRepo(pool),
 		ready:          func(ctx context.Context) error { return pool.Ping(ctx) },

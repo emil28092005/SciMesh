@@ -4,6 +4,7 @@ package memstore
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 
@@ -84,7 +85,105 @@ func (r *UserRepo) SetRole(_ context.Context, id uuid.UUID, role domain.Role) er
 	return nil
 }
 
+// ListUsers returns every account, oldest first. It copies, so callers cannot
+// corrupt the store through the returned slice.
+func (r *UserRepo) ListUsers(_ context.Context) ([]*domain.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	users := make([]*domain.User, 0, len(r.byID))
+	for _, u := range r.byID {
+		copy := u
+		users = append(users, &copy)
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i].CreatedAt.Before(users[j].CreatedAt) })
+	return users, nil
+}
+
 // Clock is a fixed usecase.Clock for deterministic tests.
 type Clock struct{ T time.Time }
 
 func (c Clock) Now() time.Time { return c.T }
+
+// WorkerKeyRepo is an in-memory usecase.WorkerKeyRepository.
+type WorkerKeyRepo struct {
+	mu   sync.Mutex
+	keys map[uuid.UUID]*domain.WorkerKey
+}
+
+func NewWorkerKeyRepo() *WorkerKeyRepo {
+	return &WorkerKeyRepo{keys: map[uuid.UUID]*domain.WorkerKey{}}
+}
+
+func (r *WorkerKeyRepo) Insert(_ context.Context, k *domain.WorkerKey) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.keys[k.ID] = k
+	return nil
+}
+
+func (r *WorkerKeyRepo) ListByUser(_ context.Context, userID uuid.UUID) ([]*domain.WorkerKey, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []*domain.WorkerKey
+	for _, k := range r.keys {
+		if k.UserID == userID && !k.Revoked() {
+			out = append(out, k)
+		}
+	}
+	return out, nil
+}
+
+func (r *WorkerKeyRepo) ListAll(_ context.Context) ([]*domain.WorkerKey, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*domain.WorkerKey, 0, len(r.keys))
+	for _, k := range r.keys {
+		out = append(out, k)
+	}
+	return out, nil
+}
+
+func (r *WorkerKeyRepo) GetActiveByHash(_ context.Context, tokenHash string) (*domain.WorkerKey, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, k := range r.keys {
+		if k.TokenHash == tokenHash && !k.Revoked() {
+			return k, nil
+		}
+	}
+	return nil, usecase.ErrWorkerKeyNotFound
+}
+
+func (r *WorkerKeyRepo) Revoke(_ context.Context, id, userID uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k, ok := r.keys[id]
+	if !ok || k.UserID != userID || k.Revoked() {
+		return usecase.ErrWorkerKeyNotFound
+	}
+	now := time.Now()
+	k.RevokedAt = &now
+	return nil
+}
+
+func (r *WorkerKeyRepo) RevokeAny(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	k, ok := r.keys[id]
+	if !ok || k.Revoked() {
+		return usecase.ErrWorkerKeyNotFound
+	}
+	now := time.Now()
+	k.RevokedAt = &now
+	return nil
+}
+
+func (r *WorkerKeyRepo) TouchLastUsed(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if k, ok := r.keys[id]; ok {
+		now := time.Now()
+		k.LastUsedAt = &now
+	}
+	return nil
+}

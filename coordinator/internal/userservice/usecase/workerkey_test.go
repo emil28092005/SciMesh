@@ -64,6 +64,24 @@ func (r *fakeKeyRepo) TouchLastUsed(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (r *fakeKeyRepo) ListAll(_ context.Context) ([]*domain.WorkerKey, error) {
+	out := make([]*domain.WorkerKey, 0, len(r.byID))
+	for _, k := range r.byID {
+		out = append(out, k)
+	}
+	return out, nil
+}
+
+func (r *fakeKeyRepo) RevokeAny(_ context.Context, id uuid.UUID) error {
+	k, ok := r.byID[id]
+	if !ok || k.Revoked() {
+		return usecase.ErrWorkerKeyNotFound
+	}
+	now := time.Now()
+	k.RevokedAt = &now
+	return nil
+}
+
 func newKeyFixtures(t *testing.T) (*usecase.CreateWorkerKey, *usecase.ExchangeWorkerKey, *usecase.RevokeWorkerKey, *usecase.ListWorkerKeys, *fakeKeyRepo, *domain.User) {
 	t.Helper()
 	users := memstore.NewUserRepo()

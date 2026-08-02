@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 // AdminReadRepository is the bounded read projection behind the coordinator
@@ -49,6 +51,9 @@ type AdminNodeInfo struct {
 	DBEngine    string
 	PublicURL   string
 	Userservice string // base URL; empty when the UI runs without user auth
+	// WorkerToken reads the shared worker token for the Settings page. It is a
+	// func so serve mode can read the token file lazily after provisioning.
+	WorkerToken func() string
 }
 
 type AdminStorageView struct {
@@ -135,18 +140,40 @@ type AdminMetricsView struct {
 // Admin answers the coordinator admin console from the bounded read model
 // plus process info supplied at startup.
 type Admin struct {
-	read   AdminReadRepository
-	uiRead UIReadRepository
-	node   AdminNodeInfo
-	ready  func(context.Context) error
-	now    func() time.Time
+	read     AdminReadRepository
+	uiRead   UIReadRepository
+	workers  WorkerRepository
+	settings WorkloadSettingsRepository
+	catalog  *workloads.Catalog
+	node     AdminNodeInfo
+	ready    func(context.Context) error
+	now      func() time.Time
+	log      *slog.Logger
+	audit    func(ctx context.Context, action, detail string)
 }
 
-func NewAdmin(read AdminReadRepository, uiRead UIReadRepository, node AdminNodeInfo, ready func(context.Context) error, now func() time.Time) *Admin {
+func NewAdmin(read AdminReadRepository, uiRead UIReadRepository, workers WorkerRepository,
+	settings WorkloadSettingsRepository, catalog *workloads.Catalog, node AdminNodeInfo,
+	ready func(context.Context) error, now func() time.Time) *Admin {
 	if now == nil {
 		now = time.Now
 	}
-	return &Admin{read: read, uiRead: uiRead, node: node, ready: ready, now: now}
+	return &Admin{read: read, uiRead: uiRead, workers: workers, settings: settings, catalog: catalog, node: node, ready: ready, now: now}
+}
+
+// WithAuditLog attaches an audit sink for sensitive actions (token reveal).
+// Without it the admin usecase stays silent about them.
+func (a *Admin) WithAuditLog(log *slog.Logger, audit func(ctx context.Context, action, detail string)) *Admin {
+	a.log = log
+	a.audit = audit
+	return a
+}
+
+func (a *Admin) revealToken(ctx context.Context, actor string) string {
+	if a.node.WorkerToken != nil {
+		return a.node.WorkerToken()
+	}
+	return ""
 }
 
 func (a *Admin) System(ctx context.Context) (AdminSystemView, error) {
@@ -338,4 +365,159 @@ func (a *Admin) Metrics(ctx context.Context) (AdminMetricsView, error) {
 		return out.JobsByWorkload[i].Workload < out.JobsByWorkload[j].Workload
 	})
 	return out, nil
+}
+
+// AdminWorkerCard is one row of the admin workers table.
+type AdminWorkerCard struct {
+	ID              string    `json:"id"`
+	Name            string    `json:"name"`
+	Status          string    `json:"status"`
+	Capabilities    []string  `json:"capabilities"`
+	Trust           string    `json:"trust"`
+	OwnerID         string    `json:"owner_id,omitempty"`
+	Owner           string    `json:"owner"`
+	Completed       int       `json:"completed"`
+	LastHeartbeatAt time.Time `json:"last_heartbeat_at"`
+}
+
+type AdminWorkersView struct {
+	Workers []AdminWorkerCard `json:"workers"`
+}
+
+// Workers lists the whole fleet for the admin console. Owner emails are
+// resolved through the same map as the jobs table (userservice-backed).
+func (a *Admin) Workers(ctx context.Context, ownerEmails map[uuid.UUID]string) (AdminWorkersView, error) {
+	workers, err := a.uiRead.ListWorkers(ctx, 100)
+	if err != nil {
+		return AdminWorkersView{}, err
+	}
+	out := AdminWorkersView{Workers: make([]AdminWorkerCard, 0, len(workers))}
+	for _, w := range workers {
+		card := AdminWorkerCard{
+			ID:              w.ID.String(),
+			Name:            w.Name,
+			Status:          string(w.Status),
+			Capabilities:    w.Capabilities,
+			Trust:           string(w.TrustLevel),
+			LastHeartbeatAt: w.LastHeartbeatAt,
+			Owner:           "cluster token",
+		}
+		if w.OwnerID != nil {
+			card.OwnerID = w.OwnerID.String()
+			card.Owner = "user " + shortID(w.OwnerID.String())
+			if email, ok := ownerEmails[*w.OwnerID]; ok && email != "" {
+				card.Owner = email
+			}
+		}
+		out.Workers = append(out.Workers, card)
+	}
+	return out, nil
+}
+
+// SetTrust reclassifies one worker (trusted/untrusted).
+func (a *Admin) SetTrust(ctx context.Context, id uuid.UUID, trusted bool) error {
+	trust := domain.WorkerUntrusted
+	if trusted {
+		trust = domain.WorkerTrusted
+	}
+	return a.workers.SetTrust(ctx, id, trust)
+}
+
+// AdminWorkloadView is the catalog plus the persisted enable flag.
+type AdminWorkloadView struct {
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Reduction   string     `json:"reduction"`
+	Parameters  int        `json:"parameters"`
+	UploadReady bool       `json:"upload_ready"`
+	Enabled     bool       `json:"enabled"`
+	DefaultOn   bool       `json:"default_on"`
+	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
+}
+
+type AdminWorkloadsView struct {
+	Workloads []AdminWorkloadView `json:"workloads"`
+}
+
+// Workloads lists the catalog with persisted enable/disable overrides.
+func (a *Admin) Workloads(ctx context.Context) (AdminWorkloadsView, error) {
+	if a.catalog == nil {
+		return AdminWorkloadsView{}, domain.ErrInvalidInput
+	}
+	items := a.catalog.Items()
+	overrides, err := a.settings.List(ctx)
+	if err != nil {
+		return AdminWorkloadsView{}, err
+	}
+	enabled := make(map[string]WorkloadSetting, len(overrides))
+	for _, s := range overrides {
+		enabled[s.Workload] = s
+	}
+	out := AdminWorkloadsView{Workloads: make([]AdminWorkloadView, 0, len(items))}
+	for _, item := range items {
+		params := 0
+		if properties, ok := item.Parameters["properties"].(map[string]any); ok {
+			params = len(properties)
+		}
+		view := AdminWorkloadView{
+			Name:        item.Name,
+			Description: item.Description,
+			Reduction:   item.Reduction,
+			Parameters:  params,
+			UploadReady: item.UploadReady,
+			Enabled:     true,
+			DefaultOn:   true,
+		}
+		if s, ok := enabled[item.Name]; ok {
+			view.Enabled = s.Enabled
+			view.DefaultOn = false
+			view.UpdatedAt = &s.UpdatedAt
+		}
+		out.Workloads = append(out.Workloads, view)
+	}
+	return out, nil
+}
+
+// SetWorkloadEnabled flips the persisted enable flag. An unknown workload is
+// rejected: the admin console must not invent catalog entries.
+func (a *Admin) SetWorkloadEnabled(ctx context.Context, name string, enabled bool) error {
+	if a.catalog == nil || a.catalog.ByName(name) == nil {
+		return domain.ErrInvalidInput
+	}
+	return a.settings.SetEnabled(ctx, name, enabled, a.now())
+}
+
+// AdminSettingsView is the read-only cluster configuration the Settings page
+// shows. The token is never included; it is revealed only through
+// RevealWorkerToken, which audits.
+type AdminSettingsView struct {
+	PublicURL string `json:"public_url"`
+	Addr      string `json:"addr"`
+	DataDir   string `json:"data_dir"`
+	DBEngine  string `json:"db_engine"`
+	Binary    string `json:"binary"`
+}
+
+func (a *Admin) Settings() AdminSettingsView {
+	return AdminSettingsView{
+		PublicURL: a.node.PublicURL,
+		Addr:      a.node.Addr,
+		DataDir:   a.node.DataDir,
+		DBEngine:  a.node.DBEngine,
+		Binary:    a.node.Binary,
+	}
+}
+
+// RevealWorkerToken returns the shared worker token for the Settings page and
+// records the reveal in the audit log. It must only be called for an admin
+// session.
+func (a *Admin) RevealWorkerToken(ctx context.Context, actor string) string {
+	token := a.revealToken(ctx, actor)
+	if a.audit != nil {
+		a.audit(ctx, "worker token revealed", "by "+actor)
+	}
+	if a.log != nil {
+		a.log.Warn("admin console revealed the worker token", "actor", actor)
+	}
+	return token
 }

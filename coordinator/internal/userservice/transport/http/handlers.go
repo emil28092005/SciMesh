@@ -14,16 +14,19 @@ import (
 
 // Handlers holds the use cases each endpoint drives.
 type Handlers struct {
-	register          *usecase.Register
-	login             *usecase.Login
-	setVerified       *usecase.SetVerified
-	setRole           *usecase.SetRole
-	createWorkerKey   *usecase.CreateWorkerKey
-	listWorkerKeys    *usecase.ListWorkerKeys
-	revokeWorkerKey   *usecase.RevokeWorkerKey
-	exchangeWorkerKey *usecase.ExchangeWorkerKey
-	users             usecase.UserRepository
-	log               *slog.Logger
+	register             *usecase.Register
+	login                *usecase.Login
+	setVerified          *usecase.SetVerified
+	setRole              *usecase.SetRole
+	createWorkerKey      *usecase.CreateWorkerKey
+	listWorkerKeys       *usecase.ListWorkerKeys
+	listWorkerKeysAll    *usecase.ListWorkerKeysAll
+	revokeWorkerKey      *usecase.RevokeWorkerKey
+	revokeWorkerKeyAdmin *usecase.RevokeWorkerKeyAdmin
+	exchangeWorkerKey    *usecase.ExchangeWorkerKey
+	listUsers            *usecase.ListUsers
+	users                usecase.UserRepository
+	log                  *slog.Logger
 }
 
 // handleHealth is an unauthenticated liveness probe for the container and load
@@ -173,21 +176,62 @@ func (h *Handlers) handleListWorkerKeys(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, workerKeysResponse{WorkerKeys: out})
 }
 
+// handleListWorkerKeysAll returns every key in the service — revoked included,
+// with the owning user id — for the coordinator admin console. Admin-only.
+func (h *Handlers) handleListWorkerKeysAll(w http.ResponseWriter, r *http.Request) {
+	keys, err := h.listWorkerKeysAll.Execute(r.Context())
+	if err != nil {
+		writeError(w, r, h.log, err)
+		return
+	}
+	out := make([]adminWorkerKeyResponse, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, toAdminWorkerKeyResponse(k))
+	}
+	writeJSON(w, http.StatusOK, struct {
+		WorkerKeys []adminWorkerKeyResponse `json:"worker_keys"`
+	}{WorkerKeys: out})
+}
+
+// handleListUsers returns every account for the coordinator admin console.
+// Password hashes never leave the service: only the public projection is sent.
+func (h *Handlers) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := h.listUsers.Execute(r.Context())
+	if err != nil {
+		writeError(w, r, h.log, err)
+		return
+	}
+	out := make([]userResponse, 0, len(users))
+	for _, u := range users {
+		out = append(out, toUserResponse(u))
+	}
+	writeJSON(w, http.StatusOK, usersResponse{Users: out})
+}
+
 // handleRevokeWorkerKey retires one of the caller's keys. The repository scopes
 // the delete to the owner, so a mismatched id is a clean 404, not another user's
 // key.
 func (h *Handlers) handleRevokeWorkerKey(w http.ResponseWriter, r *http.Request) {
-	userID, ok := userIDFrom(r.Context())
-	if !ok {
-		unauthorized(w, r)
-		return
-	}
 	keyID, err := uuid.Parse(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{
 			Error:     "invalid worker key id",
 			RequestID: requestIDFrom(r.Context()),
 		})
+		return
+	}
+	// An admin may revoke any key; a plain user only their own.
+	if role, ok := r.Context().Value(roleKey).(domain.Role); ok && role == domain.RoleAdmin {
+		if err := h.revokeWorkerKeyAdmin.Execute(r.Context(), keyID); err != nil {
+			writeError(w, r, h.log, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	userID, ok := userIDFrom(r.Context())
+	if !ok {
+		unauthorized(w, r)
 		return
 	}
 	if err := h.revokeWorkerKey.Execute(r.Context(), userID, keyID); err != nil {

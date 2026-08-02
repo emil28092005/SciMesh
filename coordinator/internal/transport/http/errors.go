@@ -42,7 +42,7 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 
 	status := http.StatusInternalServerError
 	switch {
-	case errors.Is(err, domain.ErrInvalidInput):
+	case errors.Is(err, domain.ErrInvalidInput), errors.Is(err, domain.ErrWorkloadDisabled):
 		status = http.StatusBadRequest
 	case errors.Is(err, domain.ErrJobNotFound), errors.Is(err, domain.ErrTaskNotFound),
 		errors.Is(err, domain.ErrWorkerNotFound), errors.Is(err, domain.ErrArtifactNotFound):

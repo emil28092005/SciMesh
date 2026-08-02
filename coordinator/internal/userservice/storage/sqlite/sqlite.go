@@ -93,6 +93,24 @@ func (r *UserRepo) SetRole(ctx context.Context, id uuid.UUID, role domain.Role) 
 	return rowsAffectedOrNotFound(res, usecase.ErrUserNotFound)
 }
 
+// ListUsers returns every account, oldest first.
+func (r *UserRepo) ListUsers(ctx context.Context) ([]*domain.User, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT "+userColumns+" FROM users ORDER BY created_at ASC, id ASC")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var users []*domain.User
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
 const workerKeyColumns = `id, user_id, name, token_hash, prefix, created_at, last_used_at, revoked_at`
 
 func scanWorkerKey(row interface{ Scan(dest ...any) error }) (*domain.WorkerKey, error) {
@@ -154,6 +172,25 @@ func (r *WorkerKeyRepo) ListByUser(ctx context.Context, userID uuid.UUID) ([]*do
 	return keys, rows.Err()
 }
 
+// ListAll returns every key, revoked included, newest first. Admin-only.
+func (r *WorkerKeyRepo) ListAll(ctx context.Context) ([]*domain.WorkerKey, error) {
+	rows, err := r.db.QueryContext(ctx,
+		"SELECT "+workerKeyColumns+" FROM worker_keys ORDER BY created_at DESC, id DESC")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var keys []*domain.WorkerKey
+	for rows.Next() {
+		key, err := scanWorkerKey(rows)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
 func (r *WorkerKeyRepo) GetActiveByHash(ctx context.Context, tokenHash string) (*domain.WorkerKey, error) {
 	row := r.db.QueryRowContext(ctx,
 		"SELECT "+workerKeyColumns+" FROM worker_keys WHERE token_hash = ? AND revoked_at IS NULL",
@@ -166,6 +203,17 @@ func (r *WorkerKeyRepo) Revoke(ctx context.Context, id, userID uuid.UUID) error 
 	res, err := r.db.ExecContext(ctx,
 		"UPDATE worker_keys SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
 		time.Now().UnixNano(), id.String(), userID.String())
+	if err != nil {
+		return err
+	}
+	return rowsAffectedOrNotFound(res, usecase.ErrWorkerKeyNotFound)
+}
+
+// RevokeAny retires a key by id regardless of its owner.
+func (r *WorkerKeyRepo) RevokeAny(ctx context.Context, id uuid.UUID) error {
+	res, err := r.db.ExecContext(ctx,
+		"UPDATE worker_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+		time.Now().UnixNano(), id.String())
 	if err != nil {
 		return err
 	}

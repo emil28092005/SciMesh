@@ -51,15 +51,18 @@ func Serve(ctx context.Context, cfg Config) (string, func() error, error) {
 	issuer := auth.NewIssuer(cfg.JWTSecret, 24*time.Hour, clock.Now)
 
 	uc := usershttp.UseCases{
-		Register:          usecase.NewRegister(users, hasher, clock),
-		Login:             usecase.NewLogin(users, hasher, issuer),
-		SetVerified:       usecase.NewSetVerified(users),
-		SetRole:           usecase.NewSetRole(users),
-		CreateWorkerKey:   usecase.NewCreateWorkerKey(workerKeys, clock),
-		ListWorkerKeys:    usecase.NewListWorkerKeys(workerKeys),
-		RevokeWorkerKey:   usecase.NewRevokeWorkerKey(workerKeys),
-		ExchangeWorkerKey: usecase.NewExchangeWorkerKey(workerKeys, users, issuer, 24*time.Hour),
-		Users:             users,
+		Register:             usecase.NewRegister(users, hasher, clock),
+		Login:                usecase.NewLogin(users, hasher, issuer),
+		SetVerified:          usecase.NewSetVerified(users),
+		SetRole:              usecase.NewSetRole(users),
+		CreateWorkerKey:      usecase.NewCreateWorkerKey(workerKeys, clock),
+		ListWorkerKeys:       usecase.NewListWorkerKeys(workerKeys),
+		ListWorkerKeysAll:    usecase.NewListWorkerKeysAll(workerKeys),
+		RevokeWorkerKey:      usecase.NewRevokeWorkerKey(workerKeys),
+		RevokeWorkerKeyAdmin: usecase.NewRevokeWorkerKeyAdmin(workerKeys),
+		ExchangeWorkerKey:    usecase.NewExchangeWorkerKey(workerKeys, users, issuer, 24*time.Hour),
+		ListUsers:            usecase.NewListUsers(users),
+		Users:                users,
 	}
 
 	if cfg.AdminEmail != "" && cfg.AdminPassword != "" {

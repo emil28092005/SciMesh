@@ -47,6 +47,34 @@ func (uc *ListWorkerKeys) Execute(ctx context.Context, userID uuid.UUID) ([]*dom
 	return uc.keys.ListByUser(ctx, userID)
 }
 
+// ListWorkerKeysAll returns every key in the service, revoked included, for
+// the coordinator admin console. Admin-only.
+type ListWorkerKeysAll struct {
+	keys WorkerKeyRepository
+}
+
+func NewListWorkerKeysAll(keys WorkerKeyRepository) *ListWorkerKeysAll {
+	return &ListWorkerKeysAll{keys: keys}
+}
+
+func (uc *ListWorkerKeysAll) Execute(ctx context.Context) ([]*domain.WorkerKey, error) {
+	return uc.keys.ListAll(ctx)
+}
+
+// RevokeWorkerKeyAdmin retires any key, regardless of owner. Admin-only; used
+// by the coordinator admin console when a key must be cut immediately.
+type RevokeWorkerKeyAdmin struct {
+	keys WorkerKeyRepository
+}
+
+func NewRevokeWorkerKeyAdmin(keys WorkerKeyRepository) *RevokeWorkerKeyAdmin {
+	return &RevokeWorkerKeyAdmin{keys: keys}
+}
+
+func (uc *RevokeWorkerKeyAdmin) Execute(ctx context.Context, id uuid.UUID) error {
+	return uc.keys.RevokeAny(ctx, id)
+}
+
 // RevokeWorkerKey retires one of the caller's keys.
 type RevokeWorkerKey struct {
 	keys WorkerKeyRepository

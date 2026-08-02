@@ -182,6 +182,16 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 			ui.Handle("GET /ui/admin/api/system", chain(http.HandlerFunc(s.handleUIAdminSystemJSON), gate, requireAdmin))
 			ui.Handle("GET /ui/admin/api/jobs", chain(http.HandlerFunc(s.handleUIAdminJobsJSON), gate, requireAdmin))
 			ui.Handle("GET /ui/admin/api/metrics", chain(http.HandlerFunc(s.handleUIAdminMetricsJSON), gate, requireAdmin))
+			ui.Handle("GET /ui/admin/api/workers", chain(http.HandlerFunc(s.handleUIAdminWorkersJSON), gate, requireAdmin))
+			ui.Handle("POST /ui/admin/api/workers/{id}/trust", chain(http.HandlerFunc(s.handleUIAdminSetTrustJSON), gate, requireAdmin))
+			ui.Handle("GET /ui/admin/api/users", chain(http.HandlerFunc(s.handleUIAdminUsersJSON), gate, requireAdmin))
+			ui.Handle("POST /ui/admin/api/users/{id}/role", chain(http.HandlerFunc(s.handleUIAdminSetUserRoleJSON), gate, requireAdmin))
+			ui.Handle("GET /ui/admin/api/worker-keys", chain(http.HandlerFunc(s.handleUIAdminWorkerKeysJSON), gate, requireAdmin))
+			ui.Handle("POST /ui/admin/api/worker-keys/{id}/revoke", chain(http.HandlerFunc(s.handleUIAdminRevokeKeyJSON), gate, requireAdmin))
+			ui.Handle("GET /ui/admin/api/workloads", chain(http.HandlerFunc(s.handleUIAdminWorkloadsJSON), gate, requireAdmin))
+			ui.Handle("POST /ui/admin/api/workloads/{name}/enabled", chain(http.HandlerFunc(s.handleUIAdminSetWorkloadEnabledJSON), gate, requireAdmin))
+			ui.Handle("GET /ui/admin/api/settings", chain(http.HandlerFunc(s.handleUIAdminSettingsJSON), gate, requireAdmin))
+			ui.Handle("POST /ui/admin/api/token/reveal", chain(http.HandlerFunc(s.handleUIAdminRevealTokenJSON), gate, requireAdmin))
 		} else {
 			for _, rt := range app {
 				ui.HandleFunc(rt.pattern, rt.handler)

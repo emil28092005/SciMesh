@@ -42,6 +42,7 @@ type harness struct {
 	blobs       *memstore.BlobStore
 	clk         *memstore.Clock
 	taskResults *memstore.TaskResultRepo
+	settings    *memSettings
 
 	createJob   *usecase.CreateJob
 	submit      *usecase.SubmitDataset
@@ -70,10 +71,11 @@ func newHarness() *harness {
 		blobs:       memstore.NewBlobStore(),
 		clk:         memstore.NewClock(time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)),
 		taskResults: memstore.NewTaskResultRepo(),
+		settings:    newMemSettings(),
 	}
 	tx := memstore.Tx{}
 	h.createJob = usecase.NewCreateJob(h.jobs, h.tasks, tx, h.clk)
-	h.submit = usecase.NewSubmitDataset(h.blobs, h.arts, h.jobs, h.tasks, tx, h.clk, 3, testCatalog())
+	h.submit = usecase.NewSubmitDataset(h.blobs, h.arts, h.jobs, h.tasks, tx, h.clk, 3, testCatalog(), h.settings)
 	h.claim = usecase.NewClaimTask(h.tasks, h.jobs, h.work, tx, h.clk, lease, testCatalog())
 	h.renew = usecase.NewRenewLease(h.tasks, h.work, tx, h.clk, lease)
 	h.complete = usecase.NewCompleteTask(h.tasks, h.jobs, h.arts, h.work, h.taskResults, tx, h.clk, 2, testCatalog())
@@ -933,5 +935,48 @@ func TestFinalLeaseExpiryPersistsFailedJobAndCannotBeCancelled(t *testing.T) {
 	}
 	if _, err := h.cancel.Execute(ctx, jobID); !errors.Is(err, domain.ErrJobNotCancellable) {
 		t.Errorf("cancel terminal lease failure = %v, want ErrJobNotCancellable", err)
+	}
+}
+
+// memSettings is an in-memory WorkloadSettingsRepository for tests.
+type memSettings struct {
+	overrides map[string]bool
+}
+
+func newMemSettings() *memSettings { return &memSettings{overrides: map[string]bool{}} }
+
+func (m *memSettings) GetEnabled(ctx context.Context, workload string) (bool, error) {
+	if enabled, ok := m.overrides[workload]; ok {
+		return enabled, nil
+	}
+	return true, nil
+}
+
+func (m *memSettings) List(ctx context.Context) ([]usecase.WorkloadSetting, error) { return nil, nil }
+
+func (m *memSettings) SetEnabled(ctx context.Context, workload string, enabled bool, now time.Time) error {
+	m.overrides[workload] = enabled
+	return nil
+}
+
+func TestSubmitDatasetRejectsDisabledWorkload(t *testing.T) {
+	h := newHarness()
+	h.settings.SetEnabled(ctx, "molwt-filter", false, h.clk.Now())
+	_, err := h.submit.Execute(ctx, usecase.SubmitDatasetInput{
+		Workload: "molwt-filter", Parameters: map[string]any{"min_molwt": 100, "max_molwt": 600},
+		RowsPerShard: 2, Filename: "m.tsv", ContentType: "text/tab-separated-values",
+		Body: strings.NewReader("smiles\nCC\n"),
+	})
+	if !errors.Is(err, domain.ErrWorkloadDisabled) {
+		t.Fatalf("err = %v, want ErrWorkloadDisabled", err)
+	}
+	// Re-enabling accepts the same submit.
+	h.settings.SetEnabled(ctx, "molwt-filter", true, h.clk.Now())
+	if _, err := h.submit.Execute(ctx, usecase.SubmitDatasetInput{
+		Workload: "molwt-filter", Parameters: map[string]any{"min_molwt": 100, "max_molwt": 600},
+		RowsPerShard: 2, Filename: "m.tsv", ContentType: "text/tab-separated-values",
+		Body: strings.NewReader("chembl_id\tcanonical_smiles\nA\tCC\n"),
+	}); err != nil {
+		t.Fatalf("submit after re-enable: %v", err)
 	}
 }

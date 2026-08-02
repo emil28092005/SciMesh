@@ -91,6 +91,24 @@ func (r *WorkerRepo) MarkStaleOffline(ctx context.Context, cutoff time.Time) (in
 	return tag.RowsAffected(), nil
 }
 
+func (r *WorkerRepo) SetTrust(ctx context.Context, id uuid.UUID, trust domain.WorkerTrust) error {
+	sql, args, err := psql.Update("workers").
+		SetMap(map[string]any{"trust_level": string(trust), "updated_at": time.Now()}).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return err
+	}
+	tag, err := conn(ctx, r.pool).Exec(ctx, sql, args...)
+	if err != nil {
+		return fmt.Errorf("set worker trust: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrWorkerNotFound
+	}
+	return nil
+}
+
 func scanWorker(row pgx.Row) (*domain.Worker, error) {
 	var (
 		w      domain.Worker

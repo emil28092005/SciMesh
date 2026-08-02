@@ -24,16 +24,26 @@ type SubmitDataset struct {
 	clk         Clock
 	maxAttempts int
 	catalog     *workloads.Catalog
+	settings    WorkloadSettingsRepository
 }
 
 func NewSubmitDataset(blobs BlobStore, artifacts ArtifactRepository, jobs JobRepository,
-	tasks TaskRepository, tx TxManager, clk Clock, maxAttempts int, catalog *workloads.Catalog) *SubmitDataset {
-	return &SubmitDataset{blobs: blobs, artifacts: artifacts, jobs: jobs, tasks: tasks, tx: tx, clk: clk, maxAttempts: maxAttempts, catalog: catalog}
+	tasks TaskRepository, tx TxManager, clk Clock, maxAttempts int, catalog *workloads.Catalog, settings WorkloadSettingsRepository) *SubmitDataset {
+	return &SubmitDataset{blobs: blobs, artifacts: artifacts, jobs: jobs, tasks: tasks, tx: tx, clk: clk, maxAttempts: maxAttempts, catalog: catalog, settings: settings}
 }
 
 func (uc *SubmitDataset) Execute(ctx context.Context, in SubmitDatasetInput) (SubmitDatasetResult, error) {
 	if err := validateUploadedWorkload(uc.catalog, in.Workload, in.Parameters); err != nil {
 		return SubmitDatasetResult{}, err
+	}
+	if uc.settings != nil {
+		enabled, err := uc.settings.GetEnabled(ctx, in.Workload)
+		if err != nil {
+			return SubmitDatasetResult{}, err
+		}
+		if !enabled {
+			return SubmitDatasetResult{}, domain.ErrWorkloadDisabled
+		}
 	}
 	if uc.maxAttempts < 1 {
 		return SubmitDatasetResult{}, domain.ErrInvalidInput

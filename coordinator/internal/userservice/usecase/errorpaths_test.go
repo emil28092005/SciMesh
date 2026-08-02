@@ -35,6 +35,7 @@ func (s stubRepo) SetVerified(context.Context, uuid.UUID, bool) error {
 func (s stubRepo) SetRole(context.Context, uuid.UUID, domain.Role) error {
 	return usecase.ErrUserNotFound
 }
+func (s stubRepo) ListUsers(context.Context) ([]*domain.User, error) { return nil, nil }
 
 type stubHasher struct {
 	hashErr    error

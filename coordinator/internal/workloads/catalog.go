@@ -176,6 +176,12 @@ func (c *Catalog) Enabled() []*Workload {
 	return result
 }
 
+// Items returns every workload in the catalog, sorted by name (the same
+// ordering as Enabled). The caller must not mutate the entries.
+func (c *Catalog) Items() []*Workload {
+	return c.workloads
+}
+
 // ByName returns the workload with the given name, or nil.
 func (c *Catalog) ByName(name string) *Workload {
 	for _, workload := range c.workloads {

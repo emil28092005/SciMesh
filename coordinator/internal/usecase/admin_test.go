@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 )
 
 type fakeAdminRead struct {
@@ -73,6 +74,34 @@ type fakeUIRead struct {
 	workers          []domain.Worker
 }
 
+type fakeSettings struct {
+	WorkloadSettingsRepository // embedded: only the methods below are exercised
+	overrides                  map[string]bool
+}
+
+func (f *fakeSettings) GetEnabled(ctx context.Context, workload string) (bool, error) {
+	if enabled, ok := f.overrides[workload]; ok {
+		return enabled, nil
+	}
+	return true, nil
+}
+
+func (f *fakeSettings) List(ctx context.Context) ([]WorkloadSetting, error) {
+	out := make([]WorkloadSetting, 0, len(f.overrides))
+	for name, enabled := range f.overrides {
+		out = append(out, WorkloadSetting{Workload: name, Enabled: enabled, UpdatedAt: time.Now()})
+	}
+	return out, nil
+}
+
+func (f *fakeSettings) SetEnabled(ctx context.Context, workload string, enabled bool, now time.Time) error {
+	if f.overrides == nil {
+		f.overrides = map[string]bool{}
+	}
+	f.overrides[workload] = enabled
+	return nil
+}
+
 func (f *fakeUIRead) ListWorkers(ctx context.Context, limit int) ([]domain.Worker, error) {
 	return f.workers, nil
 }
@@ -81,6 +110,9 @@ func adminFixture() *Admin {
 	return NewAdmin(
 		&fakeAdminRead{},
 		&fakeUIRead{},
+		nil, // workers repo
+		&fakeSettings{},
+		nil, // catalog
 		AdminNodeInfo{
 			Version: "1.1.0-alpha.1", StartedAt: time.Unix(1_000_000, 0).UTC(),
 			Binary: "/usr/local/bin/coordinator", Addr: ":8080", DataDir: "/var/lib/scimesh",
@@ -219,5 +251,88 @@ func TestAdminMetricsBuckets(t *testing.T) {
 	}
 	if v.FailureRate != 4.0/104.0 || v.AvgShardSeconds != 2.5 {
 		t.Errorf("rate=%.4f avg=%.2f", v.FailureRate, v.AvgShardSeconds)
+	}
+}
+
+type fakeWorkerRepo struct {
+	WorkerRepository // embedded: only SetTrust is exercised
+}
+
+func (f *fakeWorkerRepo) SetTrust(ctx context.Context, id uuid.UUID, trust domain.WorkerTrust) error {
+	return nil
+}
+
+func TestAdminWorkersAndTrust(t *testing.T) {
+	owner := uuid.New()
+	a := adminFixture()
+	a.uiRead = &fakeUIRead{workers: []domain.Worker{
+		{ID: uuid.New(), Name: "lab-node-01", Status: domain.WorkerBusy, TrustLevel: domain.WorkerTrusted, Capabilities: []string{"similarity-search"}},
+		{ID: uuid.New(), Name: "emil-laptop", Status: domain.WorkerOnline, TrustLevel: domain.WorkerUntrusted, OwnerID: &owner},
+	}}
+	view, err := a.Workers(context.Background(), map[uuid.UUID]string{owner: "alice@lab.org"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Workers) != 2 {
+		t.Fatalf("workers = %d, want 2", len(view.Workers))
+	}
+	if view.Workers[0].Trust != "trusted" || view.Workers[1].Trust != "untrusted" {
+		t.Errorf("trust flags wrong: %+v", view.Workers)
+	}
+	if view.Workers[1].Owner != "alice@lab.org" {
+		t.Errorf("owner = %q, want alice@lab.org", view.Workers[1].Owner)
+	}
+}
+
+func TestAdminSetTrust(t *testing.T) {
+	called := false
+	a := adminFixture()
+	a.workers = &fakeWorkerRepo{}
+	_ = called
+	if err := a.SetTrust(context.Background(), uuid.New(), false); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAdminWorkloadsWithOverrides(t *testing.T) {
+	catalog, err := workloads.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := adminFixture()
+	a.catalog = catalog
+	a.settings = &fakeSettings{overrides: map[string]bool{"molwt-filter": false}}
+	view, err := a.Workloads(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, w := range view.Workloads {
+		if w.Name == "molwt-filter" {
+			found = true
+			if w.Enabled || w.DefaultOn {
+				t.Errorf("molwt-filter: enabled=%v default_on=%v, want disabled override", w.Enabled, w.DefaultOn)
+			}
+		}
+		if w.Name == "similarity-search" && !w.Enabled {
+			t.Error("similarity-search must stay enabled (no override)")
+		}
+	}
+	if !found {
+		t.Error("molwt-filter missing from the catalog view")
+	}
+	if err := a.SetWorkloadEnabled(context.Background(), "similarity-search", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.SetWorkloadEnabled(context.Background(), "nope", false); err == nil {
+		t.Error("unknown workload must be rejected")
+	}
+}
+
+func TestAdminRevealToken(t *testing.T) {
+	a := adminFixture()
+	a.node.WorkerToken = func() string { return "sm_live_secret" }
+	if got := a.RevealWorkerToken(context.Background(), "admin:user"); got != "sm_live_secret" {
+		t.Errorf("token = %q", got)
 	}
 }

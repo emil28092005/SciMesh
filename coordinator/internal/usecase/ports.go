@@ -94,6 +94,9 @@ type WorkerRepository interface {
 	// MarkStaleOffline flips every worker last seen before cutoff to offline and
 	// reports how many changed.
 	MarkStaleOffline(ctx context.Context, cutoff time.Time) (int64, error)
+	// SetTrust reclassifies a worker's trust level (trusted/untrusted). Returns
+	// ErrNotFound when the id is unknown.
+	SetTrust(ctx context.Context, id uuid.UUID, trust domain.WorkerTrust) error
 }
 
 // ArtifactRepository persists artifact metadata. The bytes live in a BlobStore;
@@ -129,6 +132,26 @@ type TxManager interface {
 // testable without sleeping or freezing the system clock.
 type Clock interface {
 	Now() time.Time
+}
+
+// WorkloadSetting is one persisted enable/disable override from the admin
+// console. A workload with no row in the store is enabled by default.
+type WorkloadSetting struct {
+	Workload  string    `json:"workload"`
+	Enabled   bool      `json:"enabled"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// WorkloadSettingsRepository persists the admin enable/disable overrides on
+// top of the embedded workload catalog.
+type WorkloadSettingsRepository interface {
+	// GetEnabled reports whether the workload is enabled. True when the
+	// workload has no override row (catalog default).
+	GetEnabled(ctx context.Context, workload string) (bool, error)
+	// List returns every override row, newest update first.
+	List(ctx context.Context) ([]WorkloadSetting, error)
+	// SetEnabled upserts the override.
+	SetEnabled(ctx context.Context, workload string, enabled bool, now time.Time) error
 }
 
 // ErrNotImplemented marks scaffold code with no body yet. Unlike the errors in

@@ -25,17 +25,25 @@ const secret = "server-test-secret-32-bytes-long!!!!"
 
 func newTestServer() http.Handler {
 	users := memstore.NewUserRepo()
+	keys := memstore.NewWorkerKeyRepo()
 	hasher := auth.NewHasher(4)
 	clk := memstore.Clock{T: time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)}
 	// Real clock for the issuer so tokens are valid at verification time.
 	issuer := auth.NewIssuer(secret, time.Hour, nil)
 
 	uc := apihttp.UseCases{
-		Register:    usecase.NewRegister(users, hasher, clk),
-		Login:       usecase.NewLogin(users, hasher, issuer),
-		SetVerified: usecase.NewSetVerified(users),
-		SetRole:     usecase.NewSetRole(users),
-		Users:       users,
+		Register:             usecase.NewRegister(users, hasher, clk),
+		Login:                usecase.NewLogin(users, hasher, issuer),
+		SetVerified:          usecase.NewSetVerified(users),
+		SetRole:              usecase.NewSetRole(users),
+		CreateWorkerKey:      usecase.NewCreateWorkerKey(keys, clk),
+		ListWorkerKeys:       usecase.NewListWorkerKeys(keys),
+		ListWorkerKeysAll:    usecase.NewListWorkerKeysAll(keys),
+		RevokeWorkerKey:      usecase.NewRevokeWorkerKey(keys),
+		RevokeWorkerKeyAdmin: usecase.NewRevokeWorkerKeyAdmin(keys),
+		ExchangeWorkerKey:    usecase.NewExchangeWorkerKey(keys, users, issuer, time.Hour),
+		ListUsers:            usecase.NewListUsers(users),
+		Users:                users,
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	return apihttp.NewServer(log, uc, issuer)
@@ -216,10 +224,16 @@ func TestMeInternalError(t *testing.T) {
 }
 
 // mintToken issues a token with the package secret for a synthetic caller of the
-// given role — enough to drive the admin-gated endpoints.
+// given role — enough to drive the admin-gated endpoints. userID defaults to a
+// fresh random id; pass one to act as an existing account.
 func mintToken(t *testing.T, role domain.Role) string {
 	t.Helper()
-	token, err := auth.NewIssuer(secret, time.Hour, nil).Issue(&domain.User{ID: uuid.New(), Role: role})
+	return mintTokenFor(t, role, uuid.New())
+}
+
+func mintTokenFor(t *testing.T, role domain.Role, userID uuid.UUID) string {
+	t.Helper()
+	token, err := auth.NewIssuer(secret, time.Hour, nil).Issue(&domain.User{ID: userID, Role: role})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,5 +382,100 @@ func TestUnverifyRevokes(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &lr)
 	if lr.User.Verified {
 		t.Error("verified should be false after unverify")
+	}
+}
+
+func TestAdminListsUsersAndKeys(t *testing.T) {
+	h := newTestServer()
+	userID, _ := uuid.Parse(registerUser(t, h, "listed@example.com"))
+	userToken := mintTokenFor(t, domain.RoleUser, userID)
+	// Mint a worker key as the plain user.
+	keyRec := do(t, h, http.MethodPost, "/worker-keys", userToken, map[string]string{"name": "lab-node"})
+	if keyRec.Code != http.StatusCreated {
+		t.Fatalf("create key: got %d, body %s", keyRec.Code, keyRec.Body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(keyRec.Body.Bytes(), &created)
+
+	// Admin lists users: emails present, password hashes absent.
+	rec := do(t, h, http.MethodGet, "/users", mintToken(t, domain.RoleAdmin), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list users: got %d, body %s", rec.Code, rec.Body)
+	}
+	var users struct {
+		Users []struct {
+			Email        string `json:"email"`
+			Role         string `json:"role"`
+			PasswordHash string `json:"password_hash"`
+		} `json:"users"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &users); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, u := range users.Users {
+		if u.PasswordHash != "" {
+			t.Error("password hash leaked through the admin users list")
+		}
+		if u.Email == "listed@example.com" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("listed user missing from the admin list")
+	}
+
+	// Admin lists all keys: the owner is attached, no secret.
+	rec = do(t, h, http.MethodGet, "/worker-keys/all", mintToken(t, domain.RoleAdmin), nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list all keys: got %d", rec.Code)
+	}
+	var keys struct {
+		WorkerKeys []struct {
+			ID     string `json:"id"`
+			UserID string `json:"user_id"`
+			Name   string `json:"name"`
+		} `json:"worker_keys"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &keys); err != nil {
+		t.Fatal(err)
+	}
+	if len(keys.WorkerKeys) != 1 || keys.WorkerKeys[0].UserID != userID.String() {
+		t.Errorf("all keys = %+v, want the one key owned by %s", keys.WorkerKeys, userID)
+	}
+
+	// Plain users cannot see either list.
+	for _, path := range []string{"/users", "/worker-keys/all"} {
+		if rec := do(t, h, http.MethodGet, path, mintToken(t, domain.RoleUser), nil); rec.Code != http.StatusForbidden {
+			t.Errorf("%s as user: got %d, want 403", path, rec.Code)
+		}
+	}
+
+	// An admin revokes a key that belongs to another user; the plain owner of
+	// that key could not (it would be a 404, scoped to their own keys).
+	// The owner of the key revokes it themselves: 204.
+	if rec := do(t, h, http.MethodDelete, "/worker-keys/"+created.ID, userToken, nil); rec.Code != http.StatusNoContent {
+		t.Errorf("user revoke own key: got %d, want 204", rec.Code)
+	}
+	// Another plain user cannot revoke it: scoped to their own keys, so a
+	// mismatch reads as 404.
+	otherID, _ := uuid.Parse(registerUser(t, h, "other@example.com"))
+	if rec := do(t, h, http.MethodDelete, "/worker-keys/"+created.ID, mintTokenFor(t, domain.RoleUser, otherID), nil); rec.Code != http.StatusNotFound {
+		t.Errorf("other user revoke: got %d, want 404", rec.Code)
+	}
+	// An admin revokes a key that belongs to someone else: 204.
+	keyRec = do(t, h, http.MethodPost, "/worker-keys", userToken, map[string]string{"name": "lab-node-2"})
+	var second struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(keyRec.Body.Bytes(), &second)
+	if rec := do(t, h, http.MethodDelete, "/worker-keys/"+second.ID, mintToken(t, domain.RoleAdmin), nil); rec.Code != http.StatusNoContent {
+		t.Errorf("admin revoke other's key: got %d, want 204", rec.Code)
+	}
+	// Admin cannot revoke an unknown key.
+	if rec := do(t, h, http.MethodDelete, "/worker-keys/"+uuid.NewString(), mintToken(t, domain.RoleAdmin), nil); rec.Code != http.StatusNotFound {
+		t.Errorf("admin revoke unknown key: got %d, want 404", rec.Code)
 	}
 }

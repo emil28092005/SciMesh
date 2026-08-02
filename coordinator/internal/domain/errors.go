@@ -18,4 +18,5 @@ var (
 	ErrResultConflict    = errors.New("different result already recorded")
 	ErrInvalidInput      = errors.New("invalid input")
 	ErrTaskNotLeased     = errors.New("task is not currently leased")
+	ErrWorkloadDisabled  = errors.New("workload is disabled")
 )

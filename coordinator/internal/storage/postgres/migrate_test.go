@@ -54,6 +54,8 @@ func expectedMigrationName(version int) string {
 		return "0012_worker_trust.up.sql"
 	case 13:
 		return "0013_task_results.up.sql"
+	case 14:
+		return "0014_workload_settings.up.sql"
 	default:
 		return ""
 	}

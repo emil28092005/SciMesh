@@ -205,13 +205,35 @@ tbody tr:hover{background:var(--panel-2)}
     </div>
   </section>
 
-  <!-- ═══ WORKERS (M2) ═══ -->
+  <!-- ═══ WORKERS ═══ -->
   <section class="page" id="page-workers">
-    <div class="card"><div class="card-head"><h3>Workers</h3><span>milestone M2</span></div><div class="placeholder"><b>Trust management lands with milestone M2</b>Worker list, trust dropdown and heartbeat overview are wired next. The dashboard already shows the live fleet.</div></div>
+    <div class="section-note">Workers register themselves. Trust decides whether a machine's results are accepted directly or need quorum.</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Worker</th><th>Status</th><th>Capabilities</th><th>Trust</th><th>Owner</th><th>Last signal</th></tr></thead>
+        <tbody id="worker-rows"></tbody>
+      </table>
+    </div>
   </section>
 
-  <!-- ═══ USERS & KEYS (M2) ═══ -->
+  <!-- ═══ USERS & KEYS ═══ -->
   <section class="page" id="page-users">
+    <div class="section-title">Users</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Email</th><th>Role</th><th>Verified</th><th>Created</th></tr></thead>
+        <tbody id="user-rows"></tbody>
+      </table>
+      <div class="footer-row"><span id="user-count">—</span></div>
+    </div>
+    <div class="section-title">Worker keys</div>
+    <div class="section-note">Keys let lab machines register as workers under a user account. Served instances can also use the cluster token.</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Label</th><th>Prefix</th><th>Owner</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+        <tbody id="key-rows"></tbody>
+      </table>
+    </div>
     <div class="section-title">Quick user action</div>
     <div class="card">
       <form method="post" action="/ui/admin/user-action" style="padding:16px 20px">
@@ -226,13 +248,17 @@ tbody tr:hover{background:var(--panel-2)}
         {{if .Error}}<div style="margin-left:210px;margin-top:10px;color:var(--red);font-size:13px">✗ {{.Error}}</div>{{end}}
       </form>
     </div>
-    <div class="section-title">Accounts and worker keys</div>
-    <div class="card"><div class="placeholder"><b>User list and key management land with milestone M2</b>The userservice gains admin list endpoints; the console gets tables, role selects and key revoke.</div></div>
   </section>
 
-  <!-- ═══ WORKLOADS (M2) ═══ -->
+  <!-- ═══ WORKLOADS ═══ -->
   <section class="page" id="page-workloads">
-    <div class="card"><div class="placeholder"><b>Workload enable/disable lands with milestone M2</b>The catalog is already served to the job form; persisted on/off switches arrive with the settings migration.</div></div>
+    <div class="section-note">Disabled workloads are rejected at submit time and hidden from the job form. Settings persist in the database.</div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Workload</th><th>Reduction</th><th>Parameters</th><th>Dataset upload</th><th>Enabled</th></tr></thead>
+        <tbody id="workload-rows"></tbody>
+      </table>
+    </div>
   </section>
 
   <!-- ═══ METRICS ═══ -->
@@ -255,9 +281,20 @@ tbody tr:hover{background:var(--panel-2)}
     </div>
   </section>
 
-  <!-- ═══ SETTINGS (M2) ═══ -->
+  <!-- ═══ SETTINGS ═══ -->
   <section class="page" id="page-settings">
-    <div class="card"><div class="placeholder"><b>Cluster settings land with milestone M2</b>Worker token reveal, public URL and storage settings follow in the next milestone.</div></div>
+    <div class="warn-strip" style="display:flex;gap:10px;align-items:flex-start;background:var(--amber-soft);border:1px solid #e5b64f33;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#eecf8d"><span>The cluster token below authenticates <b>any</b> worker. Reveal it only on a trusted machine.</span></div>
+    <div class="section-title">Cluster</div>
+    <div class="card">
+      <dl class="kv">
+        <dt>Worker token</dt><dd><div class="secret"><code id="tok">••••••••••••••••••••••••</code><button class="btn btn-ghost btn-sm" id="reveal">Reveal</button></div></dd>
+        <dt>Public URL</dt><dd><code id="s-public">—</code></dd>
+        <dt>Listen address</dt><dd><code id="s-addr">—</code></dd>
+        <dt>Data directory</dt><dd><code id="s-datadir">—</code></dd>
+        <dt>Database engine</dt><dd id="s-engine">—</dd>
+        <dt>Binary</dt><dd><code id="s-binary">—</code></dd>
+      </dl>
+    </div>
   </section>
 
   </div>
@@ -272,10 +309,10 @@ const fmtBytes=b=>{if(b==null||b<0)return '—';if(b<1024)return b+' B';if(b<104
 const fmtTime=t=>t?new Date(t).toLocaleString():'—';
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let timer=null,current={page:'system',jobsStatus:'',jobsPage:1};
-const setPage=page=>{current.page=page;document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.page===page));document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+page));const [t,s]=titles[page];document.getElementById('page-title').textContent=t;document.getElementById('page-sub').textContent=s;if(timer){clearInterval(timer);timer=null}if(page==='system'||page==='jobs'||page==='metrics'){refresh();timer=setInterval(refresh,5000)}};
+const setPage=page=>{current.page=page;document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.page===page));document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id==='page-'+page));const [t,s]=titles[page];document.getElementById('page-title').textContent=t;document.getElementById('page-sub').textContent=s;if(timer){clearInterval(timer);timer=null}refresh();timer=setInterval(refresh,5000)};
 document.querySelectorAll('.nav-item').forEach(b=>b.addEventListener('click',()=>setPage(b.dataset.page)));
 
-const refresh=()=>{if(document.hidden)return;const p=current.page;if(p==='system')loadSystem();else if(p==='jobs')loadJobs();else if(p==='metrics')loadMetrics()};
+const refresh=()=>{if(document.hidden)return;const p=current.page;if(p==='system')loadSystem();else if(p==='jobs')loadJobs();else if(p==='metrics')loadMetrics();else if(p==='workers')loadWorkers();else if(p==='users')loadUsers();else if(p==='workloads')loadWorkloads();else if(p==='settings')loadSettings()};
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
 
 async function loadSystem(){
@@ -384,6 +421,114 @@ async function loadMetrics(){
   }
 }
 setPage('system');
+
+const workerStatusPill=s=>({online:['Online','pill-success'],busy:['Busy','pill-active'],offline:['Offline','pill-waiting']}[s]||[s,'pill-waiting']);
+async function loadWorkers(){
+  const r=await fetch('/ui/admin/api/workers',{headers:{Accept:'application/json'}});
+  if(!r.ok)return;
+  const v=await r.json();
+  const rows=document.getElementById('worker-rows');
+  rows.replaceChildren();
+  if(!v.workers.length){const tr=document.createElement('tr');tr.innerHTML='<td colspan="6"><div class="empty">No worker is registered yet.</div></td>';rows.append(tr);return}
+  for(const w of v.workers){
+    const tr=document.createElement('tr');
+    const [label,cls]=workerStatusPill(w.status);
+    const trustSel='<select data-id="'+w.id+'" class="trust-sel" '+(w.status==='offline'?'disabled':'')+'><option value="trusted" '+(w.trust==='trusted'?'selected':'')+'>Trusted</option><option value="untrusted" '+(w.trust==='untrusted'?'selected':'')+'>Untrusted</option></select>';
+    tr.innerHTML='<td><div class="t-main">'+esc(w.name)+'</div><div class="t-sub">'+esc(w.id.slice(0,8))+'…</div></td>'+
+      '<td>'+pill(label,cls,null)+'</td>'+
+      '<td>'+(w.capabilities||[]).map(c=>'<span class="cap">'+esc(c)+'</span>').join('')+'</td>'+
+      '<td>'+trustSel+'</td>'+
+      '<td style="color:var(--text-2)">'+esc(w.owner)+'</td>'+
+      '<td style="color:var(--text-2);font-size:12.5px">'+fmtTime(w.last_heartbeat_at)+'</td>';
+    rows.append(tr);
+  }
+  document.querySelectorAll('.trust-sel').forEach(sel=>sel.addEventListener('change',async()=>{
+    await fetch('/ui/admin/api/workers/'+sel.dataset.id+'/trust',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trusted:sel.value==='trusted'})});
+    loadWorkers();
+  }));
+}
+async function loadUsers(){
+  const r=await fetch('/ui/admin/api/users',{headers:{Accept:'application/json'}});
+  if(!r.ok)return;
+  const v=await r.json();
+  const rows=document.getElementById('user-rows');
+  rows.replaceChildren();
+  for(const u of v.users||[]){
+    const tr=document.createElement('tr');
+    const roleSel='<select class="role-sel" data-id="'+u.id+'"><option value="user" '+(u.role==='user'?'selected':'')+'>user</option><option value="admin" '+(u.role==='admin'?'selected':'')+'>admin</option></select>';
+    tr.innerHTML='<td><div class="t-main">'+esc(u.email)+'</div></td>'+
+      '<td>'+roleSel+'</td>'+
+      '<td>'+pill(u.verified?'Verified':'—',u.verified?'pill-success':'pill-waiting',null)+'</td>'+
+      '<td style="color:var(--text-2);font-size:12.5px">'+fmtTime(u.created_at)+'</td>';
+    rows.append(tr);
+  }
+  document.getElementById('user-count').textContent=(v.users||[]).length+' users';
+  document.querySelectorAll('.role-sel').forEach(sel=>sel.addEventListener('change',async()=>{
+    await fetch('/ui/admin/api/users/'+sel.dataset.id+'/role',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({role:sel.value})});
+    loadUsers();
+  }));
+  const keys=await (await fetch('/ui/admin/api/worker-keys',{headers:{Accept:'application/json'}})).json();
+  const keyRows=document.getElementById('key-rows');
+  keyRows.replaceChildren();
+  const emailOf={};for(const u of v.users||[])emailOf[u.id]=u.email;
+  for(const k of keys.worker_keys||[]){
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td class="t-main">'+esc(k.name)+'</td>'+
+      '<td><code style="color:var(--text-2)">'+esc(k.prefix)+'…</code></td>'+
+      '<td style="color:var(--text-2)">'+esc(emailOf[k.user_id]||k.user_id.slice(0,8)+'…')+'</td>'+
+      '<td style="color:var(--text-2);font-size:12.5px">'+fmtTime(k.created_at)+'</td>'+
+      '<td style="color:var(--text-2);font-size:12.5px">'+(k.last_used_at?fmtTime(k.last_used_at):'never')+'</td>'+
+      '<td>'+((k.revoked_at)?'<span class="pill pill-danger"><i></i>Revoked</span>':'<button class="btn btn-danger btn-sm key-revoke" data-id="'+k.id+'">Revoke</button>')+'</td>';
+    keyRows.append(tr);
+  }
+  document.querySelectorAll('.key-revoke').forEach(btn=>btn.addEventListener('click',async()=>{
+    if(!confirm('Revoke this worker key? The machine will be cut off on its next refresh.'))return;
+    await fetch('/ui/admin/api/worker-keys/'+btn.dataset.id+'/revoke',{method:'POST'});
+    loadUsers();
+  }));
+}
+async function loadWorkloads(){
+  const r=await fetch('/ui/admin/api/workloads',{headers:{Accept:'application/json'}});
+  if(!r.ok)return;
+  const v=await r.json();
+  const rows=document.getElementById('workload-rows');
+  rows.replaceChildren();
+  for(const w of v.workloads||[]){
+    const tr=document.createElement('tr');
+    tr.innerHTML='<td><div class="t-main">'+esc(w.name)+'</div><div class="t-sub" style="font-family:inherit">'+esc(w.description||'')+'</div></td>'+
+      '<td><span class="pill pill-active"><i></i>'+esc(w.reduction)+'</span></td>'+
+      '<td style="color:var(--text-2);font-size:12.5px">'+w.parameters+' declared</td>'+
+      '<td>'+pill(w.upload_ready?'ready':'—',w.upload_ready?'pill-success':'pill-waiting',null)+'</td>'+
+      '<td><button class="toggle wl-toggle '+(w.enabled?'on':'')+'" data-name="'+w.name+'" aria-label="enabled"></button></td>';
+    rows.append(tr);
+  }
+  document.querySelectorAll('.wl-toggle').forEach(t=>t.addEventListener('click',async()=>{
+    const enabled=!t.classList.contains('on');
+    await fetch('/ui/admin/api/workloads/'+encodeURIComponent(t.dataset.name)+'/enabled',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+    t.classList.toggle('on',enabled);
+  }));
+}
+async function loadSettings(){
+  const r=await fetch('/ui/admin/api/settings',{headers:{Accept:'application/json'}});
+  if(!r.ok)return;
+  const v=await r.json();
+  document.getElementById('s-public').textContent=v.public_url||'—';
+  document.getElementById('s-addr').textContent=v.addr;
+  document.getElementById('s-datadir').textContent=v.data_dir||'—';
+  document.getElementById('s-engine').textContent=v.db_engine;
+  document.getElementById('s-binary').textContent=v.binary||'—';
+}
+document.getElementById('reveal').addEventListener('click',async e=>{
+  const tok=document.getElementById('tok');
+  if(tok.textContent.startsWith('•')){
+    const r=await fetch('/ui/admin/api/token/reveal',{method:'POST',headers:{Accept:'application/json'}});
+    if(!r.ok)return;
+    const v=await r.json();
+    tok.textContent=v.token||'(none)';
+    e.target.textContent='Hide';
+  }else{tok.textContent='••••••••••••••••••••••••';e.target.textContent='Reveal'}
+});
+document.querySelectorAll('.toggle').forEach(t=>t.addEventListener('click',()=>t.classList.toggle('on')));
 </script>
 </body>
 </html>

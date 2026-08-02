@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
+	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 )
 
 // adminUserActions are the userservice endpoints the admin panel may invoke, by
@@ -155,6 +156,199 @@ func (s *Server) handleUIAdminMetricsJSON(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, view)
+}
+
+// handleUIAdminWorkersJSON serves the admin "Workers" page.
+func (s *Server) handleUIAdminWorkersJSON(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	view, err := s.uc.Admin.Workers(ctx, s.adminOwnerEmails(r))
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// handleUIAdminSetTrustJSON flips one worker's trust level.
+func (s *Server) handleUIAdminSetTrustJSON(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	var body struct {
+		Trusted bool `json:"trusted"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	if err := s.uc.Admin.SetTrust(ctx, id, body.Trusted); err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUIAdminWorkloadsJSON serves the catalog with persisted enable flags.
+func (s *Server) handleUIAdminWorkloadsJSON(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	view, err := s.uc.Admin.Workloads(ctx)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+// handleUIAdminSetWorkloadEnabledJSON flips a workload's enable flag.
+func (s *Server) handleUIAdminSetWorkloadEnabledJSON(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	var body struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	if err := s.uc.Admin.SetWorkloadEnabled(ctx, name, body.Enabled); err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUIAdminSettingsJSON serves the read-only cluster settings.
+func (s *Server) handleUIAdminSettingsJSON(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.uc.Admin.Settings())
+}
+
+// handleUIAdminRevealTokenJSON reveals the shared worker token, auditing the
+// reveal. Admin-only via the route chain.
+func (s *Server) handleUIAdminRevealTokenJSON(w http.ResponseWriter, r *http.Request) {
+	actor := "admin"
+	if req, ok := authctx.From(r.Context()); ok {
+		actor = req.Role + ":" + req.UserID.String()
+	}
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	writeJSON(w, http.StatusOK, map[string]string{"token": s.uc.Admin.RevealWorkerToken(ctx, actor)})
+}
+
+// handleUIAdminUsersJSON serves the account table, proxied from the
+// userservice. The userservice projects away password hashes; a failure here
+// is a 502 rather than a silent empty table.
+func (s *Server) handleUIAdminUsersJSON(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		redirectToLogin(w, r)
+		return
+	}
+	status, body, err := s.callUserserviceAuthed(r.Context(), http.MethodGet, "/users", c.Value)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	if status != http.StatusOK {
+		writeJSON(w, status, map[string]string{"error": "userservice: unexpected response"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+
+// handleUIAdminSetUserRoleJSON changes a user's role through the userservice
+// promote/demote actions.
+func (s *Server) handleUIAdminSetUserRoleJSON(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	var body struct {
+		Role string `json:"role"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	action := ""
+	switch body.Role {
+	case "admin":
+		action = "promote"
+	case "user":
+		action = "demote"
+	default:
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		redirectToLogin(w, r)
+		return
+	}
+	status, _, err := s.callUserserviceAuthed(r.Context(), http.MethodPost, "/users/"+id.String()+"/"+action, c.Value)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	if status != http.StatusNoContent {
+		writeJSON(w, status, map[string]string{"error": "userservice: unexpected response"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleUIAdminWorkerKeysJSON serves every worker key with its owning user,
+// proxied from the userservice.
+func (s *Server) handleUIAdminWorkerKeysJSON(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		redirectToLogin(w, r)
+		return
+	}
+	status, body, err := s.callUserserviceAuthed(r.Context(), http.MethodGet, "/worker-keys/all", c.Value)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	if status != http.StatusOK {
+		writeJSON(w, status, map[string]string{"error": "userservice: unexpected response"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+
+// handleUIAdminRevokeKeyJSON revokes any worker key through the userservice
+// (whose DELETE endpoint already lets an admin revoke keys of any owner).
+func (s *Server) handleUIAdminRevokeKeyJSON(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		redirectToLogin(w, r)
+		return
+	}
+	status, _, err := s.callUserserviceAuthed(r.Context(), http.MethodDelete, "/worker-keys/"+id.String(), c.Value)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	if status != http.StatusNoContent {
+		writeJSON(w, status, map[string]string{"error": "userservice: unexpected response"})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // adminOwnerEmails resolves job owner ids to emails through the userservice,

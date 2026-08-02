@@ -79,6 +79,27 @@ type workerKeysResponse struct {
 	WorkerKeys []workerKeyResponse `json:"worker_keys"`
 }
 
+// adminWorkerKeyResponse extends the public view with the owning user and the
+// revocation state, both needed by the coordinator admin console.
+type adminWorkerKeyResponse struct {
+	workerKeyResponse
+	UserID    string `json:"user_id"`
+	RevokedAt string `json:"revoked_at,omitempty"`
+}
+
+func toAdminWorkerKeyResponse(k *domain.WorkerKey) adminWorkerKeyResponse {
+	resp := adminWorkerKeyResponse{workerKeyResponse: toWorkerKeyResponse(k), UserID: k.UserID.String()}
+	if k.RevokedAt != nil {
+		resp.RevokedAt = k.RevokedAt.UTC().Format(time.RFC3339)
+	}
+	return resp
+}
+
+// usersResponse is the admin list of accounts, password hashes excluded.
+type usersResponse struct {
+	Users []userResponse `json:"users"`
+}
+
 func toWorkerKeyResponse(k *domain.WorkerKey) workerKeyResponse {
 	resp := workerKeyResponse{
 		ID:        k.ID.String(),

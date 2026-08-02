@@ -14,31 +14,37 @@ import (
 
 // UseCases bundles the application services the handlers drive.
 type UseCases struct {
-	Register          *usecase.Register
-	Login             *usecase.Login
-	SetVerified       *usecase.SetVerified
-	SetRole           *usecase.SetRole
-	CreateWorkerKey   *usecase.CreateWorkerKey
-	ListWorkerKeys    *usecase.ListWorkerKeys
-	RevokeWorkerKey   *usecase.RevokeWorkerKey
-	ExchangeWorkerKey *usecase.ExchangeWorkerKey
-	Users             usecase.UserRepository
+	Register             *usecase.Register
+	Login                *usecase.Login
+	SetVerified          *usecase.SetVerified
+	SetRole              *usecase.SetRole
+	CreateWorkerKey      *usecase.CreateWorkerKey
+	ListWorkerKeys       *usecase.ListWorkerKeys
+	ListWorkerKeysAll    *usecase.ListWorkerKeysAll
+	RevokeWorkerKey      *usecase.RevokeWorkerKey
+	RevokeWorkerKeyAdmin *usecase.RevokeWorkerKeyAdmin
+	ExchangeWorkerKey    *usecase.ExchangeWorkerKey
+	ListUsers            *usecase.ListUsers
+	Users                usecase.UserRepository
 }
 
 // NewServer wires the routes and the middleware stack and returns the handler.
 // The issuer verifies tokens for the JWT-protected routes.
 func NewServer(log *slog.Logger, uc UseCases, issuer auth.Issuer) http.Handler {
 	h := &Handlers{
-		register:          uc.Register,
-		login:             uc.Login,
-		setVerified:       uc.SetVerified,
-		setRole:           uc.SetRole,
-		createWorkerKey:   uc.CreateWorkerKey,
-		listWorkerKeys:    uc.ListWorkerKeys,
-		revokeWorkerKey:   uc.RevokeWorkerKey,
-		exchangeWorkerKey: uc.ExchangeWorkerKey,
-		users:             uc.Users,
-		log:               log,
+		register:             uc.Register,
+		login:                uc.Login,
+		setVerified:          uc.SetVerified,
+		setRole:              uc.SetRole,
+		createWorkerKey:      uc.CreateWorkerKey,
+		listWorkerKeys:       uc.ListWorkerKeys,
+		listWorkerKeysAll:    uc.ListWorkerKeysAll,
+		revokeWorkerKey:      uc.RevokeWorkerKey,
+		revokeWorkerKeyAdmin: uc.RevokeWorkerKeyAdmin,
+		exchangeWorkerKey:    uc.ExchangeWorkerKey,
+		listUsers:            uc.ListUsers,
+		users:                uc.Users,
+		log:                  log,
 	}
 
 	mux := http.NewServeMux()
@@ -67,6 +73,12 @@ func NewServer(log *slog.Logger, uc UseCases, issuer auth.Issuer) http.Handler {
 		chain(h.handleSetRole(domain.RoleAdmin), withJWT(issuer), withAdmin))
 	mux.Handle("POST /users/{id}/demote",
 		chain(h.handleSetRole(domain.RoleUser), withJWT(issuer), withAdmin))
+
+	// Admin console: lists of every account and every worker key, and the key
+	// revoke path the admin console calls (the same DELETE endpoint already
+	// lets an admin revoke any key).
+	mux.Handle("GET /users", chain(http.HandlerFunc(h.handleListUsers), withJWT(issuer), withAdmin))
+	mux.Handle("GET /worker-keys/all", chain(http.HandlerFunc(h.handleListWorkerKeysAll), withJWT(issuer), withAdmin))
 
 	// Outermost first: every request gets an ID and an access-log line.
 	return chain(mux, withRequestID, withAccessLog(log))

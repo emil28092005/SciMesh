@@ -314,6 +314,17 @@ func (r *WorkerRepo) MarkStaleOffline(ctx context.Context, cutoff time.Time) (in
 	return n, nil
 }
 
+func (r *WorkerRepo) SetTrust(ctx context.Context, id uuid.UUID, trust domain.WorkerTrust) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	w, ok := r.workers[id]
+	if !ok {
+		return domain.ErrWorkerNotFound
+	}
+	w.TrustLevel = trust
+	return nil
+}
+
 // --- ArtifactRepo --------------------------------------------------------
 
 type ArtifactRepo struct {
