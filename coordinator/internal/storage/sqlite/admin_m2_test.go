@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -83,7 +84,7 @@ func TestWorkerSetTrust(t *testing.T) {
 	if err := repo.SetTrust(ctx, worker.ID, domain.WorkerTrusted); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.SetTrust(ctx, uuid.New(), domain.WorkerTrusted); err != domain.ErrWorkerNotFound {
+	if err := repo.SetTrust(ctx, uuid.New(), domain.WorkerTrusted); !errors.Is(err, domain.ErrWorkerNotFound) {
 		t.Errorf("unknown worker trust err = %v, want ErrWorkerNotFound", err)
 	}
 }

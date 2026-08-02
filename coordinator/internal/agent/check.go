@@ -80,6 +80,7 @@ func CheckEnvironment(ctx context.Context) CheckReport {
 		return report
 	}
 	report.Python = CheckItem{Name: "python", OK: true, Detail: python}
+	//nolint:gosec // G204: python comes from LookPath, the argument list is constant
 	cmd := exec.CommandContext(ctx, python, "-c", "import scimesh; print(scimesh.__version__ if hasattr(scimesh, '__version__') else 'installed')")
 	out, err := cmd.Output()
 	if err != nil {

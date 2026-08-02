@@ -93,6 +93,7 @@ func (s *Server) handleUILogin(w http.ResponseWriter, r *http.Request) {
 	if next == "" || !strings.HasPrefix(next, "/ui/") {
 		next = "/ui"
 	}
+	//nolint:gosec // G710: next is validated to start with /ui/ just above
 	http.Redirect(w, r, next, http.StatusSeeOther)
 }
 

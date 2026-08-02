@@ -41,6 +41,7 @@ func DefaultConfigPath() string {
 // created by the wizard with 0600 permissions, so no credential is exposed to
 // other local users.
 func LoadConfigFile(path string) (*Config, error) {
+	//nolint:gosec // G304: path is --config or SCIMESH_WORKER_CONFIG, operator-supplied
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config file: %w", err)

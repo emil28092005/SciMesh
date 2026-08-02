@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -93,7 +94,7 @@ func loadConfig(configPath string) (*agent.Config, error) {
 	}
 	envPath := os.Getenv("SCIMESH_WORKER_CONFIG")
 	if envPath != "" {
-		if _, err := os.Stat(envPath); err == nil {
+		if _, err := os.Stat(envPath); err == nil { //nolint:gosec // G703: path is the operator's own env var
 			return agent.LoadConfigFile(envPath)
 		}
 	}
@@ -153,7 +154,7 @@ func runSetup(args []string) int {
 	// Block until the signal arrives (never returns an error that matters: a
 	// cancelled context is the normal exit path).
 	err = server.Serve(ctx, listener)
-	if err != nil && err != http.ErrServerClosed {
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("setup wizard stopped", "err", err)
 		return 1
 	}
@@ -172,7 +173,8 @@ func openBrowser(url string) {
 		if err != nil {
 			continue
 		}
-		_ = exec.Command(binary, candidate[1:]...).Start()
+		//nolint:gosec // G204: candidates are our own fixed list; the url is a loopback literal
+		_ = exec.CommandContext(context.Background(), binary, candidate[1:]...).Start()
 		return
 	}
 }

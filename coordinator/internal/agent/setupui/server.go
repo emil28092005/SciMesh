@@ -107,12 +107,15 @@ func (s *PIDSupervisor) Start(configPath, logPath string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("resolve worker binary: %w", err)
 	}
+	//nolint:gosec // G304: logPath lives in the wizard's own config directory
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return 0, fmt.Errorf("open worker log: %w", err)
 	}
 	defer func() { _ = logFile.Close() }()
-	cmd := exec.Command(exe, "--config", configPath)
+	//nolint:gosec // G204: exe is os.Executable, configPath is the wizard's own file;
+	// Background ctx: the child's lifecycle is managed by the supervisor, not the context
+	cmd := exec.CommandContext(context.Background(), exe, "--config", configPath)
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	cmd.Stdin = nil
@@ -218,7 +221,7 @@ func New(log *slog.Logger, opts Options) *Server {
 // Listen binds the loopback listener and returns it; Serve runs the server on
 // it. Split so tests can inspect the actual ephemeral port.
 func (s *Server) Listen() (net.Listener, error) {
-	return net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", s.port))
+	return (&net.ListenConfig{}).Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", s.port))
 }
 
 // OpenBrowser hands the wizard URL to the configured opener (default: no-op).

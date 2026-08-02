@@ -80,7 +80,7 @@ func (f *fakeSup) Alive() bool {
 
 func postJSON(t *testing.T, base, path string, body any) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost, base+path, strings.NewReader(mustJSON(t, body)))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, base+path, strings.NewReader(mustJSON(t, body)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func postJSON(t *testing.T, base, path string, body any) (*httptest.ResponseReco
 // gets a different port, so nothing can collide or share pooled connections.
 func freePort(t *testing.T) int {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestWizardStartStopLifecycle(t *testing.T) {
 	}
 
 	// Status reflects the running state.
-	req, _ := http.NewRequest(http.MethodGet, base+"/api/status", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/api/status", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +218,7 @@ func TestWizardStatusPrefillsSavedConfig(t *testing.T) {
 	postJSON(t, base, "/api/config", map[string]any{
 		"coordinator_url": "http://10.0.0.5:8080", "worker_key": "smk_abc", "work_dir": "/w", "worker_name": "n1",
 	})
-	req, _ := http.NewRequest(http.MethodGet, base+"/api/status", nil)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, base+"/api/status", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
