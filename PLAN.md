@@ -1066,10 +1066,14 @@ workload enable/disable, settings (read-only), and storage metrics.
 **Depends on:** CTX-11 (UI patterns, session/roles), CTX-15 (userservice
 proxy), the sqlite/postgres storage pair.
 
-**Acceptance criteria:** full plan in
-[`docs/ui-admin-worker-plan.md`](docs/ui-admin-worker-plan.md) (section 3);
-all `/ui/admin/*` routes are admin-only, bounded read model, both engines
-supported, unit + permission + integration tests green.
+**Status: implemented.** Admin console at `/ui/admin`: system/storage/health,
+jobs (filter + pagination + owner resolution), workers with trust controls,
+users & worker keys (userservice admin endpoints), workload enable/disable
+(`workload_settings` migration in both engines, enforced at submit time and
+hidden from the job form), metrics (7-day buckets, failure rate), and
+settings with an audited worker-token reveal. All `/ui/admin/*` routes are
+admin-only and backed by bounded read models; sqlite + postgres parity;
+unit/permission/integration tests green.
 
 ### CTX-20 — Worker Setup UI
 
@@ -1080,6 +1084,15 @@ connection check, start/stop, and a live status page. Runs on machines that
 have only the worker installed — no coordinator needed.
 
 **Depends on:** the agent daemon; the worker-key exchange (CTX-15).
+
+**Status: implemented.** `worker-agent setup` serves the local wizard on
+127.0.0.1 (default port 12700): coordinator URL + token or worker key,
+work dir and name, preflight check (coordinator/health, python3, scimesh),
+config saved to `~/.scimesh-worker/config.json` (0600), start/stop of the
+worker as a background process, and a live status page with the agent log.
+The daemon also gained `--config <path>` (environment still wins) and
+`--check`. End-to-end verified: the wizard started a real worker that
+registered with a coordinator and appeared in the admin console.
 
 **Acceptance criteria:** full plan in
 [`docs/ui-admin-worker-plan.md`](docs/ui-admin-worker-plan.md) (section 4);

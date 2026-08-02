@@ -50,10 +50,18 @@ BOOTSTRAP_ADMIN_PASSWORD='choose-a-strong-password' \
   docker compose -f docker-compose.yml -f docker-compose.users.yml up -d --build
 ```
 
-Then install workers on any machines with Python:
+Then install workers on any machines with Python. The worker's own setup
+wizard walks through the rest — URL, token or worker key, work directory —
+and starts the worker for you:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash -s worker
+worker-agent setup          # local wizard at http://127.0.0.1:12700
+```
+
+Or configure by hand:
+
+```bash
 export COORDINATOR_URL=http://COORDINATOR_HOST:8080
 export WORKER_AUTH_TOKEN="$COORDINATOR_TOKEN"   # the coordinator's shared token
 export WORK_DIR=~/scimesh-worker
@@ -112,8 +120,11 @@ worker-agent
    The binary applies its embedded schema migrations on startup
    (`AUTO_MIGRATE=false` to disable when you manage them out of band).
 
-4. **Attach workers** as in Option A. The UI login uses the userservice
-   session; the workers use `COORDINATOR_TOKEN`.
+4. **Attach workers** as in Option A (or via `worker-agent setup`). The UI
+   login uses the userservice session; the workers use `COORDINATOR_TOKEN` or
+   a worker key. The coordinator's admin console (`/ui/admin`) shows the
+   whole cluster: jobs, worker fleet with trust controls, accounts and keys,
+   workload switches and metrics.
 
 ## Notes
 

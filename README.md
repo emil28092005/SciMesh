@@ -70,6 +70,16 @@ PostgreSQL, no Docker, no environment variables. The scientific runtime is a
 managed venv (`~/.scimesh/venv`); point `SCIMESH_PIP_PACKAGE` at your scimesh
 wheel to install it automatically.
 
+The coordinator serves two operator surfaces: the **control room** (jobs,
+workloads, docs) and the **admin console** at `/ui/admin` — cluster health
+and storage, paginated job table, worker fleet with trust controls, users and
+worker keys, workload enable/disable, metrics and the worker token. The
+**worker** binary (`worker-agent`) carries its own local setup wizard for
+machines that run only a worker: `worker-agent setup` opens a browser wizard
+at `127.0.0.1` that collects the coordinator URL and credential, runs a
+preflight check, saves `~/.scimesh-worker/config.json` and starts/stops the
+worker with a live log (see the [standalone docs](mkdocs/standalone.md)).
+
 Manual download and run of a release binary:
 
 ```bash

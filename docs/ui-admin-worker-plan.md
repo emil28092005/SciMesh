@@ -1,6 +1,6 @@
 # План реализации: Coordinator Admin UI и Worker Setup UI
 
-> Статус: **в работе**. Визуал утверждён — мокапы:
+> Статус: **реализовано (M1–M3), E2E проверено**. Визуал утверждён — мокапы:
 > [`ui-mockups/coordinator-admin.html`](ui-mockups/coordinator-admin.html),
 > [`ui-mockups/worker-setup.html`](ui-mockups/worker-setup.html).
 > Два UI живут в **разных бинарниках**: админка кластера — в `coordinator`
@@ -145,22 +145,22 @@ Spawner — интерфейс, в тестах подменяется.
 
 ## 5. Милестоуны
 
-- **M1. Admin-фундамент**: оболочка `admin.html` по мокапу + `GET /system`
-  (storage stats, health, node) + `GET /jobs` (фильтр+пагинация+счётчики) +
-  `GET /metrics`. Тесты: pagination/metrics/storage-stats на sqlite,
-  permission-тесты 403.
-- **M2. Access & Platform**: userservice `ListUsers`/`ListWorkerKeysAll`
-  (mem+sqlite+http), `SetTrust` (оба движка), users/keys/trust API и
-  разделы, `workload_settings` миграция 0002 + enable/disable + enforcement
-  в `SubmitDataset` и форме, settings + token reveal (audit). Тесты на каждый
-  слой.
-- **M3. Worker Setup**: `configfile.go`, `--config`, `--check`, `setupui`
-  (server + шаблон по мокапу, 6 API), тесты (roundtrip конфига, права 0600,
-  check с httptest, API визарда с подменённым spawner).
-- **M4. E2E + docs**: браузерный E2E (admin видит реальные данные; визард
-  запускает реального воркера против тестового координатора → регистрация →
-  джоб), обновить `mkdocs/index.md`, `mkdocs/standalone.md`
-  (`worker-agent setup` вместо ручных export), README, чекбоксы CTX-19/20.
+- **M1. Admin-фундамент** — ✅ done: оболочка `admin.html` по мокапу +
+  `GET /system` (storage stats, health, node) + `GET /jobs`
+  (фильтр+пагинация+счётчики) + `GET /metrics`; тесты на sqlite, 403 для
+  не-админа.
+- **M2. Access & Platform** — ✅ done: userservice `ListUsers`/
+  `ListWorkerKeysAll` + admin revoke (mem+sqlite+http), `SetTrust` (оба
+  движка), users/keys/trust разделы, `workload_settings` (миграции 0002/
+  0014) + enforcement в `SubmitDataset` и форме, settings + audited token
+  reveal. Все секции админки на живых данных.
+- **M3. Worker Setup** — ✅ done: `configfile.go` (0600), `--config` (env
+  wins), `--check`, `setupui` (сервер на 127.0.0.1, 6 API, шаблон по мокапу),
+  тесты (roundtrip, права, check, API с fake supervisor).
+- **M4. E2E + docs** — ✅ done: браузерный E2E (admin видит реальные
+  данные; визард запустил реального воркера → `wizard-machine online` в
+  админке), обновлены `mkdocs/index.md` и `mkdocs/standalone.md`
+  (`worker-agent setup`), README, статусы CTX-19/CTX-20 в `PLAN.md`.
 
 ## 6. Тестирование
 

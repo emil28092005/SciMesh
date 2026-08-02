@@ -33,8 +33,10 @@ The two halves of the project:
   resource reservation, and allowlist-driven workload discovery.
 - **An operator UI** served by the coordinator: the control room, a workload
   library page, a workload-agnostic "new computation" form whose controls come
-  from each workload's own `UIElement` declarations, and this documentation
-  site at `/ui/docs/`.
+  from each workload's own `UIElement` declarations, an **admin console**
+  (`/ui/admin`) for cluster operators — system/storage/health, jobs,
+  worker trust, users and worker keys, workload enable/disable, metrics and
+  the worker token — and this documentation site at `/ui/docs/`.
 
 ## Quick start
 
@@ -90,10 +92,21 @@ curl -L -o coordinator https://github.com/emil28092005/SciMesh/releases/latest/d
 chmod +x coordinator
 ```
 
-- **worker-agent** is installed separately and joins an existing coordinator:
+- **worker-agent** is installed separately and joins an existing coordinator.
+  Point its **local setup wizard** at the cluster — no need to have the
+  coordinator on this machine:
 
   ```bash
   curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash -s worker
+  worker-agent setup            # opens http://127.0.0.1:12700 in your browser
+  ```
+
+  The wizard collects the coordinator URL and token (or worker key), runs a
+  preflight check, saves the configuration under `~/.scimesh-worker/` and
+  starts the worker as a background process — with a live status page and log.
+  Everything can also be done by hand:
+
+  ```bash
   export COORDINATOR_URL=http://COORDINATOR_HOST:8080
   export WORKER_AUTH_TOKEN=<worker token from the coordinator>
   export WORK_DIR=~/scimesh-worker
