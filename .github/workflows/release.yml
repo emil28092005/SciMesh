@@ -54,8 +54,39 @@ jobs:
           path: coordinator/dist/*
           if-no-files-found: error
 
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: build the scimesh wheel
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          # The tag (v1.1.0-alpha.10) becomes the package version in its
+          # PEP 440 form (1.1.0a10); the wheel is then version-locked to the
+          # binaries of the same release.
+          WHEEL_VERSION="${VERSION#v}"
+          WHEEL_VERSION="${WHEEL_VERSION/-alpha./a}"
+          WHEEL_VERSION="${WHEEL_VERSION/-beta./b}"
+          WHEEL_VERSION="${WHEEL_VERSION/-rc./rc}"
+          sed -i "s/^version = .*/version = \"${WHEEL_VERSION}\"/" pyproject.toml
+          python -m pip install --quiet build
+          python -m build --wheel --outdir dist
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl
+          if-no-files-found: error
+
   release:
-    needs: binaries
+    needs: [binaries, wheel]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +98,11 @@ jobs:
           # cache artifact (*.dockerbuild) that download-artifact cannot fetch.
           pattern: binaries-*
           merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: artifacts
 
       - name: checksums
         working-directory: artifacts

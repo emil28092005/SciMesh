@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+
+	"github.com/emil28092005/SciMesh/coordinator/internal/agent"
+
 	"crypto/rand"
 	"encoding/hex"
 	"flag"
@@ -259,13 +262,25 @@ func ensureRuntime(log *slog.Logger, dataDir, venvPython string) {
 	}
 	pip := filepath.Join(venvDir, binName("bin/pip"))
 	// The scimesh package is installed from an explicit source only: the PyPI
-	// name is not ours yet, so `pip install scimesh` would fetch a stranger's
-	// package. Operators publish a wheel or index via SCIMESH_PIP_PACKAGE.
+	// name belongs to an unrelated project, so `pip install scimesh` would
+	// fetch a stranger's package. Default: download the wheel attached to our
+	// own GitHub release for this binary version; SCIMESH_PIP_PACKAGE
+	// overrides with a custom wheel, checkout or index.
 	source := os.Getenv("SCIMESH_PIP_PACKAGE")
 	if source == "" {
-		log.Warn("scientific runtime venv created, but scimesh is not installed",
-			"hint", pip+" install <your scimesh wheel or index> (or set SCIMESH_PIP_PACKAGE)")
-		return
+		url, _, err := agent.ReleaseWheelURL(version)
+		if err != nil {
+			log.Warn("scientific runtime venv created, but scimesh is not installed",
+				"hint", "set SCIMESH_PIP_PACKAGE to your wheel or index")
+			return
+		}
+		downloaded, err := agent.DownloadWheel(context.Background(), url, venvDir)
+		if err != nil {
+			log.Warn("could not download the scimesh wheel for this release",
+				"err", err, "hint", "set SCIMESH_PIP_PACKAGE to your wheel or index")
+			return
+		}
+		source = downloaded
 	}
 	// #nosec G204,G702 -- pip and source are operator-configured paths.
 	install := exec.CommandContext(context.Background(), pip, "install", source)

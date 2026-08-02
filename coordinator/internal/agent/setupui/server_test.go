@@ -30,6 +30,11 @@ func newTestServer(t *testing.T, sup Supervisor) (*Server, string) {
 
 func newTestServerWithInstall(t *testing.T, sup Supervisor, install func(ctx context.Context, venvPython, pkg string) error) (*Server, string) {
 	t.Helper()
+	return newTestServerWithInstallAndWheel(t, sup, install, nil)
+}
+
+func newTestServerWithInstallAndWheel(t *testing.T, sup Supervisor, install func(ctx context.Context, venvPython, pkg string) error, wheel func(ctx context.Context, url, dir string) (string, error)) (*Server, string) {
+	t.Helper()
 	dir := t.TempDir()
 	server := New(testLogger(), Options{
 		// A distinct random port per test: Port 0 means "the default 12700" in
@@ -41,6 +46,7 @@ func newTestServerWithInstall(t *testing.T, sup Supervisor, install func(ctx con
 		Supervisor:     sup,
 		OpenBrowser:    func(string) {},
 		InstallScimesh: install,
+		DownloadWheel:  wheel,
 	})
 	listener, err := server.Listen()
 	if err != nil {
@@ -351,5 +357,55 @@ func TestInstallRuntimeFailureIsExplained(t *testing.T) {
 	}
 	if !strings.Contains(data["error"].(string), "SCIMESH_PIP_PACKAGE") {
 		t.Errorf("error = %v, want a hint about SCIMESH_PIP_PACKAGE", data["error"])
+	}
+}
+
+func TestInstallRuntimeDownloadsReleaseWheelWhenNoSource(t *testing.T) {
+	oldVersion := agent.Version
+	agent.Version = "1.1.0-alpha.10"
+	t.Cleanup(func() { agent.Version = oldVersion })
+
+	var downloadedURL, installedPkg string
+	sup := &fakeSup{}
+	_, base := newTestServerWithInstallAndWheel(t, sup,
+		func(ctx context.Context, venvPython, pkg string) error {
+			installedPkg = pkg
+			return nil
+		},
+		func(ctx context.Context, url, dir string) (string, error) {
+			downloadedURL = url
+			return filepath.Join(dir, "scimesh-1.1.0a10-py3-none-any.whl"), nil
+		})
+
+	rec, data := postJSON(t, base, "/api/runtime/install", map[string]any{})
+	if rec.Code != http.StatusOK || data["ok"] != true {
+		t.Fatalf("install: got %d %v, want 200 ok", rec.Code, data)
+	}
+	if !strings.Contains(downloadedURL, "releases/download/v1.1.0-alpha.10/scimesh-1.1.0a10-py3-none-any.whl") {
+		t.Errorf("download url = %q, want the release wheel of this version", downloadedURL)
+	}
+	if !strings.HasSuffix(installedPkg, "scimesh-1.1.0a10-py3-none-any.whl") {
+		t.Errorf("pip received %q, want the downloaded wheel", installedPkg)
+	}
+}
+
+func TestInstallRuntimeWheelDownloadFailureIsExplained(t *testing.T) {
+	oldVersion := agent.Version
+	agent.Version = "1.1.0-alpha.10"
+	t.Cleanup(func() { agent.Version = oldVersion })
+
+	sup := &fakeSup{}
+	_, base := newTestServerWithInstallAndWheel(t, sup,
+		func(ctx context.Context, venvPython, pkg string) error { t.Fatal("pip must not run"); return nil },
+		func(ctx context.Context, url, dir string) (string, error) {
+			return "", errors.New("HTTP 404")
+		})
+
+	rec, data := postJSON(t, base, "/api/runtime/install", map[string]any{})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("got %d, want 409", rec.Code)
+	}
+	if !strings.Contains(data["error"].(string), "SCIMESH_PIP_PACKAGE") {
+		t.Errorf("error = %v, want a SCIMESH_PIP_PACKAGE hint", data["error"])
 	}
 }

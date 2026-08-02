@@ -176,14 +176,15 @@ func (s *PIDSupervisor) Stop() error {
 
 // Server is the wizard HTTP server, bound to the loopback interface only.
 type Server struct {
-	log         *slog.Logger
-	cfgPath     string
-	logPath     string
-	dir         string
-	sup         Supervisor
-	openBrowser func(string)
-	port        int
-	install     func(ctx context.Context, venvPython, pkg string) error
+	log           *slog.Logger
+	cfgPath       string
+	logPath       string
+	dir           string
+	sup           Supervisor
+	openBrowser   func(string)
+	port          int
+	install       func(ctx context.Context, venvPython, pkg string) error
+	downloadWheel func(ctx context.Context, url, dir string) (string, error)
 }
 
 // Options customises the wizard for tests and embedding.
@@ -196,6 +197,9 @@ type Options struct {
 	// InstallScimesh overrides the pip step of the runtime installer (tests
 	// substitute a fake); nil uses the real pip inside the managed venv.
 	InstallScimesh func(ctx context.Context, venvPython, pkg string) error
+	// DownloadWheel overrides the release-wheel download (tests substitute a
+	// fake); nil downloads from the GitHub release matching the agent version.
+	DownloadWheel func(ctx context.Context, url, dir string) (string, error)
 }
 
 func New(log *slog.Logger, opts Options) *Server {
@@ -223,7 +227,11 @@ func New(log *slog.Logger, opts Options) *Server {
 	if install == nil {
 		install = installScimeshWithPip
 	}
-	return &Server{log: log, cfgPath: cfgPath, logPath: filepath.Join(dir, logFileName), dir: dir, sup: sup, openBrowser: open, port: port, install: install}
+	downloadWheel := opts.DownloadWheel
+	if downloadWheel == nil {
+		downloadWheel = agent.DownloadWheel
+	}
+	return &Server{log: log, cfgPath: cfgPath, logPath: filepath.Join(dir, logFileName), dir: dir, sup: sup, openBrowser: open, port: port, install: install, downloadWheel: downloadWheel}
 }
 
 // Listen binds the loopback listener and returns it; Serve runs the server on
@@ -451,12 +459,24 @@ func (s *Server) handleInstallRuntime(w http.ResponseWriter, r *http.Request) {
 	}
 	if pkg == "" {
 		// No PyPI default on purpose: the PyPI name "scimesh" belongs to an
-		// unrelated project, so a silent `pip install scimesh` would install
-		// the wrong software.
-		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": "no scimesh source configured: set SCIMESH_PIP_PACKAGE to your wheel, checkout or index, then retry",
-		})
-		return
+		// unrelated project. Instead we ship the wheel in our own GitHub
+		// release, version-locked to this binary, and download it from there.
+		url, _, err := agent.ReleaseWheelURL(agent.Version)
+		if err != nil {
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "no scimesh source configured: set SCIMESH_PIP_PACKAGE to your wheel, checkout or index, then retry",
+			})
+			return
+		}
+		local, err := s.downloadWheel(r.Context(), url, s.dir)
+		if err != nil {
+			s.log.Error("download release wheel", "err", err, "url", url)
+			writeJSON(w, http.StatusConflict, map[string]string{
+				"error": "could not download the scimesh wheel for this release: " + err.Error() + ". Set SCIMESH_PIP_PACKAGE to your wheel, checkout or index and retry.",
+			})
+			return
+		}
+		pkg = local
 	}
 
 	python3, err := exec.LookPath("python3")
