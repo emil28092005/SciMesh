@@ -51,7 +51,15 @@ mv "$TARGET.tmp" "$TARGET"
 
 echo
 echo "SciMesh installed: $TARGET"
+INSTALLED_VERSION=$("$TARGET" --version 2>/dev/null | awk '{print $2}')
 "$TARGET" --version
+if [ -n "$INSTALLED_VERSION" ] && [ "$INSTALLED_VERSION" != "${VERSION#v}" ]; then
+  echo
+  echo "WARNING: expected version $VERSION but got $INSTALLED_VERSION."
+  echo "This is usually a stale download cache. Re-run the installer in a few"
+  echo "minutes, or pin the version explicitly:"
+  echo "  SCIMESH_VERSION=${VERSION} bash <(curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh)"
+fi
 echo
 echo "Start the platform (one command, everything embedded):"
 echo "  $TARGET serve --open"
