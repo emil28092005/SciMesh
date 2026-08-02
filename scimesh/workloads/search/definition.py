@@ -9,8 +9,9 @@ and merge.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from rdkit import Chem
 
@@ -21,6 +22,7 @@ from scimesh.sdk.batch import MapReduceWorkload
 from scimesh.sdk.identity import SchemaRef, WorkloadId
 from scimesh.sdk.plans import JobRequest, ValidatedJob
 from scimesh.sdk.registry import WorkloadDefinition
+from scimesh.sdk.ui import UIElement
 
 from ..environment import current_environment_digest, current_scimesh_package_digest
 from .core import merge_search_partials, run_search_shard, write_search_shards
@@ -112,6 +114,48 @@ class SimilaritySearchSDKWorkload(MapReduceWorkload):
     reduce_parameter_names = _MAP_PARAMETERS + ("query_source", "fingerprint")
     map_entry_point = MAP_ENTRY_POINT
     reduce_entry_point = REDUCE_ENTRY_POINT
+    reduction = "top-k"
+    ui_elements = (
+        UIElement(
+            "query_id",
+            "text",
+            "Query molecule id",
+            help="ChEMBL id of the query molecule. Provide exactly one of id or SMILES.",
+            order=1,
+        ),
+        UIElement(
+            "query_smiles",
+            "text",
+            "Query molecule SMILES",
+            help="SMILES of the query molecule. Provide exactly one of id or SMILES.",
+            order=2,
+        ),
+        UIElement(
+            "top_k",
+            "number",
+            "Top k",
+            help="Number of most similar molecules to keep per shard (global merge keeps the best of these).",
+            default=20,
+            order=3,
+        ),
+        UIElement(
+            "threshold_direction",
+            "select",
+            "Direction",
+            help="Keep molecules with similarity greater or less than the threshold.",
+            options=("greater", "less"),
+            default="greater",
+            order=4,
+        ),
+        UIElement(
+            "threshold",
+            "number",
+            "Similarity threshold",
+            help="Optional similarity bound: results are filtered to this direction.",
+            placeholder="e.g. 0.8",
+            order=5,
+        ),
+    )
 
     def __init__(
         self,

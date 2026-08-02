@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any
 
 from ._validation import (
     canonical_json,
@@ -16,8 +17,8 @@ from ._validation import (
     require_exact_keys,
     require_identifier,
     require_positive_int,
-    require_sha256,
     require_schema_version,
+    require_sha256,
     require_string,
     thaw_json,
 )
@@ -29,8 +30,9 @@ from .identity import (
     VersionRange,
     WorkloadId,
 )
-from .workflow import StageKind, WorkflowSpec
 from .schema import validate_schema_definition
+from .ui import UIElement, ui_elements_from_list
+from .workflow import StageKind, WorkflowSpec
 
 
 class DeterminismProfile(str, Enum):
@@ -100,7 +102,7 @@ class PackageSpec:
         }
 
     @classmethod
-    def from_dict(cls, value: object) -> "PackageSpec":
+    def from_dict(cls, value: object) -> PackageSpec:
         if not isinstance(value, Mapping):
             raise ValueError("package specification must be an object")
         require_exact_keys(
@@ -146,7 +148,7 @@ class EnvironmentSpec:
         }
 
     @classmethod
-    def from_dict(cls, value: object) -> "EnvironmentSpec":
+    def from_dict(cls, value: object) -> EnvironmentSpec:
         if not isinstance(value, Mapping):
             raise ValueError("environment specification must be an object")
         require_exact_keys(
@@ -186,7 +188,7 @@ class VerifierSpec:
         }
 
     @classmethod
-    def from_dict(cls, value: object) -> "VerifierSpec":
+    def from_dict(cls, value: object) -> VerifierSpec:
         if not isinstance(value, Mapping):
             raise ValueError("verifier specification must be an object")
         require_exact_keys(
@@ -236,7 +238,7 @@ class WorkloadLimits:
         }
 
     @classmethod
-    def from_dict(cls, value: object) -> "WorkloadLimits":
+    def from_dict(cls, value: object) -> WorkloadLimits:
         if not isinstance(value, Mapping):
             raise ValueError("workload limits must be an object")
         fields = {
@@ -263,6 +265,15 @@ def _ports(
             raise ValueError(f"{field} values must be PortSpec values")
         result[canonical] = port
     return MappingProxyType(result)
+
+
+_REDUCTION_MODES = ("top-k", "ordered-concat")
+
+
+def _reduction(value: object) -> str:
+    if value not in _REDUCTION_MODES:
+        raise ValueError(f"reduction must be one of: {', '.join(_REDUCTION_MODES)}")
+    return value  # type: ignore[return-value]
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,6 +305,9 @@ class WorkloadManifest:
     conformance_profiles: tuple[str, ...]
     required_features: tuple[FeatureRequirement, ...] = ()
     optional_features: tuple[FeatureRequirement, ...] = ()
+    ui_elements: tuple[UIElement, ...] = ()
+    reduction: str = "ordered-concat"
+    upload_ready: bool = True
     manifest_schema_version: int = MANIFEST_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -336,6 +350,17 @@ class WorkloadManifest:
             raise ValueError("parameters_schema exceeds 1 MiB")
         validate_schema_definition(schema)
         object.__setattr__(self, "parameters_schema", schema)
+        properties = dict(schema["properties"])
+        ui_elements = ui_elements_from_list(self.ui_elements, "ui_elements")
+        for element in ui_elements:
+            if element.field not in properties:
+                raise ValueError(
+                    f"ui element {element.field!r} is not a declared parameter"
+                )
+        object.__setattr__(self, "ui_elements", ui_elements)
+        object.__setattr__(self, "reduction", _reduction(self.reduction))
+        if not isinstance(self.upload_ready, bool):
+            raise ValueError("upload_ready must be a boolean")
         if not isinstance(self.workflow, WorkflowSpec):
             raise ValueError("workflow must be a WorkflowSpec")
         object.__setattr__(
@@ -485,13 +510,16 @@ class WorkloadManifest:
             "conformance_profiles": list(self.conformance_profiles),
             "required_features": [item.to_dict() for item in self.required_features],
             "optional_features": [item.to_dict() for item in self.optional_features],
+            "ui_elements": [element.to_dict() for element in self.ui_elements],
+            "reduction": self.reduction,
+            "upload_ready": self.upload_ready,
         }
 
     def to_json(self) -> str:
         return canonical_json(self.to_dict())
 
     @classmethod
-    def from_dict(cls, value: object) -> "WorkloadManifest":
+    def from_dict(cls, value: object) -> WorkloadManifest:
         if not isinstance(value, Mapping):
             raise ValueError("workload manifest must be an object")
         fields = {
@@ -514,6 +542,9 @@ class WorkloadManifest:
             "conformance_profiles",
             "required_features",
             "optional_features",
+            "ui_elements",
+            "reduction",
+            "upload_ready",
         }
         require_exact_keys(value, fields, "workload manifest")
         inputs, outputs = value["inputs"], value["outputs"]
@@ -523,6 +554,7 @@ class WorkloadManifest:
             value["conformance_profiles"],
             value["required_features"],
             value["optional_features"],
+            value["ui_elements"],
         )
         if not isinstance(inputs, Mapping) or not isinstance(outputs, Mapping):
             raise ValueError("manifest inputs and outputs must be objects")
@@ -556,10 +588,16 @@ class WorkloadManifest:
                 FeatureRequirement.from_dict(item)
                 for item in value["optional_features"]  # type: ignore[union-attr]
             ),
+            ui_elements=ui_elements_from_list(
+                tuple(value["ui_elements"]),
+                "ui_elements",  # type: ignore[arg-type]
+            ),
+            reduction=value["reduction"],  # type: ignore[arg-type]
+            upload_ready=value["upload_ready"],  # type: ignore[arg-type]
         )
 
     @classmethod
-    def from_json(cls, value: str) -> "WorkloadManifest":
+    def from_json(cls, value: str) -> WorkloadManifest:
         try:
             decoded = json.loads(value)
         except (TypeError, json.JSONDecodeError, RecursionError) as error:

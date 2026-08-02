@@ -59,6 +59,7 @@ from .manifest import (
     WorkloadLimits,
     WorkloadManifest,
 )
+from .ui import UIElement
 from .plans import ExpansionManifest, JobRequest, TaskSpec, ValidatedJob, WorkflowPlan
 from .protocols import (
     ArtifactCatalog,

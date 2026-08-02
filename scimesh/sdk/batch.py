@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from .artifacts import (
     ArtifactCollection,
@@ -50,6 +51,7 @@ from .plans import JobRequest, TaskSpec, ValidatedJob, WorkflowPlan
 from .protocols import PlanningContext, ReduceContext, TaskContext
 from .registry import WorkloadDefinition
 from .resources import ResourceRequirements
+from .ui import UIElement
 from .verification import ExactArtifactVerifier
 from .workflow import ArtifactEdge, PortRef, StageKind, StageSpec, WorkflowSpec
 
@@ -133,7 +135,9 @@ class MapReduceWorkload:
     port), ``map_parameter_names``, ``reduce_parameter_names``, ``capabilities``,
     ``trust_modes``, ``workflow_id``, ``limits``, ``resources``, ``execution``,
     ``map_entry_point``, ``reduce_entry_point``, ``shard_rows`` (default 1000,
-    used only by the default ``partition_input``).
+    used only by the default ``partition_input``), ``ui_elements`` (tuple of
+    ``UIElement`` declarations that shape the operator "new job" form in the
+    coordinator UI; each ``field`` must name a ``parameters_schema`` property).
     """
 
     workload_id: WorkloadId
@@ -155,6 +159,9 @@ class MapReduceWorkload:
     map_entry_point: str | None = None
     reduce_entry_point: str | None = None
     shard_rows: int = 1_000
+    ui_elements: tuple[UIElement, ...] = ()
+    reduction: str = "ordered-concat"
+    upload_ready: bool = True
 
     def __init__(
         self,
@@ -291,6 +298,9 @@ class MapReduceWorkload:
             limits=limits,
             capabilities=self.capabilities,
             conformance_profiles=("core-batch-v1",),
+            ui_elements=tuple(self.ui_elements),
+            reduction=self.reduction,
+            upload_ready=self.upload_ready,
         )
         self._exact_verifier = _EXACT_VERIFIER
         self._limits = limits

@@ -8,13 +8,15 @@ header-preserving concatenation, so nothing else is needed.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from scimesh.sdk.artifacts import ArtifactSchema, ComponentRef, PortSpec
 from scimesh.sdk.batch import MapReduceWorkload
 from scimesh.sdk.identity import SchemaRef, WorkloadId
 from scimesh.sdk.registry import WorkloadDefinition
+from scimesh.sdk.ui import UIElement
 
 from ..environment import current_environment_digest, current_scimesh_package_digest
 from .core import MOLWT_COLUMNS, filter_molecules_by_molwt
@@ -93,6 +95,32 @@ class MolwtFilterWorkload(MapReduceWorkload):
     reduce_parameter_names = ("min_molwt", "max_molwt", "skip_invalid")
     map_entry_point = MAP_ENTRY_POINT
     reduce_entry_point = REDUCE_ENTRY_POINT
+    ui_elements = (
+        UIElement(
+            "min_molwt",
+            "number",
+            "Minimum molecular weight",
+            help="Keep molecules with MolWt at least this value. Optional.",
+            placeholder="e.g. 100",
+            order=1,
+        ),
+        UIElement(
+            "max_molwt",
+            "number",
+            "Maximum molecular weight",
+            help="Keep molecules with MolWt at most this value. Optional.",
+            placeholder="e.g. 600",
+            order=2,
+        ),
+        UIElement(
+            "skip_invalid",
+            "checkbox",
+            "Skip invalid molecules",
+            help="Skip rows with invalid SMILES instead of failing the shard.",
+            default=True,
+            order=3,
+        ),
+    )
 
     def __init__(
         self,

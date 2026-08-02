@@ -9,8 +9,9 @@ byte-identical to the local brute-force reference.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from scimesh.sdk.artifacts import (
     ArtifactCollection,
@@ -23,6 +24,7 @@ from scimesh.sdk.identity import SchemaRef, WorkloadId
 from scimesh.sdk.plans import TaskSpec, ValidatedJob
 from scimesh.sdk.protocols import PlanningContext
 from scimesh.sdk.registry import WorkloadDefinition
+from scimesh.sdk.ui import UIElement
 from scimesh.sdk.workflow import StageSpec
 
 from ..environment import current_environment_digest, current_scimesh_package_digest
@@ -109,8 +111,35 @@ class SimilarityGraphSDKWorkload(MapReduceWorkload):
         "max_rows",
     )
     workflow_id = "graph-block-pairs-v1"
+    upload_ready = False
     map_entry_point = MAP_ENTRY_POINT
     reduce_entry_point = REDUCE_ENTRY_POINT
+    ui_elements = (
+        UIElement(
+            "threshold",
+            "number",
+            "Similarity threshold",
+            help="Minimum (greater) or maximum (less) edge similarity. Required.",
+            order=1,
+        ),
+        UIElement(
+            "threshold_direction",
+            "select",
+            "Direction",
+            help="Whether to keep edges above (greater) or below (less) the threshold.",
+            options=("greater", "less"),
+            default="greater",
+            order=2,
+        ),
+        UIElement(
+            "block_size",
+            "number",
+            "Block size",
+            help="Deterministic block size for pair sharding.",
+            default=100,
+            order=3,
+        ),
+    )
 
     def domain_validate(self, parameters: Mapping[str, Any]) -> None:
         unknown = set(parameters) - {

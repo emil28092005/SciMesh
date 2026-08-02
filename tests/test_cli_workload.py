@@ -241,7 +241,7 @@ def test_workload_cli_exports_the_library_as_json(tmp_path: Path) -> None:
     output = tmp_path / "workloads.json"
     assert main(["workload", "export", "-o", str(output)]) == 0
     payload = json.loads(output.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     names = [item["name"] for item in payload["workloads"]]
     assert names == sorted(
         ["descriptor-batch", "molwt-filter", "similarity-graph", "similarity-search"]
@@ -253,7 +253,9 @@ def test_workload_cli_exports_the_library_as_json(tmp_path: Path) -> None:
         assert item["verifier"] == "exact-artifact@1"
         assert "input" in item["inputs"]
         assert "result" in item["outputs"]
-    molwt = next(item for item in payload["workloads"] if item["name"] == "molwt-filter")
+    molwt = next(
+        item for item in payload["workloads"] if item["name"] == "molwt-filter"
+    )
     assert molwt["parameters_schema"]["properties"] == {
         "min_molwt": {
             "type": "number",
@@ -271,3 +273,38 @@ def test_workload_cli_exports_the_library_as_json(tmp_path: Path) -> None:
             "description": "Skip rows with invalid SMILES instead of failing",
         },
     }
+    assert molwt["ui_elements"] == [
+        {
+            "field": "min_molwt",
+            "widget": "number",
+            "label": "Minimum molecular weight",
+            "help": "Keep molecules with MolWt at least this value. Optional.",
+            "placeholder": "e.g. 100",
+            "options": [],
+            "default": None,
+            "order": 1,
+            "group": "",
+        },
+        {
+            "field": "max_molwt",
+            "widget": "number",
+            "label": "Maximum molecular weight",
+            "help": "Keep molecules with MolWt at most this value. Optional.",
+            "placeholder": "e.g. 600",
+            "options": [],
+            "default": None,
+            "order": 2,
+            "group": "",
+        },
+        {
+            "field": "skip_invalid",
+            "widget": "checkbox",
+            "label": "Skip invalid molecules",
+            "help": "Skip rows with invalid SMILES instead of failing the shard.",
+            "placeholder": "",
+            "options": [],
+            "default": True,
+            "order": 3,
+            "group": "",
+        },
+    ]

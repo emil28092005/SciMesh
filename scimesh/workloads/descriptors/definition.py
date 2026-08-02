@@ -9,13 +9,15 @@ partition, compute, and merge.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from scimesh.sdk.artifacts import ArtifactSchema, ComponentRef, PortSpec
 from scimesh.sdk.batch import MapReduceWorkload
 from scimesh.sdk.identity import SchemaRef, WorkloadId
 from scimesh.sdk.registry import WorkloadDefinition
+from scimesh.sdk.ui import UIElement
 
 from ..environment import current_environment_digest, current_scimesh_package_digest
 from .core import (
@@ -88,6 +90,16 @@ class DescriptorBatchWorkload(MapReduceWorkload):
     reduce_parameter_names = ("skip_invalid",)
     map_entry_point = MAP_ENTRY_POINT
     reduce_entry_point = REDUCE_ENTRY_POINT
+    ui_elements = (
+        UIElement(
+            "skip_invalid",
+            "checkbox",
+            "Skip invalid molecules",
+            help="Skip rows with invalid SMILES instead of failing the shard.",
+            default=True,
+            order=1,
+        ),
+    )
 
     def __init__(
         self,

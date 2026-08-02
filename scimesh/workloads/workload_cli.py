@@ -50,6 +50,12 @@ class WorkloadCLI:
         )
         export_parser.set_defaults(workload_handler=self.export_workloads)
 
+        allowlist_parser = subparsers.add_parser(
+            "allowlist",
+            help="Print the installed-package workload allowlist for worker configuration.",
+        )
+        allowlist_parser.set_defaults(workload_handler=self.export_allowlist)
+
         run_parser = subparsers.add_parser(
             "run", help="Run one SDK workload locally against an input file."
         )
@@ -147,6 +153,11 @@ class WorkloadCLI:
                     "verifier": manifest.verifier.verifier.canonical,
                     "enabled": item.enabled,
                     "parameters_schema": thaw_json(manifest.parameters_schema),
+                    "ui_elements": [
+                        element.to_dict() for element in manifest.ui_elements
+                    ],
+                    "reduction": manifest.reduction,
+                    "upload_ready": manifest.upload_ready,
                     "inputs": {
                         name: port.schema.to_dict()
                         for name, port in manifest.inputs.items()
@@ -158,7 +169,7 @@ class WorkloadCLI:
                 }
             )
         payload: dict[str, object] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "generated_by": "scimesh workload export",
             "workloads": workloads,
         }
@@ -167,6 +178,38 @@ class WorkloadCLI:
             json.dump(payload, destination, indent=2, sort_keys=True)
             destination.write("\n")
         print(f"Exported {len(workloads)} workloads to {args.output}")
+        return 0
+
+    def export_allowlist(self, args: argparse.Namespace) -> int:
+        """Print the allowlist JSON that worker environments consume.
+
+        The printed array feeds ``SCIMESH_WORKLOAD_ALLOWLIST`` on workers and
+        mirrors the digest pins of the installed distribution.
+        """
+        import json
+
+        registry = self._registry(args)
+        payload = []
+        for item in sorted(
+            registry.descriptions(), key=lambda value: value.workload.name
+        ):
+            if not item.enabled:
+                continue
+            definition, _ = registry.require(
+                item.workload.name,
+                item.workload.version,
+                item.package_digest,
+            )
+            manifest = definition.manifest
+            payload.append(
+                {
+                    "distribution": manifest.package.distribution,
+                    "name": manifest.workload.name,
+                    "version": manifest.workload.version,
+                    "digest": manifest.package.digest,
+                }
+            )
+        print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
 
     def run_workload(self, args: argparse.Namespace) -> int:
