@@ -65,7 +65,7 @@ Write-Host "SciMesh $Component installed: $Target"
 Write-Host ""
 if ($Component -eq "coordinator") {
     if ($AutoStart -eq "1") {
-        Write-Host "Starting the platform and opening the control room in your browser..."
+        Write-Host "Starting the platform and opening the admin console in your browser..."
         Write-Host "(stop it with Ctrl-C; it keeps your data in ~\.scimesh)"
         Write-Host ""
         & $Target serve --open

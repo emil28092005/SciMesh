@@ -26,12 +26,14 @@ var adminUserActions = map[string]bool{
 }
 
 // requireAdmin gates a route on the session caller being an admin. It runs
-// inside withUISession, which has already stamped the requester. A non-admin is
-// sent back to the dashboard rather than shown the panel.
+// inside withUISession, which has already stamped the requester. A signed-in
+// non-admin is told why (and bounced to the login with the message); an
+// unauthenticated caller never gets here — the gate has already sent them to
+// the login page with the intended destination.
 func requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if req, ok := authctx.From(r.Context()); !ok || !req.IsAdmin() {
-			http.Redirect(w, r, "/ui", http.StatusSeeOther)
+			http.Redirect(w, r, "/ui/login?error=admin+role+required", http.StatusSeeOther)
 			return
 		}
 		next.ServeHTTP(w, r)

@@ -78,7 +78,7 @@ fi
 if [ "$COMPONENT" = "coordinator" ]; then
   if [ "$AUTO_START" = "1" ]; then
     echo
-    echo "Starting the platform and opening the control room in your browser..."
+    echo "Starting the platform and opening the admin console in your browser..."
     echo "(stop it with Ctrl-C; it keeps your data in ~/.scimesh)"
     echo
     exec "$TARGET" serve --open

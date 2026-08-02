@@ -30,15 +30,15 @@ func TestRequireAdminAllowsAdminOnly(t *testing.T) {
 		t.Error("admin must reach the handler")
 	}
 
-	// Plain user is redirected to the dashboard.
+	// Plain user is redirected to the login with the reason.
 	reached = false
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq(t, "user"))
 	if reached {
 		t.Error("non-admin must not reach the handler")
 	}
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui" {
-		t.Errorf("non-admin got %d -> %q, want 303 -> /ui", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui/login?error=admin+role+required" {
+		t.Errorf("non-admin got %d -> %q, want 303 -> login with the admin-required error", rec.Code, rec.Header().Get("Location"))
 	}
 }
 
