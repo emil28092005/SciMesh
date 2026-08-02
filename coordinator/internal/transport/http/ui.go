@@ -328,6 +328,7 @@ func newJobPayload(catalog *workloads.Catalog) template.JS {
 	if err != nil {
 		return template.JS("null")
 	}
+	// #nosec G203 -- the payload is marshaled JSON from the embedded workload catalog, injected as script data.
 	return template.JS(encoded)
 }
 

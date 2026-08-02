@@ -2,7 +2,9 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -23,7 +25,7 @@ func NewTaskRunner(command []string) *TaskRunner {
 // directory, the Python entry computes and seals the partial, and the written
 // manifest is parsed back. stderr is captured for failure reporting.
 func (r *TaskRunner) Run(task *Task, taskDir string, manifestPath string, extraEnv []string) (*TaskRunnerManifest, error) {
-	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+	if err := os.MkdirAll(taskDir, 0o750); err != nil {
 		return nil, err
 	}
 	payload := map[string]any{
@@ -51,17 +53,20 @@ func (r *TaskRunner) Run(task *Task, taskDir string, manifestPath string, extraE
 		"--task-dir", taskDir,
 		"--output", manifestPath,
 	)
-	command := exec.Command(r.command[0], args...)
+	// #nosec G204 -- the command comes from the operator-configured TASK_RUNNER.
+	command := exec.CommandContext(context.Background(), r.command[0], args...)
 	command.Dir = taskDir
 	command.Env = append(os.Environ(), extraEnv...)
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	if err := command.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			return nil, runnerExitError(exitErr.ExitCode(), stderr.String())
 		}
 		return nil, fmt.Errorf("task runner could not be started: %w", err)
 	}
+	// #nosec G304 -- the manifest path is inside the worker's own task directory.
 	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("task runner produced no result manifest")

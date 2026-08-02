@@ -3,6 +3,7 @@ package agent
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +21,8 @@ func newTestClient(t *testing.T, server *httptest.Server) *Client {
 
 func TestClientRegisterClaimHeartbeat(t *testing.T) {
 	var registered, claimed, heartbeated bool
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server //nolint:staticcheck // the handler closure references server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			http.Error(w, "missing token", http.StatusUnauthorized)
 			return
@@ -76,7 +78,8 @@ func TestClientRegisterClaimHeartbeat(t *testing.T) {
 }
 
 func TestClientClaimEmptyAndConflict(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server //nolint:staticcheck // the handler closure references server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/tasks/claim":
 			w.WriteHeader(http.StatusNoContent)
@@ -103,14 +106,14 @@ func TestClientClaimEmptyAndConflict(t *testing.T) {
 	}
 	if _, err := client.Heartbeat(claimed, "worker"); err == nil {
 		t.Error("expected conflict error")
-	} else if _, ok := err.(*ConflictError); !ok {
+	} else if !errors.As(err, &conflictError) {
 		t.Errorf("error type = %T", err)
 	}
 }
 
 func TestClientUploadSubmitFail(t *testing.T) {
 	var uploadedPath string
-	var server *httptest.Server
+	var server *httptest.Server //nolint:staticcheck // the handler closure references server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/tasks/11111111-1111-4111-8111-111111111111/artifacts/"):
@@ -162,14 +165,12 @@ func TestClientUploadSubmitFail(t *testing.T) {
 
 func TestClientDownloadVerifiesChecksumAndStripsAuthOnRedirect(t *testing.T) {
 	var redirectedAuth string
-	var bucket *httptest.Server
-	bucket = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	bucket := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		redirectedAuth = r.Header.Get("Authorization")
 		_, _ = w.Write([]byte("input bytes"))
 	}))
 	defer bucket.Close()
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/tasks/11111111-1111-4111-8111-111111111111/input" {
 			http.Redirect(w, r, bucket.URL+"/presigned", http.StatusFound)
 			return

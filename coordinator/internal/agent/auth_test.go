@@ -11,8 +11,7 @@ import (
 
 func TestWorkerKeyTokenExchangesAndCaches(t *testing.T) {
 	var exchanges atomic.Int64
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/worker-tokens/exchange" {
 			http.NotFound(w, r)
 			return
@@ -53,8 +52,7 @@ func TestWorkerKeyTokenExchangesAndCaches(t *testing.T) {
 }
 
 func TestWorkerKeyTokenRejectsBadKey(t *testing.T) {
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
 	defer server.Close()
@@ -76,8 +74,7 @@ func TestNewTokenProviderSelectsStrategy(t *testing.T) {
 
 func TestClientRefreshesTokenOnceOn401(t *testing.T) {
 	var attempts atomic.Int64
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts.Add(1)
 		if attempts.Load() == 1 {
 			w.WriteHeader(http.StatusUnauthorized)

@@ -1,10 +1,8 @@
 package agent
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -21,6 +19,9 @@ type Outcome struct {
 
 // Daemon is the agent state machine: register, claim, execute via the Python
 // task runner, upload, and submit — mirroring the Python worker's lifecycle.
+// conflictError is the errors.As target for lease conflicts.
+var conflictError *ConflictError
+
 type Daemon struct {
 	config     *Config
 	client     *Client
@@ -159,14 +160,14 @@ func (d *Daemon) runOnce() (Outcome, error) {
 	}
 	started := time.Now()
 	taskDir := filepath.Join(d.config.WorkDir, task.TaskID, fmt.Sprint(task.Attempt))
-	if err := os.MkdirAll(taskDir, 0o755); err != nil {
+	if err := os.MkdirAll(taskDir, 0o750); err != nil {
 		return Outcome{Claimed: true}, err
 	}
 	heartbeat := newLeaseHeartbeat(task, workerID, d.client, d.config.Heartbeat)
 	completed := false
 	err = heartbeat.Start()
 	if err != nil {
-		if _, ok := err.(*ConflictError); ok {
+		if errors.As(err, &conflictError) {
 			d.log.Warn("lease lost", "task_id", task.TaskID)
 			return Outcome{Claimed: true}, nil
 		}
@@ -178,7 +179,7 @@ func (d *Daemon) runOnce() (Outcome, error) {
 	// attempt directories are retained under the work directory.
 	failure := d.executeTask(task, workerID, taskDir, started, heartbeat)
 	if failure != nil {
-		if _, ok := failure.(*ConflictError); ok {
+		if errors.As(failure, &conflictError) {
 			d.log.Warn("lease lost", "task_id", task.TaskID)
 			return Outcome{Claimed: true}, nil
 		}
@@ -235,17 +236,17 @@ func (d *Daemon) executeTask(task *Task, workerID, taskDir string, started time.
 
 func (d *Daemon) reportFailure(task *Task, workerID string, failure error) {
 	var code string
-	switch failure.(type) {
-	case *CoordinatorError:
+	var coordinatorErr *CoordinatorError
+	if errors.As(failure, &coordinatorErr) {
 		code = "ValueError"
-	default:
+	} else {
 		code = "TaskRunnerFailed"
 	}
 	retryable := IsRetryableError(failure)
 	message := SanitizeErrorMessage(failure.Error(), d.config.WorkDir)
 	d.log.Warn("task failed", "task_id", task.TaskID, "error_code", code, "retryable", retryable)
 	if err := d.client.Fail(task, workerID, code, message, retryable); err != nil {
-		if _, ok := err.(*ConflictError); ok {
+		if errors.As(err, &conflictError) {
 			d.log.Warn("lease lost while reporting failure", "task_id", task.TaskID)
 			return
 		}
@@ -332,18 +333,4 @@ func (h *leaseHeartbeat) nextDelay() time.Duration {
 
 func roundSeconds(seconds float64) float64 {
 	return float64(int64(seconds*1000)) / 1000
-}
-
-// File-digest helper used by tests.
-func sha256File(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	digest := sha256.New()
-	if _, err := io.Copy(digest, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(digest.Sum(nil)), nil
 }

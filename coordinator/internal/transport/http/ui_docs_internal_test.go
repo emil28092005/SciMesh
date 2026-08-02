@@ -1,6 +1,7 @@
 package http
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -34,13 +35,13 @@ func TestUIDocsServesIndexAndNestedFiles(t *testing.T) {
 	server := docsTestServer(t, root)
 
 	index := httptest.NewRecorder()
-	server.handleUIDocs(index, httptest.NewRequest(http.MethodGet, "/ui/docs/", nil))
+	server.handleUIDocs(index, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ui/docs/", nil))
 	if index.Code != http.StatusOK || !strings.Contains(index.Body.String(), "<h1>Home</h1>") {
 		t.Fatalf("index = %d %q", index.Code, index.Body.String())
 	}
 
 	page := httptest.NewRecorder()
-	server.handleUIDocs(page, httptest.NewRequest(http.MethodGet, "/ui/docs/api/page.html", nil))
+	server.handleUIDocs(page, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ui/docs/api/page.html", nil))
 	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "<h1>API page</h1>") {
 		t.Fatalf("nested page = %d %q", page.Code, page.Body.String())
 	}
@@ -54,7 +55,7 @@ func TestUIDocsRejectsPathTraversal(t *testing.T) {
 	}
 	server := docsTestServer(t, root)
 
-	request := httptest.NewRequest(http.MethodGet, "/ui/docs/../secret.txt", nil)
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ui/docs/../secret.txt", nil)
 	request.URL.Path = "/ui/docs/../secret.txt"
 	recorder := httptest.NewRecorder()
 	server.handleUIDocs(recorder, request)
@@ -66,14 +67,14 @@ func TestUIDocsRejectsPathTraversal(t *testing.T) {
 func TestUIDocsShowsBuildHintWhenDisabledOrMissing(t *testing.T) {
 	disabled := docsTestServer(t, "")
 	recorder := httptest.NewRecorder()
-	disabled.handleUIDocs(recorder, httptest.NewRequest(http.MethodGet, "/ui/docs/", nil))
+	disabled.handleUIDocs(recorder, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ui/docs/", nil))
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "Documentation is not available") {
 		t.Fatalf("disabled docs = %d %q", recorder.Code, recorder.Body.String())
 	}
 
 	missing := docsTestServer(t, filepath.Join(t.TempDir(), "does-not-exist"))
 	recorder = httptest.NewRecorder()
-	missing.handleUIDocs(recorder, httptest.NewRequest(http.MethodGet, "/ui/docs/", nil))
+	missing.handleUIDocs(recorder, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ui/docs/", nil))
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "Documentation is not available") {
 		t.Fatalf("missing docs = %d %q", recorder.Code, recorder.Body.String())
 	}
@@ -82,7 +83,7 @@ func TestUIDocsShowsBuildHintWhenDisabledOrMissing(t *testing.T) {
 func TestUIDocsIndexRedirectsToTrailingSlash(t *testing.T) {
 	server := docsTestServer(t, t.TempDir())
 	recorder := httptest.NewRecorder()
-	server.handleUIDocsIndex(recorder, httptest.NewRequest(http.MethodGet, "/ui/docs", nil))
+	server.handleUIDocsIndex(recorder, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ui/docs", nil))
 	if recorder.Code != http.StatusPermanentRedirect || recorder.Header().Get("Location") != "/ui/docs/" {
 		t.Fatalf("redirect = %d %q", recorder.Code, recorder.Header().Get("Location"))
 	}

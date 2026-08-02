@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -215,7 +216,7 @@ func (c *Client) Download(uri, destination string) (string, error) {
 	if resolved.Scheme != "http" && resolved.Scheme != "https" {
 		return "", fmt.Errorf("input URI must be an HTTP(S) URL")
 	}
-	request, err := http.NewRequest(http.MethodGet, resolved.String(), nil)
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, resolved.String(), nil)
 	if err != nil {
 		return "", err
 	}
@@ -230,17 +231,18 @@ func (c *Client) Download(uri, destination string) (string, error) {
 	if err != nil {
 		return "", &TransientError{msg: "input download failed"}
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusUnauthorized && c.refreshAndRetry() {
 		return c.Download(uri, destination)
 	}
 	if response.StatusCode != http.StatusOK {
 		return "", &CoordinatorError{msg: fmt.Sprintf("input download rejected with status %d", response.StatusCode)}
 	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
 		return "", err
 	}
-	target, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	// #nosec G304 -- destination is the worker's own attempt directory file.
+	target, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return "", err
 	}
@@ -248,7 +250,7 @@ func (c *Client) Download(uri, destination string) (string, error) {
 	_, copyErr := io.Copy(io.MultiWriter(target, digest), response.Body)
 	closeErr := target.Close()
 	if copyErr != nil {
-		os.Remove(destination)
+		_ = os.Remove(destination)
 		return "", &TransientError{msg: "input download interrupted"}
 	}
 	if closeErr != nil {
@@ -259,29 +261,30 @@ func (c *Client) Download(uri, destination string) (string, error) {
 
 // Upload streams a partial artifact and verifies the returned metadata.
 func (c *Client) Upload(task *Task, workerID string, path, contentType string) (*Uploaded, error) {
+	// #nosec G304 -- the upload path is this worker's own artifact file.
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	info, err := file.Stat()
 	if err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, err
 	}
 	digest := sha256.New()
 	if _, err := io.Copy(digest, file); err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, err
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, err
 	}
 	localSHA := hex.EncodeToString(digest.Sum(nil))
 	uploadURL := c.baseURL + "/tasks/" + url.PathEscape(task.TaskID) + "/artifacts/" + url.PathEscape(filepath.Base(path))
-	request, err := http.NewRequest(http.MethodPut, uploadURL, file)
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPut, uploadURL, file)
 	if err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, err
 	}
 	request.ContentLength = info.Size()
@@ -290,18 +293,18 @@ func (c *Client) Upload(task *Task, workerID string, path, contentType string) (
 	request.Header.Set("X-Task-Attempt", strconv.Itoa(task.Attempt))
 	headers, err := c.authHeaders()
 	if err != nil {
-		file.Close()
+		_ = file.Close()
 		return nil, err
 	}
 	for name, value := range headers {
 		request.Header.Set(name, value)
 	}
 	response, err := c.apiClient.Do(request)
-	file.Close()
+	_ = file.Close()
 	if err != nil {
 		return nil, &TransientError{msg: "artifact upload failed"}
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {
 		return nil, &TransientError{msg: "artifact upload interrupted"}
@@ -334,7 +337,7 @@ func (c *Client) requestJSON(method, path string, payload any) (int, map[string]
 	if err != nil {
 		return 0, nil, err
 	}
-	request, err := http.NewRequest(method, c.baseURL+path, bytes.NewReader(body))
+	request, err := http.NewRequestWithContext(context.Background(), method, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
 	}
@@ -350,7 +353,7 @@ func (c *Client) requestJSON(method, path string, payload any) (int, map[string]
 	if err != nil {
 		return 0, nil, &TransientError{msg: "coordinator request failed"}
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {
 		return 0, nil, &TransientError{msg: "coordinator request interrupted"}

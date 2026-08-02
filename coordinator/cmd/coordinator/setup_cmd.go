@@ -16,8 +16,8 @@ import (
 func runSetup(args []string) error {
 	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
 	flags.Usage = func() {
-		fmt.Fprintf(flags.Output(), "usage: coordinator setup [options]\n")
-		fmt.Fprintf(flags.Output(), "Provisions the coordinator database, schema, and local .env settings.\n\n")
+		_, _ = fmt.Fprintf(flags.Output(), "usage: coordinator setup [options]\n")
+		_, _ = fmt.Fprintf(flags.Output(), "Provisions the coordinator database, schema, and local .env settings.\n\n")
 		flags.PrintDefaults()
 	}
 	var (
@@ -68,7 +68,7 @@ func runSetup(args []string) error {
 		log.Error("setup failed", "err", err)
 		return err
 	}
-	fmt.Fprint(os.Stdout, summary)
+	_, _ = fmt.Fprint(os.Stdout, summary)
 	log.Info("setup complete")
 	return nil
 }

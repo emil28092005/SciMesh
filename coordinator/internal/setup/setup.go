@@ -58,7 +58,7 @@ func Run(ctx context.Context, options Options) (string, error) {
 	}
 
 	report := func(format string, args ...any) {
-		fmt.Fprintf(options.Out, format+"\n", args...)
+		_, _ = fmt.Fprintf(options.Out, format+"\n", args...)
 	}
 
 	report("SciMesh coordinator setup")
@@ -195,6 +195,7 @@ func writeEnvFile(options Options, secret, storageDir string) error {
 		"COORDINATOR_STORAGE_DIR=" + storageDir,
 		"", // trailing newline
 	}, "\n")
+	// #nosec G703 -- the env file path is operator-supplied (--env-file / ENV_FILE).
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
@@ -224,7 +225,7 @@ func SanitizeDatabaseURL(raw string) string {
 
 // prompt asks a question and returns the trimmed answer ("" on EOF).
 func prompt(options Options, question, fallback string) string {
-	fmt.Fprintf(options.Out, "%s [%s]: ", question, fallback)
+	_, _ = fmt.Fprintf(options.Out, "%s [%s]: ", question, fallback)
 	reader := bufio.NewReader(options.In)
 	line, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -69,7 +70,7 @@ func (p *WorkerKeyToken) exchangeLocked() error {
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequest(http.MethodPost, p.userserviceURL+"/worker-tokens/exchange", bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodPost, p.userserviceURL+"/worker-tokens/exchange", bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -79,7 +80,7 @@ func (p *WorkerKeyToken) exchangeLocked() error {
 	if err != nil {
 		return fmt.Errorf("worker key exchange request failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return fmt.Errorf("worker key exchange rejected with status %d", response.StatusCode)
 	}

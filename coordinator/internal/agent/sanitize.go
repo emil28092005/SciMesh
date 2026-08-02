@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -36,10 +37,9 @@ func IsRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
-	switch err.(type) {
-	case *CoordinatorError:
-		return false
-	case *os.PathError:
+	var coordinatorErr *CoordinatorError
+	var pathErr *os.PathError
+	if errors.As(err, &coordinatorErr) || errors.As(err, &pathErr) {
 		return false
 	}
 	return true
