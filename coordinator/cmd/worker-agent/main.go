@@ -16,7 +16,13 @@ func main() {
 		os.Exit(2)
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	client := agent.NewClient(config.CoordinatorURL, config.Token, config.RequestTimeout)
+	tokens := agent.NewTokenProvider(
+		config.WorkerKey,
+		config.UserserviceURL,
+		config.Token,
+		config.RequestTimeout,
+	)
+	client := agent.NewClient(config.CoordinatorURL, tokens, config.RequestTimeout)
 	runner := agent.NewTaskRunner(config.TaskRunner)
 	daemon := agent.NewDaemon(config, client, runner, logger)
 	if err := daemon.RunForever(); err != nil {

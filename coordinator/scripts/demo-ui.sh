@@ -28,7 +28,7 @@ case "$demo_dir" in
   /*) ;;
   *) demo_dir="$coordinator_dir/$demo_dir" ;;
 esac
-worker_bin=${SCIMESH_WORKER_BIN:-"$repo_dir/.venv/bin/scimesh-worker"}
+agent_bin=${SCIMESH_AGENT_BIN:-"$coordinator_dir/bin/worker-agent"}
 pid_file="$demo_dir/workers.pids"
 logs_dir="$demo_dir/logs"
 
@@ -79,11 +79,21 @@ stop_workers() {
     [[ "$pid" =~ ^[0-9]+$ ]] || continue
     command_line=$(ps -p "$pid" -o args= 2>/dev/null || true)
     # Never kill a recycled PID or a worker launched outside this demo.
-    if [[ "$command_line" == *"$demo_dir/worker-"* ]]; then
+    if [[ "$command_line" == *"worker-agent"* ]]; then
       kill "$pid" 2>/dev/null || true
     fi
   done < "$pid_file"
   rm -f "$pid_file"
+}
+
+build_agent() {
+  if [[ ! -x "$agent_bin" ]]; then
+    echo "Building the Go worker agent..." >&2
+    make -C "$coordinator_dir" agent >&2 || {
+      echo "Failed to build the Go worker agent." >&2
+      exit 2
+    }
+  fi
 }
 
 wait_for_coordinator() {
@@ -145,11 +155,7 @@ start() {
     echo "DEMO_WORKERS must be a positive integer (got $workers)." >&2
     exit 2
   fi
-  if [[ ! -x "$worker_bin" ]]; then
-    echo "Reference worker not found: $worker_bin" >&2
-    echo "Create it first from the repository root: python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'" >&2
-    exit 2
-  fi
+  build_agent
   command -v docker >/dev/null || { echo "Docker is required." >&2; exit 2; }
   command -v curl >/dev/null || { echo "curl is required." >&2; exit 2; }
 
@@ -162,14 +168,21 @@ start() {
   wait_for_userservice
 
   : > "$pid_file"
+  task_runner="[\"$repo_dir/.venv/bin/python\",\"-m\",\"scimesh.worker.task\"]"
   for index in $(seq 1 "$workers"); do
     work_dir="$demo_dir/worker-$index"
     mkdir -p "$work_dir"
-    SCIMESH_COORDINATOR_URL="http://localhost:$coordinator_port" \
-    SCIMESH_BEARER_TOKEN="$worker_token" \
-    "$worker_bin" \
-      --worker-name "demo-worker-$index" \
-      --work-dir "$work_dir" \
+    COORDINATOR_URL="http://localhost:$coordinator_port" \
+    WORKER_AUTH_TOKEN="$worker_token" \
+    WORKER_NAME="demo-worker-$index" \
+    WORK_DIR="$work_dir" \
+    CPU_COUNT=1 \
+    MEMORY_MB=1024 \
+    POLL_INTERVAL=0.5s \
+    REQUEST_TIMEOUT=15s \
+    HEARTBEAT_INTERVAL=15s \
+    TASK_RUNNER="$task_runner" \
+    "$agent_bin" \
       >"$logs_dir/worker-$index.log" 2>&1 &
     echo "$!" >> "$pid_file"
   done
@@ -184,7 +197,7 @@ SciMesh manual demo is ready.
   Userservice: http://localhost:$userservice_port
   Grafana:     http://localhost:$grafana_port   (anonymous view; admin/${GRAFANA_PASSWORD:-admin} to edit)
   Prometheus:  http://localhost:$prometheus_port
-  Workers:     $workers local reference workers
+  Workers:     $workers Go worker agents (Python task execution)
 
 Sign in with the admin above, or register a new account from the login page.
 The admin sees every job; a plain user sees only their own. Upload a small

@@ -1,5 +1,8 @@
-"""Worker daemon for executing coordinator-assigned SciMesh workloads."""
+"""Per-task execution for the Go worker agent.
 
-from .daemon import WorkerDaemon
-
-__all__ = ["WorkerDaemon"]
+This package contains the Python side of a claimed task: the wire value
+objects (``models``), the SDK execution bridge (``runners``), and the
+command-line task entry (``task``). The agent lifecycle itself lives in the
+Go worker agent (``coordinator/internal/agent``); this package is only ever
+invoked by it, one process per task.
+"""

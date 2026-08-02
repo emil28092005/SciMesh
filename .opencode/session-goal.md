@@ -12,12 +12,10 @@ COMPLETED
 
 ## Progress
 
-- [x] Аудит: ruff F401/F811/F841 — 26 неиспользуемых импортов; vulture — кандидаты проверены grep'ом.
-- [x] Удалено:
-  - 25 неиспользуемых импортов (ruff --fix) + 1 неиспользуемая локальная переменная в тесте;
-  - мёртвые функции descriptors/core.py `write_descriptor_shards`/`concatenate_descriptor_shards` (вытеснены дефолтами MapReduceWorkload; ссылки только в собственном `__init__`) + их экспорты;
-  - мёртвые атрибуты `MapReduceWorkload._resources/_execution` (записывались, нигде не читались);
-  - мёртвый `CancellationFlag.cancel` (0 использований);
-- [x] `scripts/two-worker-smoke.sh` (рабочий E2E, но без точки входа) подключён как `make smoke-two-worker` — не мёртвый, а доступный.
-- [x] Проверено: ruff clean; pytest 260 passed; pyright 0 ошибок (scimesh+tests); go test 11 пакетов + vet; mkdocs build без warnings.
-- [x] Изменения не закоммичены.
+Эта сессия (доп. задача): Go-агент доведён до паритета, Python-демон удалён.
+- [x] Go-агент: token provider (static + worker-key exchange + 401 refresh на API/download/upload), CLEANUP_AFTER_SECONDS (очистка attempt-директорий), тесты auth (exchange/cache/reject/select/401-retry).
+- [x] Python: удалены daemon.py, cli.py, config.py, coordinator.py, artifacts.py, auth.py, transport.py; `scimesh/worker/` = только task.py + runners.py (SDK-мост, allowlist из env) + models.py (ClaimedTask/RunResult); консольный скрипт scimesh-worker убран из pyproject.
+- [x] Тесты: удалены test_worker_daemon.py, test_worker_auth.py; 208 pytest зелёные.
+- [x] Демо/смок переведены на Go-агент (demo-ui.sh: build_agent + env; two-worker-smoke.sh: AGENT_BIN + TASK_RUNNER_JSON). `make smoke-two-worker` PASS: 4/4 шардов, worker-a=2, worker-b=2.
+- [x] Документация: README, AGENTS.md, STATUS, handoff, mkdocs worker-integration/cli.
+- [x] Верификация: ruff clean; 208 pytest; pyright 0 (scimesh+tests); go test 11 пакетов + vet; mkdocs 0 warnings.

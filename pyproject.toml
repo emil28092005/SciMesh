@@ -20,7 +20,6 @@ dev = [
 
 [project.scripts]
 scimesh = "scimesh.cli:main"
-scimesh-worker = "scimesh.worker.cli:main"
 
 [project.entry-points."scimesh.workloads"]
 "similarity-search@1.0.0" = "scimesh.workloads.search:workload_definition"

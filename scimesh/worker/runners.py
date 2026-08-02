@@ -46,8 +46,8 @@ from scimesh.sdk.runtime import (
 )
 from scimesh.sdk.workflow import StageKind
 
-from .config import WorkerConfig
 from .models import ClaimedTask, ProducedArtifact, RunResult
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -55,6 +55,38 @@ def _utc_now() -> str:
 
 class Runner(Protocol):
     def run(self, task: ClaimedTask, task_dir: Path) -> RunResult: ...
+
+
+def _definitions_from_environment() -> dict[str, WorkloadDefinition]:
+    """Load definitions from ``SCIMESH_WORKLOAD_ALLOWLIST`` or the built-ins.
+
+    The environment-driven discovery mirrors the former worker configuration;
+    the Go agent passes the allowlist through unchanged.
+    """
+    import os
+
+    from scimesh.sdk.registry import workload_allowlist_from_json
+
+    allowlist = workload_allowlist_from_json(os.getenv("SCIMESH_WORKLOAD_ALLOWLIST"))
+    if allowlist:
+        registry = WorkloadRegistry()
+        registry.discover_installed(allowlist)
+        definitions: dict[str, WorkloadDefinition] = {}
+        for description in registry.descriptions():
+            definition, _ = registry.require(
+                description.workload.name,
+                description.workload.version,
+                description.package_digest,
+            )
+            definitions[description.workload.name] = definition
+        if not definitions:
+            raise ValueError("workload_allowlist discovered no workloads")
+        return definitions
+    from scimesh.workloads.search import similarity_search_sdk_definition
+
+    return {
+        "similarity-search": similarity_search_sdk_definition().definition(),
+    }
 
 
 def _inventory_for(
@@ -91,7 +123,12 @@ def _runtime_for(
 
 
 class SciMeshRunner:
-    """Execute claimed coordinator tasks through SDK-built workloads."""
+    """Execute claimed coordinator tasks through SDK-built workloads.
+
+    Definitions come from ``SCIMESH_WORKLOAD_ALLOWLIST`` when set, otherwise
+    the built-in ``similarity-search``; callers may supply an explicit mapping
+    for tests.
+    """
 
     def __init__(
         self,
@@ -100,13 +137,9 @@ class SciMeshRunner:
         inventory: ResourceInventory | None = None,
         runtime: RuntimeCapabilities | None = None,
     ) -> None:
-        self._definitions = dict(definitions or {})
-        if "similarity-search" not in self._definitions:
-            from scimesh.workloads.search import similarity_search_sdk_definition
-
-            self._definitions["similarity-search"] = (
-                similarity_search_sdk_definition().definition()
-            )
+        if definitions is None:
+            definitions = _definitions_from_environment()
+        self._definitions = dict(definitions)
         self._inventory = inventory or _inventory_for(
             self._definitions,
             cpu_cores=1,
@@ -114,35 +147,6 @@ class SciMeshRunner:
         )
         self._runtime = runtime or _runtime_for(self._definitions, self._inventory)
         self._pool = ResourcePool(self._runtime.inventory, max_concurrency=1)
-
-    @classmethod
-    def for_worker(cls, config: WorkerConfig) -> "SciMeshRunner":
-        """Build a runner for one worker: discover allowlisted workloads or use built-ins."""
-        definitions: dict[str, WorkloadDefinition] = {}
-        if config.workload_allowlist:
-            registry = WorkloadRegistry()
-            registry.discover_installed(config.workload_allowlist)
-            for description in registry.descriptions():
-                definition, _ = registry.require(
-                    description.workload.name,
-                    description.workload.version,
-                    description.package_digest,
-                )
-                definitions[description.workload.name] = definition
-            if not definitions:
-                raise ValueError("workload_allowlist discovered no workloads")
-        else:
-            from scimesh.workloads.search import similarity_search_sdk_definition
-
-            definitions["similarity-search"] = (
-                similarity_search_sdk_definition().definition()
-            )
-        inventory = _inventory_for(
-            definitions,
-            cpu_cores=config.cpu_count,
-            memory_mb=config.memory_mb or 1024,
-        )
-        return cls(definitions=definitions, inventory=inventory)
 
     def run(self, task: ClaimedTask, task_dir: Path) -> RunResult:
         task_dir = task_dir.resolve()

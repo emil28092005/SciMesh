@@ -139,7 +139,7 @@ func testDaemon(t *testing.T, fake *fakeCoordinator, script string) *Daemon {
 		Capabilities:   []string{"similarity-search"},
 		TaskRunner:     []string{script},
 	}
-	client := NewClient(fake.server.URL, "test-token", 5*time.Second)
+	client := NewClient(fake.server.URL, &StaticToken{token: "test-token"}, 5*time.Second)
 	runner := NewTaskRunner(config.TaskRunner)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	daemon := NewDaemon(config, client, runner, logger)

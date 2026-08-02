@@ -3,7 +3,8 @@
 SciMesh is a scientific-workload framework for molecular datasets. Its public CLI
 runs exact similarity search and sparse similarity-graph construction locally in
 one Python process; it creates no dense similarity matrix. The Go/PostgreSQL
-coordinator and Python worker can run a shard-based `similarity-search`
+coordinator and Go worker agents (which execute SDK workloads in a Python
+subprocess) can run a shard-based `similarity-search`
 pipeline locally. After every shard succeeds, the coordinator deterministically
 merges its candidates into one final global top-k CSV. See
 [`STATUS.md`](STATUS.md).
@@ -65,7 +66,8 @@ documentation rules the site is written by (`mkdocs/approach.md`).
 
 Open `http://localhost:18080/ui` and sign in with username `operator` and
 password `demo-ui-secret`. The command starts PostgreSQL, the coordinator, and
-two local reference workers. Upload a small ChEMBL TSV, then use the job page
+two Go worker agents (built by `make agent`; each executes the SDK workload
+in a Python subprocess). Upload a small ChEMBL TSV, then use the job page
 to follow shard progress, inspect bounded **Preview CSV** results, and see a
 live processing-speed chart in shards per minute. The **Workloads** page shows
 the installed SDK workload library (descriptions, parameters, and artifact

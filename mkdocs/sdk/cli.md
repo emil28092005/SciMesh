@@ -72,5 +72,5 @@ make workloads-export
 | `SCIMESH_WORKLOAD_ALLOWLIST` | JSON array of `{distribution, name, version, digest}` entries; discovery loads the matching installed `scimesh.workloads` entry points |
 | `SCIMESH_CAPABILITIES` | Comma-separated capabilities the worker advertises (default `similarity-search,similarity_search`) |
 
-Both variables are read by the worker (`scimesh-worker`) and the workload
-CLI.
+Both variables are read by the Go worker agent's task subprocess and the
+workload CLI.

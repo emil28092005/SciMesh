@@ -15,7 +15,7 @@ import (
 
 func newTestClient(t *testing.T, server *httptest.Server) *Client {
 	t.Helper()
-	return NewClient(server.URL, "test-token", 5*time.Second)
+	return NewClient(server.URL, &StaticToken{token: "test-token"}, 5*time.Second)
 }
 
 func TestClientRegisterClaimHeartbeat(t *testing.T) {

@@ -41,7 +41,7 @@ the complete result-artifact SHA-256 before a task is accepted.
 | CTX-03 Transactional queue | Implemented | Real-PostgreSQL integration tests cover atomic claims and concurrency. |
 | CTX-04 Worker registry and HTTP API | Implemented | Registration, claim, heartbeat, result, failure, and status endpoints. |
 | CTX-05 Artifact storage | Implemented | Coordinator-owned inputs/results, checksum verification, and upload flow. |
-| CTX-06 Python Worker live-contract alignment | Implemented | Worker completed a real uploaded shard via HTTP on 2026-07-23. |
+| CTX-06 Python Worker live-contract alignment | Superseded | The Python worker daemon was removed; the Go worker agent (`coordinator/internal/agent/` + `cmd/worker-agent`) now implements the lifecycle (register/claim/heartbeat/download/upload/submit/fail, token refresh, cleanup) and executes SDK workloads via the Python task entry `scimesh/worker/task.py`. E2E: `make smoke-two-worker` passes 4/4 shards with two agents. |
 | CTX-07 Distributed workload protocol | Implemented | Versioned Python contract models, registry, strict plan validation, and deterministic reduction ordering are in `scimesh/distributed/`. |
 | CTX-08 Distributed similarity-search | Implemented | Python planner resolves `query_id` once, creates deterministic shard plans, worker adapter emits exact partial top-k CSVs/metrics, and reducer matches the local reference. |
 | CTX-09 Reducer and final-result API | Implemented | Atomic `reducing` claim, deterministic coordinator-side top-k reducer, sanitized reducer failure, final artifact persistence, `result_uri`, and final CSV download. |

@@ -10,10 +10,13 @@ import (
 	"time"
 )
 
-// Config is read only from the environment, mirroring the Python worker.
+// Config is read only from the environment, mirroring the former Python
+// worker's configuration surface.
 type Config struct {
 	CoordinatorURL string
 	Token          string
+	WorkerKey      string
+	UserserviceURL string
 	WorkerName     string
 	WorkerID       string // set after registration; overridable for tests
 	WorkDir        string
@@ -22,6 +25,7 @@ type Config struct {
 	PollInterval   time.Duration
 	RequestTimeout time.Duration
 	Heartbeat      time.Duration
+	CleanupAfter   time.Duration // 0 = keep attempt directories
 	Capabilities   []string
 	TaskRunner     []string // command + args; defaults to python -m scimesh.worker.task
 	MaxTasks       int      // 0 = unlimited
@@ -86,6 +90,10 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	cleanup, err := durationEnv("CLEANUP_AFTER_SECONDS", 0)
+	if err != nil {
+		return nil, err
+	}
 	capabilities, err := envList("CAPABILITIES")
 	if err != nil {
 		return nil, err
@@ -120,6 +128,8 @@ func LoadConfig() (*Config, error) {
 	return &Config{
 		CoordinatorURL: strings.TrimRight(url, "/"),
 		Token:          os.Getenv("WORKER_AUTH_TOKEN"),
+		WorkerKey:      os.Getenv("WORKER_KEY"),
+		UserserviceURL: strings.TrimRight(os.Getenv("USERSERVICE_URL"), "/"),
 		WorkerName:     name,
 		WorkerID:       os.Getenv("WORKER_ID"),
 		WorkDir:        absWorkDir,
@@ -128,6 +138,7 @@ func LoadConfig() (*Config, error) {
 		PollInterval:   poll,
 		RequestTimeout: timeout,
 		Heartbeat:      heartbeat,
+		CleanupAfter:   cleanup,
 		Capabilities:   capabilities,
 		TaskRunner:     runner,
 		MaxTasks:       maxTasks,
@@ -141,8 +152,8 @@ func durationEnv(name string, fallback time.Duration) (time.Duration, error) {
 		return fallback, nil
 	}
 	parsed, err := time.ParseDuration(raw)
-	if err != nil || parsed <= 0 {
-		return 0, fmt.Errorf("%s must be a positive duration", name)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative duration", name)
 	}
 	return parsed, nil
 }

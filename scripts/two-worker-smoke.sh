@@ -19,6 +19,7 @@ WORK_DIR=$(mktemp -d "${TMPDIR:-/tmp}/scimesh-two-worker-smoke.XXXXXX")
 WORKER_ONE_PID=""
 WORKER_TWO_PID=""
 WORKER_PYTHON=${SCIMESH_WORKER_PYTHON:-"$ROOT_DIR/.venv/bin/python"}
+AGENT_BIN=${SCIMESH_AGENT_BIN:-"$ROOT_DIR/coordinator/bin/worker-agent"}
 
 cleanup() {
     local exit_code=$?
@@ -59,6 +60,12 @@ for command in docker curl python3; do require "$command"; done
     printf 'Set SCIMESH_WORKER_PYTHON to a Python environment with SciMesh and RDKit.\n' >&2
     exit 2
 }
+[[ -x "$AGENT_BIN" ]] || {
+    printf 'Go worker agent is not built: %s\n' "$AGENT_BIN" >&2
+    printf 'Run: make -C coordinator agent\n' >&2
+    exit 2
+}
+TASK_RUNNER_JSON="[\"$WORKER_PYTHON\",\"-m\",\"scimesh.worker.task\"]"
 
 printf 'Starting isolated coordinator on %s (project %s)\n' "$HOST" "$COMPOSE_PROJECT"
 (
@@ -80,11 +87,18 @@ curl -fsS "$HOST/health" >/dev/null || {
 start_worker() {
     local worker_name=$1
     local worker_dir=$2
-    SCIMESH_COORDINATOR_URL="$HOST" \
-        SCIMESH_BEARER_TOKEN="$TOKEN" \
-        SCIMESH_WORKER_NAME="$worker_name" \
-        SCIMESH_POLL_INTERVAL=0.2 \
-        "$WORKER_PYTHON" -m scimesh.worker.cli --work-dir "$worker_dir" --max-tasks 2 >"$worker_dir.log" 2>&1 &
+    COORDINATOR_URL="$HOST" \
+        WORKER_AUTH_TOKEN="$TOKEN" \
+        WORKER_NAME="$worker_name" \
+        WORK_DIR="$worker_dir" \
+        CPU_COUNT=1 \
+        MEMORY_MB=1024 \
+        POLL_INTERVAL=0.2s \
+        REQUEST_TIMEOUT=15s \
+        HEARTBEAT_INTERVAL=15s \
+        MAX_TASKS=2 \
+        TASK_RUNNER="$TASK_RUNNER_JSON" \
+        "$AGENT_BIN" >"$worker_dir.log" 2>&1 &
     STARTED_WORKER_PID=$!
 }
 

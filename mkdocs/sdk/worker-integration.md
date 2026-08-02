@@ -1,73 +1,77 @@
 # Worker integration
 
-The Worker Agent (`scimesh-worker`) is a coordinator client, never a
-database client. It polls the coordinator over HTTP, executes SDK-built
-workloads, and uploads partial results through the coordinator — results
-never carry `file://` or `worker://` URIs, and failures go to `/failure`.
+The **Go worker agent** (`coordinator/cmd/worker-agent`, built with
+`make agent`) is the worker: a coordinator client, never a database client.
+It polls the coordinator over HTTP, executes SDK workloads, and uploads
+partial results through the coordinator — results never carry `file://` or
+`worker://` URIs, and failures go to `/failure`.
 
 The same scientific handlers run in three places: the local CLI cores, the
-`LocalCoreBatchExecutor` conformance harness, and the worker — because the
-worker executes the workload's own SDK runner.
+`LocalCoreBatchExecutor` conformance harness, and the agent — because the
+agent spawns the workload's own SDK runner in a Python subprocess per task.
 
 ## Claim lifecycle
 
 ```text
 register -> claim (one task) -> download input + verify sha256
-         -> run via SDK bridge -> upload partial -> submit result
+         -> spawn python -m scimesh.worker.task -> upload partial -> submit
 ```
 
-- **Register**: the worker advertises its capabilities (`similarity-search`
-  by default; extend with `SCIMESH_CAPABILITIES`).
+- **Register**: the agent advertises its capabilities
+  (`CAPABILITIES`, default `similarity-search,similarity_search`).
 - **Claim**: atomic lease of one task; `204` means idle.
 - **Download**: the input is streamed and its SHA-256 verified; the bearer
   token is stripped on cross-origin redirects.
-- **Heartbeat**: a background thread renews the lease from the returned
+- **Heartbeat**: a background goroutine renews the lease from the returned
   deadline at less than half the remaining TTL.
-- **Upload**: the partial CSV is streamed to the coordinator with
-  `X-Worker-ID` / `X-Task-Attempt` headers, then the completion is submitted
-  referencing the coordinator-owned artifact id.
+- **Task execution**: a Python subprocess (`TASK_RUNNER`, default
+  `python -m scimesh.worker.task`) runs the SDK workload; exit 0 writes the
+  result manifest, exit 3 means permanent failure, exit 1 retryable.
+- **Upload**: the partial CSV is streamed with `X-Worker-ID` /
+  `X-Task-Attempt` headers, then completion references the
+  coordinator-owned artifact id.
 - **Failure**: sanitized `error_code` + message (≤300 chars, no local
-  paths, no tracebacks); transient transport errors are retried.
+  paths); transient errors are retried with backoff; lost leases stop
+  quietly.
 
-## The SDK execution bridge
+## Authentication
 
-`scimesh/worker/runners.py` is workload-generic. For a claimed task it:
+- `WORKER_AUTH_TOKEN` — a static bearer token (the shared service token).
+- `WORKER_KEY` + `USERSERVICE_URL` — a long-lived worker key exchanged at
+  the userservice for short-lived JWTs; the agent refreshes them before
+  expiry and retries once after a 401.
 
-1. normalizes the workload name (underscores → hyphens) and looks up the
-   loaded definition;
-2. runs compatibility negotiation against a runtime derived from the loaded
-   definitions (capabilities + pinned environment digests) and the worker
-   inventory (CPU/memory from configuration);
-3. verifies the workload's map stage fits the v1 contract — a single
-   `input` port and a single `partial` output — otherwise it fails closed
-   with a clear message;
-4. imports the downloaded input into a content-addressed local store;
-5. builds a digest-pinned `TaskSpec` (package/manifest/environment digests,
-   trust mode, negotiated features, stage resources and execution profile);
-6. reserves resources through `ResourcePool` and runs the workload's own
-   `Runner` with a `LocalTaskContext` (scoped catalog/sink, provenance,
-   cancellation flag);
-7. validates the returned `OutputManifest` (task key, provenance, sealed
-   vs. declared artifacts, byte budget) and returns the sealed partial for
-   upload.
+## Configuration
 
-Scientific policy lives in the workload: `query_id` resolution, parameter
-validation, and `max_rows` rejection are all handled by the workload's own
-hooks — the bridge passes task parameters through unchanged.
+| Variable | Meaning |
+| --- | --- |
+| `COORDINATOR_URL` | Coordinator base URL (required) |
+| `WORKER_AUTH_TOKEN` | Static bearer token (when no worker key) |
+| `WORKER_KEY` / `USERSERVICE_URL` | Worker-key authentication |
+| `WORK_DIR` | Attempt directory root (default `./scimesh-agent-data`) |
+| `WORKER_NAME` | Registered name (default: hostname) |
+| `WORKER_ID` | Fixed identity override (tests) |
+| `CPU_COUNT` / `MEMORY_MB` | Advertised capacity |
+| `POLL_INTERVAL` / `REQUEST_TIMEOUT` / `HEARTBEAT_INTERVAL` | Timings |
+| `CLEANUP_AFTER_SECONDS` | Delete attempt dirs older than this |
+| `CAPABILITIES` | JSON array of advertised capabilities |
+| `TASK_RUNNER` | JSON command array for the task subprocess |
+| `MAX_TASKS` / `EXIT_WHEN_IDLE` | Lifecycle limits |
 
 ## Loading workloads
 
-The worker loads workloads from `SCIMESH_WORKLOAD_ALLOWLIST` (a JSON array
-of `{distribution, name, version, digest}` entries matched against installed
-`scimesh.workloads` entry points). Discovery measures the installed package
-before and after importing and fails transactionally on any mismatch. When
-no allowlist is configured, the worker falls back to the built-in
-`similarity-search`.
+The task subprocess loads workloads from `SCIMESH_WORKLOAD_ALLOWLIST` (a
+JSON array of `{distribution, name, version, digest}` entries matched
+against installed `scimesh.workloads` entry points) or falls back to the
+built-in `similarity-search`. Discovery measures the installed package
+before and after importing and fails transactionally on any mismatch.
 
 ```bash
-SCIMESH_WORKLOAD_ALLOWLIST='[{"distribution": "scimesh",
-  "name": "descriptor-batch", "version": "1.0.0",
-  "digest": "sha256:..."}]' scimesh-worker --coordinator-url https://...
+make agent
+COORDINATOR_URL=https://coordinator.example \
+WORKER_AUTH_TOKEN=... \
+TASK_RUNNER='["/opt/scimesh/.venv/bin/python","-m","scimesh.worker.task"]' \
+./coordinator/bin/worker-agent
 ```
 
 ## v1 contract limits
@@ -76,7 +80,7 @@ The coordinator protocol v1 persists flat one-input/one-result tasks. Until
 a versioned protocol rollout:
 
 - map stages with more than one input port (for example
-  `similarity-graph`'s block pairs) are **rejected by the bridge** — the
-  coordinator does not create such tasks anyway;
+  `similarity-graph`'s block pairs) are **rejected by the task runner** —
+  the coordinator does not create such tasks anyway;
 - `max_rows` is a plan-time option and is rejected per task;
 - workloads beyond the allowlisted set are rejected as unsupported.

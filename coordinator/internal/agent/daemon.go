@@ -45,6 +45,7 @@ func (d *Daemon) RunForever() error {
 				return err
 			}
 		}
+		d.cleanupExpiredDirectories()
 		outcome, err := d.runOnce()
 		if err != nil {
 			failures++
@@ -107,6 +108,41 @@ func (d *Daemon) workerIDOrEmpty() string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.workerID
+}
+
+// cleanupExpiredDirectories removes task attempt directories older than the
+// configured retention, mirroring the former Python worker's cleanup.
+func (d *Daemon) cleanupExpiredDirectories() {
+	if d.config.CleanupAfter <= 0 {
+		return
+	}
+	cutoff := time.Now().Add(-d.config.CleanupAfter)
+	tasks, err := os.ReadDir(d.config.WorkDir)
+	if err != nil {
+		return
+	}
+	for _, taskEntry := range tasks {
+		if !taskEntry.IsDir() {
+			continue
+		}
+		taskDir := filepath.Join(d.config.WorkDir, taskEntry.Name())
+		attempts, err := os.ReadDir(taskDir)
+		if err != nil {
+			continue
+		}
+		for _, attemptEntry := range attempts {
+			if !attemptEntry.IsDir() {
+				continue
+			}
+			info, err := attemptEntry.Info()
+			if err == nil && info.ModTime().Before(cutoff) {
+				_ = os.RemoveAll(filepath.Join(taskDir, attemptEntry.Name()))
+			}
+		}
+		if entries, err := os.ReadDir(taskDir); err == nil && len(entries) == 0 {
+			_ = os.Remove(taskDir)
+		}
+	}
 }
 
 func (d *Daemon) runOnce() (Outcome, error) {

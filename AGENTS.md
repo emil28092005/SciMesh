@@ -5,8 +5,10 @@
 SciMesh is a Python package for molecular-similarity workloads. Source lives in
 `scimesh/`: `chemistry/` reads data and makes fingerprints, `workloads/`
 contains commands, and `core/` provides the workload protocol and registry.
-The worker daemon in `scimesh/worker/` is a coordinator client, not a database
-client. Tests are in `tests/`; specifications in `docs/`; roadmap: `PLAN.md`.
+The Go worker agent (`coordinator/internal/agent/`) is a coordinator client,
+not a database client; the Python side of a claimed task lives in
+`scimesh/worker/` (the per-task SDK execution entry). Tests are in `tests/`;
+specifications in `docs/`; roadmap: `PLAN.md`.
 
 For distributed work, read `.agents/`, `docs/api-contract.md`,
 and `STATUS.md`. Use one CTX task per pull request; local workloads are the

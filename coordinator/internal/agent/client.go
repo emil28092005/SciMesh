@@ -31,23 +31,25 @@ type ConflictError struct{ msg string }
 
 func (e *ConflictError) Error() string { return e.msg }
 
-// Client speaks the v1 worker contract over HTTP with a static bearer token.
+// Client speaks the v1 worker contract over HTTP with a token provider.
 //
 // API calls never follow redirects (a redirect is a contract violation); the
 // artifact download follows redirects but strips the Authorization header on
 // cross-origin hops, matching the Python worker's SameOriginAuthRedirectHandler.
+// A 401 response refreshes the token exactly once and retries, so a lapsed JWT
+// does not fail an in-flight task.
 type Client struct {
 	baseURL   string
-	token     string
+	tokens    TokenProvider
 	timeout   time.Duration
 	apiClient *http.Client
 	dlClient  *http.Client
 }
 
-func NewClient(baseURL, token string, timeout time.Duration) *Client {
+func NewClient(baseURL string, tokens TokenProvider, timeout time.Duration) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		token:   token,
+		tokens:  tokens,
 		timeout: timeout,
 		apiClient: &http.Client{
 			Timeout:       timeout,
@@ -74,11 +76,19 @@ func origin(u *url.URL) string {
 	return u.Scheme + "://" + u.Host
 }
 
-func (c *Client) authHeaders() map[string]string {
-	if c.token == "" {
-		return map[string]string{}
+func (c *Client) authHeaders() (map[string]string, error) {
+	token, err := c.tokens.Token()
+	if err != nil {
+		return nil, &CoordinatorError{msg: "token refresh failed: " + err.Error()}
 	}
-	return map[string]string{"Authorization": "Bearer " + c.token}
+	if token == "" {
+		return map[string]string{}, nil
+	}
+	return map[string]string{"Authorization": "Bearer " + token}, nil
+}
+
+func (c *Client) refreshAndRetry() bool {
+	return c.tokens.Refresh() == nil
 }
 
 // Register advertises the worker and returns its identity and heartbeat policy.
@@ -209,7 +219,11 @@ func (c *Client) Download(uri, destination string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for name, value := range c.authHeaders() {
+	headers, err := c.authHeaders()
+	if err != nil {
+		return "", err
+	}
+	for name, value := range headers {
 		request.Header.Set(name, value)
 	}
 	response, err := c.dlClient.Do(request)
@@ -217,6 +231,9 @@ func (c *Client) Download(uri, destination string) (string, error) {
 		return "", &TransientError{msg: "input download failed"}
 	}
 	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized && c.refreshAndRetry() {
+		return c.Download(uri, destination)
+	}
 	if response.StatusCode != http.StatusOK {
 		return "", &CoordinatorError{msg: fmt.Sprintf("input download rejected with status %d", response.StatusCode)}
 	}
@@ -271,7 +288,12 @@ func (c *Client) Upload(task *Task, workerID string, path, contentType string) (
 	request.Header.Set("Content-Type", contentType)
 	request.Header.Set("X-Worker-ID", workerID)
 	request.Header.Set("X-Task-Attempt", strconv.Itoa(task.Attempt))
-	for name, value := range c.authHeaders() {
+	headers, err := c.authHeaders()
+	if err != nil {
+		file.Close()
+		return nil, err
+	}
+	for name, value := range headers {
 		request.Header.Set(name, value)
 	}
 	response, err := c.apiClient.Do(request)
@@ -286,6 +308,9 @@ func (c *Client) Upload(task *Task, workerID string, path, contentType string) (
 	}
 	if response.StatusCode == http.StatusConflict {
 		return nil, &ConflictError{msg: "artifact upload rejected because the task lease was lost"}
+	}
+	if response.StatusCode == http.StatusUnauthorized && c.refreshAndRetry() {
+		return c.Upload(task, workerID, path, contentType)
 	}
 	if response.StatusCode != http.StatusOK {
 		return nil, &CoordinatorError{msg: fmt.Sprintf("artifact upload rejected with status %d", response.StatusCode)}
@@ -314,7 +339,11 @@ func (c *Client) requestJSON(method, path string, payload any) (int, map[string]
 		return 0, nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	for name, value := range c.authHeaders() {
+	headers, err := c.authHeaders()
+	if err != nil {
+		return 0, nil, err
+	}
+	for name, value := range headers {
 		request.Header.Set(name, value)
 	}
 	response, err := c.apiClient.Do(request)
@@ -325,6 +354,9 @@ func (c *Client) requestJSON(method, path string, payload any) (int, map[string]
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {
 		return 0, nil, &TransientError{msg: "coordinator request interrupted"}
+	}
+	if response.StatusCode == http.StatusUnauthorized && c.refreshAndRetry() {
+		return c.requestJSON(method, path, payload)
 	}
 	if response.StatusCode >= 500 {
 		return response.StatusCode, nil, &TransientError{msg: fmt.Sprintf("coordinator returned %d", response.StatusCode)}
