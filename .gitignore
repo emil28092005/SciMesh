@@ -17,3 +17,4 @@ worker-data*/
 scimesh-worker-data/
 coordinator/.demo/
 site/
+coordinator/bin/

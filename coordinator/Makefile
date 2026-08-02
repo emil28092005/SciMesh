@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke workloads-export demo-ui demo-down demo-reset demo-logs
+.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke agent workloads-export demo-ui demo-down demo-reset demo-logs
 
 # `check` deliberately uses its own Compose project and host ports. This keeps
 # it from connecting to or replacing a developer's local PostgreSQL instance.
@@ -30,6 +30,13 @@ DEMO_DIR ?= .demo
 # workload library. It is checked in so the binary embeds it; regenerate it
 # whenever workloads or their manifests change (requires the Python venv).
 WORKLOADS_JSON := internal/transport/http/workloads.json
+
+# The Go worker agent: a static coordinator client that executes SDK
+# workloads in a Python subprocess per claimed task. The Python worker remains
+# the reference implementation.
+agent:
+	CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/worker-agent ./cmd/worker-agent
+	@printf '%s\n' 	  'Built bin/worker-agent. Configure via environment:' 	  '  COORDINATOR_URL, WORKER_AUTH_TOKEN, WORK_DIR, CPU_COUNT, MEMORY_MB,' 	  '  POLL_INTERVAL, REQUEST_TIMEOUT, HEARTBEAT_INTERVAL, CAPABILITIES,' 	  '  TASK_RUNNER, MAX_TASKS, EXIT_WHEN_IDLE, WORKER_NAME, WORKER_ID'
 
 workloads-export:
 	cd .. && .venv/bin/scimesh workload export -o coordinator/$(WORKLOADS_JSON)

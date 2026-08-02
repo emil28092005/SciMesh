@@ -28,6 +28,8 @@ resolves `query_id` per task and rejects plan-time `max_rows`.
 
 **MkDocs site (2026-08-02):** the standalone documentation site lives in `mkdocs/` (`docs_dir: mkdocs`) and does not use the project's `docs/` directory. It contains guides (`mkdocs/sdk/`: overview, authoring-workloads, cli, worker-integration), the full auto-generated API reference for all `scimesh.sdk` modules (`mkdocs/api/`, mkdocstrings `::: scimesh.sdk.<module>` — set `show_if_no_docstring: true`), and the writing rules (`mkdocs/approach.md`). `make docs` builds it; the UI serves it at `/ui/docs/`. All public SDK members now carry Google-style docstrings.
 
+**Go worker agent prototype (2026-08-02):** `coordinator/internal/agent/` (config, models, client, sanitize, taskrunner, daemon) + `coordinator/cmd/worker-agent`, built with `make agent`. It mirrors the Python worker's v1 lifecycle; per-task SDK execution happens in a Python subprocess (`scimesh/worker/task.py`: exits 0 on success, 3 permanent, 1 retryable). Default `TASK_RUNNER` is `python -m scimesh.worker.task` — set it to the venv python in source checkouts. Verified E2E against the demo coordinator. Open items: JWT refresh, resource slots/limits, attempt-dir cleanup, protocol-v2 features.
+
 **Authoring scaffold (2026-08-01):** `scimesh/sdk/batch.py` adds
 `MapReduceWorkload` — the primary authoring surface for `core-batch-v1`. A
 subclass declares identity/parameters/ports and three scientific hooks
