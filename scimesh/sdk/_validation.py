@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 from urllib.parse import unquote
@@ -372,7 +373,7 @@ def version_in_range(version: object, expression: str) -> bool:
     return True
 
 
-def enum_value(enum_type: type[Any], value: object, field: str) -> Any:
+def enum_value(enum_type: type[Enum], value: object, field: str) -> Any:
     try:
         return enum_type(value)
     except (TypeError, ValueError) as error:

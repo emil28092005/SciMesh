@@ -78,7 +78,7 @@ def _validate_entry_point_ownership(entry_point: metadata.EntryPoint) -> None:
     if normalized_owners and normalized_owners != {expected_owner}:
         raise ValueError("workload entry point top-level package is not uniquely owned")
 
-    package_root = Path(distribution.locate_file(root_name))
+    package_root = Path(str(distribution.locate_file(root_name)))
     if not package_root.exists():
         root_spec = util.find_spec(root_name)
         locations = (
@@ -109,8 +109,8 @@ def _validate_entry_point_ownership(entry_point: metadata.EntryPoint) -> None:
     else:
         if len(parts) != 1:
             raise ValueError("workload entry point module is outside its distribution")
-        ownership_root = Path(distribution.locate_file(".")).resolve()
-        module_base = Path(distribution.locate_file(root_name))
+        ownership_root = Path(str(distribution.locate_file("."))).resolve()
+        module_base = Path(str(distribution.locate_file(root_name)))
         candidates = [
             *(Path(str(module_base) + suffix) for suffix in machinery.SOURCE_SUFFIXES),
             *(
@@ -125,6 +125,14 @@ def _validate_entry_point_ownership(entry_point: metadata.EntryPoint) -> None:
 
 @dataclass(frozen=True, slots=True)
 class WorkloadDefinition:
+    """The immutable binding of a manifest to its installed handlers.
+
+    Validation at construction requires every stage entry point to have a
+    matching runner/reducer, the manifest verifier to be installed with
+    matching configuration, and verifier handler identities to match their
+    keys.
+    """
+
     manifest: WorkloadManifest
     planner: Planner
     runners: Mapping[str, Runner]
@@ -215,6 +223,12 @@ class WorkloadDefinition:
 
 @dataclass(frozen=True, slots=True)
 class AllowedPackage:
+    """An administrator's approval to load one installed workload version.
+
+    Pins the distribution, the exact ``WorkloadId``, and the measured
+    ``sha256:`` package digest that discovery must match.
+    """
+
     distribution: str
     workload: WorkloadId
     digest: str
@@ -272,6 +286,8 @@ def workload_allowlist_from_json(value: object) -> tuple[AllowedPackage, ...]:
 
 @dataclass(frozen=True, slots=True)
 class WorkloadDescription:
+    """A read-only registry listing: identity, description, digest, and enablement."""
+
     workload: WorkloadId
     description: str
     package_digest: str
@@ -581,11 +597,10 @@ class WorkloadRegistry:
         discovered: set[tuple[str, str, str]] = set()
         pending: list[WorkloadDefinition] = []
         for entry_point in selected:
-            distribution = (
-                _normalized_distribution_name(entry_point.dist.name)
-                if entry_point.dist
-                else ""
-            )
+            entry_dist = entry_point.dist
+            if entry_dist is None:
+                continue
+            distribution = _normalized_distribution_name(entry_dist.name)
             for key, approval in allowed.items():
                 if _normalized_distribution_name(key[0]) != distribution:
                     continue
@@ -606,7 +621,7 @@ class WorkloadRegistry:
                         prefix="scimesh-discovery-cache-"
                     ) as cache_prefix,
                 ):
-                    measured_before = installed_distribution_digest(entry_point.dist)
+                    measured_before = installed_distribution_digest(entry_dist)
                     if measured_before != approval.digest:
                         raise ValueError(
                             "installed package content does not match its allowlist digest"
@@ -626,10 +641,7 @@ class WorkloadRegistry:
                     finally:
                         sys.pycache_prefix = previous_cache_prefix
                         sys.dont_write_bytecode = previous_bytecode_policy
-                    if (
-                        installed_distribution_digest(entry_point.dist)
-                        != measured_before
-                    ):
+                    if installed_distribution_digest(entry_dist) != measured_before:
                         raise ValueError(
                             "installed package content changed while loading its entry point"
                         )

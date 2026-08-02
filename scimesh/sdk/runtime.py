@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
 
-from ._validation import require_identifier, require_string, validate_version_range, version_in_range
+from ._validation import (
+    require_identifier,
+    require_string,
+    validate_version_range,
+    version_in_range,
+)
 from .identity import SDK_API_VERSION
 from .execution import NetworkPolicy, ProcessModel
 from .manifest import TrustMode, WorkloadManifest
@@ -15,6 +20,8 @@ from .workflow import StageKind
 
 
 class CompatibilityError(ValueError):
+    """A fail-closed negotiation failure with a stable machine-readable code."""
+
     def __init__(self, code: str, message: str) -> None:
         self.code = require_identifier(code, "compatibility error code")
         super().__init__(message)
@@ -22,6 +29,9 @@ class CompatibilityError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class RuntimeCapabilities:
+    """What a runtime advertises: SDK/protocol versions, profiles, features,
+    workload capabilities, inventory, and enforceable trust modes."""
+
     sdk_api_version: str
     protocol_version: str
     profiles: tuple[str, ...]
@@ -31,13 +41,23 @@ class RuntimeCapabilities:
     trust_modes: tuple[TrustMode, ...] = (TrustMode.TRUSTED,)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "sdk_api_version", require_string(self.sdk_api_version, "sdk_api_version"))
-        object.__setattr__(self, "protocol_version", require_string(self.protocol_version, "protocol_version"))
+        object.__setattr__(
+            self,
+            "sdk_api_version",
+            require_string(self.sdk_api_version, "sdk_api_version"),
+        )
+        object.__setattr__(
+            self,
+            "protocol_version",
+            require_string(self.protocol_version, "protocol_version"),
+        )
         # Parsing as an equality range provides the same numeric release rules
         # used by manifest ranges without accepting an implicit/latest value.
         validate_version_range(f"=={self.sdk_api_version}", "sdk_api_version")
         validate_version_range(f"=={self.protocol_version}", "protocol_version")
-        profiles = tuple(require_identifier(value, "runtime profile") for value in self.profiles)
+        profiles = tuple(
+            require_identifier(value, "runtime profile") for value in self.profiles
+        )
         if len(profiles) != len(set(profiles)):
             raise ValueError("runtime profiles must be unique")
         object.__setattr__(self, "profiles", profiles)
@@ -50,7 +70,10 @@ class RuntimeCapabilities:
             validate_version_range(f"=={text}", "runtime feature version")
             features[canonical] = text
         object.__setattr__(self, "features", MappingProxyType(features))
-        capabilities = tuple(require_identifier(value, "workload capability") for value in self.workload_capabilities)
+        capabilities = tuple(
+            require_identifier(value, "workload capability")
+            for value in self.workload_capabilities
+        )
         if len(capabilities) != len(set(capabilities)):
             raise ValueError("workload_capabilities must be unique")
         object.__setattr__(self, "workload_capabilities", capabilities)
@@ -59,7 +82,9 @@ class RuntimeCapabilities:
         try:
             trust_modes = tuple(TrustMode(value) for value in self.trust_modes)
         except (TypeError, ValueError) as error:
-            raise ValueError("runtime trust_modes contain an unsupported value") from error
+            raise ValueError(
+                "runtime trust_modes contain an unsupported value"
+            ) from error
         if not trust_modes or len(trust_modes) != len(set(trust_modes)):
             raise ValueError("runtime trust_modes must be non-empty and unique")
         object.__setattr__(self, "trust_modes", trust_modes)
@@ -67,6 +92,9 @@ class RuntimeCapabilities:
 
 @dataclass(frozen=True, slots=True)
 class NegotiatedWorkload:
+    """The result of successful negotiation: selected features, fallbacks,
+    and the exact manifest a plan must pin."""
+
     manifest: WorkloadManifest
     optional_fallbacks: Mapping[str, str]
     sdk_api_version: str
@@ -76,19 +104,29 @@ class NegotiatedWorkload:
     def __post_init__(self) -> None:
         if not isinstance(self.manifest, WorkloadManifest):
             raise ValueError("negotiated manifest must be a WorkloadManifest")
-        object.__setattr__(self, "optional_fallbacks", MappingProxyType(dict(self.optional_fallbacks)))
+        object.__setattr__(
+            self, "optional_fallbacks", MappingProxyType(dict(self.optional_fallbacks))
+        )
         object.__setattr__(
             self,
             "sdk_api_version",
-            require_string(self.sdk_api_version, "negotiated sdk_api_version", max_length=32),
+            require_string(
+                self.sdk_api_version, "negotiated sdk_api_version", max_length=32
+            ),
         )
         object.__setattr__(
             self,
             "protocol_version",
-            require_string(self.protocol_version, "negotiated protocol_version", max_length=32),
+            require_string(
+                self.protocol_version, "negotiated protocol_version", max_length=32
+            ),
         )
-        validate_version_range(f"=={self.sdk_api_version}", "negotiated sdk_api_version")
-        validate_version_range(f"=={self.protocol_version}", "negotiated protocol_version")
+        validate_version_range(
+            f"=={self.sdk_api_version}", "negotiated sdk_api_version"
+        )
+        validate_version_range(
+            f"=={self.protocol_version}", "negotiated protocol_version"
+        )
         selected: dict[str, str] = {}
         for name, version in self.selected_features.items():
             selected[require_identifier(name, "negotiated feature")] = require_string(
@@ -108,22 +146,33 @@ def negotiate_manifest(
     runtime: RuntimeCapabilities,
 ) -> NegotiatedWorkload:
     """Resolve compatibility before any package handler or planner is invoked."""
-    if not isinstance(manifest, WorkloadManifest) or not isinstance(runtime, RuntimeCapabilities):
-        raise ValueError("negotiation requires WorkloadManifest and RuntimeCapabilities")
+    if not isinstance(manifest, WorkloadManifest) or not isinstance(
+        runtime, RuntimeCapabilities
+    ):
+        raise ValueError(
+            "negotiation requires WorkloadManifest and RuntimeCapabilities"
+        )
     if runtime.sdk_api_version != SDK_API_VERSION:
         raise CompatibilityError(
             "runtime-sdk-mismatch",
             "runtime SDK declaration does not match this SDK implementation",
         )
     if not manifest.sdk_api.contains(runtime.sdk_api_version):
-        raise CompatibilityError("sdk-api-mismatch", "runtime SDK API is outside the manifest range")
+        raise CompatibilityError(
+            "sdk-api-mismatch", "runtime SDK API is outside the manifest range"
+        )
     if not manifest.protocol.contains(runtime.protocol_version):
-        raise CompatibilityError("protocol-mismatch", "runtime protocol is outside the manifest range")
-    missing_profiles = sorted(set(manifest.conformance_profiles) - set(runtime.profiles))
+        raise CompatibilityError(
+            "protocol-mismatch", "runtime protocol is outside the manifest range"
+        )
+    missing_profiles = sorted(
+        set(manifest.conformance_profiles) - set(runtime.profiles)
+    )
     if missing_profiles:
         raise CompatibilityError(
             "profile-unavailable",
-            "runtime does not support required profiles: " + ", ".join(missing_profiles),
+            "runtime does not support required profiles: "
+            + ", ".join(missing_profiles),
         )
     if manifest.workload.name not in runtime.workload_capabilities:
         raise CompatibilityError(
@@ -131,7 +180,9 @@ def negotiate_manifest(
             "runtime does not advertise the canonical workload capability",
         )
     if manifest.environment.digest not in runtime.inventory.environment_digests:
-        raise CompatibilityError("environment-unavailable", "pinned workload environment is unavailable")
+        raise CompatibilityError(
+            "environment-unavailable", "pinned workload environment is unavailable"
+        )
     for feature in manifest.required_features:
         version = runtime.features.get(feature.name)
         if version is None or not feature.versions.contains(version):
@@ -167,7 +218,9 @@ def negotiate_manifest(
 
     def require_declared(condition: bool, feature: str, message: str) -> None:
         if condition and feature not in declared_required:
-            raise CompatibilityError("feature-undeclared", message + f" requires {feature}")
+            raise CompatibilityError(
+                "feature-undeclared", message + f" requires {feature}"
+            )
 
     for stage in manifest.workflow.stages:
         shape_feature = required_by_shape.get(stage.kind)
@@ -177,7 +230,9 @@ def negotiate_manifest(
                 f"stage {stage.stage_id} requires declared feature {shape_feature}",
             )
         if stage.gang is not None and "gang-leases" not in declared_required:
-            raise CompatibilityError("feature-undeclared", "gang execution requires gang-leases")
+            raise CompatibilityError(
+                "feature-undeclared", "gang execution requires gang-leases"
+            )
         execution = stage.execution
         require_declared(
             execution.process_model is ProcessModel.PROCESS_POOL,

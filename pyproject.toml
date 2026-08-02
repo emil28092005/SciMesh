@@ -34,3 +34,10 @@ namespaces = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.10"
+typeCheckingMode = "basic"
+exclude = ["SciMesh", "site", "coordinator"]

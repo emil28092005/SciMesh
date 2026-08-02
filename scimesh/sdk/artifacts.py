@@ -32,6 +32,13 @@ from .identity import ComponentRef, OUTPUT_SCHEMA_VERSION, SchemaRef, WorkloadId
 
 
 class CollectionKind(str, Enum):
+    """How a set of artifacts is structured on a port.
+
+    ``SINGLE`` holds at most one unkeyed artifact; ``ORDERED`` and ``SET``
+    hold unkeyed artifacts with a canonical order; ``KEYED`` holds artifacts
+    with unique string keys.
+    """
+
     SINGLE = "single"
     ORDERED = "ordered"
     KEYED = "keyed"
@@ -39,6 +46,12 @@ class CollectionKind(str, Enum):
 
 
 class Cardinality(str, Enum):
+    """How many artifacts a port accepts.
+
+    ``ONE`` requires exactly one artifact, ``OPTIONAL`` at most one, and
+    ``MANY`` at least one (with an ordered, keyed, or set collection).
+    """
+
     ONE = "one"
     OPTIONAL = "optional"
     MANY = "many"
@@ -65,12 +78,22 @@ class ArtifactSchema:
     def __post_init__(self) -> None:
         if not isinstance(self.ref, SchemaRef):
             raise ValueError("artifact schema ref must be a SchemaRef")
-        object.__setattr__(self, "media_type", require_string(self.media_type, "media_type", max_length=128))
-        if "/" not in self.media_type or any(character.isspace() for character in self.media_type):
+        object.__setattr__(
+            self,
+            "media_type",
+            require_string(self.media_type, "media_type", max_length=128),
+        )
+        if "/" not in self.media_type or any(
+            character.isspace() for character in self.media_type
+        ):
             raise ValueError("media_type must be a valid type/subtype token")
         if self.encoding is not None:
-            object.__setattr__(self, "encoding", require_identifier(self.encoding, "encoding"))
-        object.__setattr__(self, "max_bytes", require_positive_int(self.max_bytes, "max_bytes"))
+            object.__setattr__(
+                self, "encoding", require_identifier(self.encoding, "encoding")
+            )
+        object.__setattr__(
+            self, "max_bytes", require_positive_int(self.max_bytes, "max_bytes")
+        )
         if not isinstance(self.validator, ComponentRef):
             raise ValueError("artifact schema validator must be a ComponentRef")
         object.__setattr__(
@@ -83,7 +106,11 @@ class ArtifactSchema:
             ),
         )
         if self.max_records is not None:
-            object.__setattr__(self, "max_records", require_positive_int(self.max_records, "max_records"))
+            object.__setattr__(
+                self,
+                "max_records",
+                require_positive_int(self.max_records, "max_records"),
+            )
         dimensions = tuple(self.max_dimensions)
         if any(
             isinstance(value, bool) or not isinstance(value, int) or value < 1
@@ -99,9 +126,19 @@ class ArtifactSchema:
                 "canonicalizer",
                 require_identifier(self.canonicalizer, "canonicalizer"),
             )
-        object.__setattr__(self, "privacy_class", require_identifier(self.privacy_class, "privacy_class"))
-        object.__setattr__(self, "retention_class", require_identifier(self.retention_class, "retention_class"))
-        if not isinstance(self.streaming, bool) or not isinstance(self.allow_nested_collections, bool):
+        object.__setattr__(
+            self,
+            "privacy_class",
+            require_identifier(self.privacy_class, "privacy_class"),
+        )
+        object.__setattr__(
+            self,
+            "retention_class",
+            require_identifier(self.retention_class, "retention_class"),
+        )
+        if not isinstance(self.streaming, bool) or not isinstance(
+            self.allow_nested_collections, bool
+        ):
             raise ValueError("streaming and allow_nested_collections must be booleans")
 
     def to_dict(self) -> dict[str, object]:
@@ -126,10 +163,19 @@ class ArtifactSchema:
         if not isinstance(value, Mapping):
             raise ValueError("artifact schema must be an object")
         fields = {
-            "ref", "media_type", "encoding", "max_bytes", "validator",
-            "validator_configuration", "max_records",
-            "max_dimensions", "streaming", "canonicalizer", "privacy_class",
-            "retention_class", "allow_nested_collections",
+            "ref",
+            "media_type",
+            "encoding",
+            "max_bytes",
+            "validator",
+            "validator_configuration",
+            "max_records",
+            "max_dimensions",
+            "streaming",
+            "canonicalizer",
+            "privacy_class",
+            "retention_class",
+            "allow_nested_collections",
         }
         require_exact_keys(value, fields, "artifact schema")
         dimensions = value["max_dimensions"]
@@ -154,6 +200,13 @@ class ArtifactSchema:
 
 @dataclass(frozen=True, slots=True)
 class PortSpec:
+    """A typed artifact port: schema, cardinality, and collection kind.
+
+    ``validate_collection`` enforces the declared shape against an
+    ``ArtifactCollection``, including per-artifact schema, media type, byte,
+    record, and dimension bounds.
+    """
+
     schema: ArtifactSchema
     cardinality: Cardinality = Cardinality.ONE
     collection: CollectionKind = CollectionKind.SINGLE
@@ -161,14 +214,32 @@ class PortSpec:
     def __post_init__(self) -> None:
         if not isinstance(self.schema, ArtifactSchema):
             raise ValueError("port schema must be an ArtifactSchema")
-        object.__setattr__(self, "cardinality", enum_value(Cardinality, self.cardinality, "cardinality"))
-        object.__setattr__(self, "collection", enum_value(CollectionKind, self.collection, "collection"))
-        if self.cardinality is Cardinality.MANY and self.collection is CollectionKind.SINGLE:
-            raise ValueError("many cardinality requires an ordered, keyed, or set collection")
-        if self.cardinality is not Cardinality.MANY and self.collection is not CollectionKind.SINGLE:
+        object.__setattr__(
+            self,
+            "cardinality",
+            enum_value(Cardinality, self.cardinality, "cardinality"),
+        )
+        object.__setattr__(
+            self,
+            "collection",
+            enum_value(CollectionKind, self.collection, "collection"),
+        )
+        if (
+            self.cardinality is Cardinality.MANY
+            and self.collection is CollectionKind.SINGLE
+        ):
+            raise ValueError(
+                "many cardinality requires an ordered, keyed, or set collection"
+            )
+        if (
+            self.cardinality is not Cardinality.MANY
+            and self.collection is not CollectionKind.SINGLE
+        ):
             raise ValueError("one and optional cardinality require a single collection")
 
-    def validate_collection(self, value: "ArtifactCollection", field: str = "artifact collection") -> None:
+    def validate_collection(
+        self, value: "ArtifactCollection", field: str = "artifact collection"
+    ) -> None:
         if value.kind is not self.collection:
             raise ValueError(f"{field} kind does not match its port declaration")
         count = len(value.items)
@@ -183,7 +254,9 @@ class PortSpec:
             if artifact.schema != self.schema.ref:
                 raise ValueError(f"{field} contains an artifact with the wrong schema")
             if artifact.media_type != self.schema.media_type:
-                raise ValueError(f"{field} contains an artifact with the wrong media type")
+                raise ValueError(
+                    f"{field} contains an artifact with the wrong media type"
+                )
             if artifact.size_bytes > self.schema.max_bytes:
                 raise ValueError(f"{field} exceeds its per-artifact byte limit")
             if self.schema.max_records is not None:
@@ -193,10 +266,14 @@ class PortSpec:
                     raise ValueError(f"{field} exceeds its record limit")
             if self.schema.max_dimensions:
                 if not artifact.dimensions:
-                    raise ValueError(f"{field} is missing its required dimension summary")
+                    raise ValueError(
+                        f"{field} is missing its required dimension summary"
+                    )
                 if len(artifact.dimensions) != len(self.schema.max_dimensions) or any(
                     actual > maximum
-                    for actual, maximum in zip(artifact.dimensions, self.schema.max_dimensions)
+                    for actual, maximum in zip(
+                        artifact.dimensions, self.schema.max_dimensions
+                    )
                 ):
                     raise ValueError(f"{field} exceeds its dimension limits")
 
@@ -211,7 +288,9 @@ class PortSpec:
     def from_dict(cls, value: object) -> "PortSpec":
         if not isinstance(value, Mapping):
             raise ValueError("port specification must be an object")
-        require_exact_keys(value, {"schema", "cardinality", "collection"}, "port specification")
+        require_exact_keys(
+            value, {"schema", "cardinality", "collection"}, "port specification"
+        )
         return cls(
             schema=ArtifactSchema.from_dict(value["schema"]),
             cardinality=value["cardinality"],  # type: ignore[arg-type]
@@ -232,16 +311,28 @@ class ArtifactRef:
     dimensions: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "artifact_id", require_uuid(self.artifact_id, "artifact_id"))
+        object.__setattr__(
+            self, "artifact_id", require_uuid(self.artifact_id, "artifact_id")
+        )
         object.__setattr__(self, "sha256", require_sha256(self.sha256, "sha256"))
         if not isinstance(self.schema, SchemaRef):
             raise ValueError("artifact schema must be a SchemaRef")
-        object.__setattr__(self, "media_type", require_string(self.media_type, "media_type", max_length=128))
-        if "/" not in self.media_type or any(character.isspace() for character in self.media_type):
+        object.__setattr__(
+            self,
+            "media_type",
+            require_string(self.media_type, "media_type", max_length=128),
+        )
+        if "/" not in self.media_type or any(
+            character.isspace() for character in self.media_type
+        ):
             raise ValueError("media_type must be a valid type/subtype token")
-        object.__setattr__(self, "size_bytes", require_nonnegative_int(self.size_bytes, "size_bytes"))
+        object.__setattr__(
+            self, "size_bytes", require_nonnegative_int(self.size_bytes, "size_bytes")
+        )
         if self.records is not None:
-            object.__setattr__(self, "records", require_nonnegative_int(self.records, "records"))
+            object.__setattr__(
+                self, "records", require_nonnegative_int(self.records, "records")
+            )
         dimensions = tuple(self.dimensions)
         if any(
             isinstance(value, bool) or not isinstance(value, int) or value < 0
@@ -269,7 +360,15 @@ class ArtifactRef:
             raise ValueError("artifact reference must be an object")
         require_exact_keys(
             value,
-            {"artifact_id", "sha256", "schema", "media_type", "size_bytes", "records", "dimensions"},
+            {
+                "artifact_id",
+                "sha256",
+                "schema",
+                "media_type",
+                "size_bytes",
+                "records",
+                "dimensions",
+            },
             "artifact reference",
         )
         dimensions = value["dimensions"]
@@ -288,6 +387,12 @@ class ArtifactRef:
 
 @dataclass(frozen=True, slots=True)
 class ArtifactItem:
+    """One artifact inside a collection, optionally bound to a string key.
+
+    Keys are canonical identifiers used by keyed collections (for example
+    shard indexes); ordered and set collections never use keys.
+    """
+
     artifact: ArtifactRef
     key: str | None = None
 
@@ -295,7 +400,9 @@ class ArtifactItem:
         if not isinstance(self.artifact, ArtifactRef):
             raise ValueError("artifact item must contain an ArtifactRef")
         if self.key is not None:
-            object.__setattr__(self, "key", require_identifier(self.key, "artifact key"))
+            object.__setattr__(
+                self, "key", require_identifier(self.key, "artifact key")
+            )
 
     def to_dict(self) -> dict[str, object]:
         return {"key": self.key, "artifact": self.artifact.to_dict()}
@@ -310,17 +417,29 @@ class ArtifactItem:
 
 @dataclass(frozen=True, slots=True)
 class ArtifactCollection:
+    """An immutable set of artifacts with a canonical, content-addressed order.
+
+    Keyed collections sort by key; set collections sort by schema, checksum,
+    and size and reject duplicates; single collections hold at most one
+    unkeyed artifact. ``digest`` is the content pin used in provenance and
+    verification bindings.
+    """
+
     kind: CollectionKind
     items: tuple[ArtifactItem, ...]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "kind", enum_value(CollectionKind, self.kind, "collection.kind"))
+        object.__setattr__(
+            self, "kind", enum_value(CollectionKind, self.kind, "collection.kind")
+        )
         items = tuple(self.items)
         if any(not isinstance(item, ArtifactItem) for item in items):
             raise ValueError("collection items must be ArtifactItem values")
         if self.kind is CollectionKind.SINGLE:
             if len(items) > 1 or any(item.key is not None for item in items):
-                raise ValueError("single collection contains at most one unkeyed artifact")
+                raise ValueError(
+                    "single collection contains at most one unkeyed artifact"
+                )
         elif self.kind is CollectionKind.KEYED:
             if any(item.key is None for item in items):
                 raise ValueError("keyed collection requires a key for every artifact")
@@ -333,11 +452,17 @@ class ArtifactCollection:
                 raise ValueError("ordered and set collections must not use keys")
             if self.kind is CollectionKind.SET:
                 identities = [
-                    (item.artifact.schema, item.artifact.sha256, item.artifact.size_bytes)
+                    (
+                        item.artifact.schema,
+                        item.artifact.sha256,
+                        item.artifact.size_bytes,
+                    )
                     for item in items
                 ]
                 if len(identities) != len(set(identities)):
-                    raise ValueError("set collection must not contain duplicate artifacts")
+                    raise ValueError(
+                        "set collection must not contain duplicate artifacts"
+                    )
                 items = tuple(
                     sorted(
                         items,
@@ -352,7 +477,9 @@ class ArtifactCollection:
 
     @classmethod
     def single(cls, artifact: ArtifactRef | None) -> "ArtifactCollection":
-        return cls(CollectionKind.SINGLE, () if artifact is None else (ArtifactItem(artifact),))
+        return cls(
+            CollectionKind.SINGLE, () if artifact is None else (ArtifactItem(artifact),)
+        )
 
     @property
     def size_bytes(self) -> int:
@@ -376,7 +503,10 @@ class ArtifactCollection:
         return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, object]:
-        return {"kind": self.kind.value, "items": [item.to_dict() for item in self.items]}
+        return {
+            "kind": self.kind.value,
+            "items": [item.to_dict() for item in self.items],
+        }
 
     @classmethod
     def from_dict(cls, value: object) -> "ArtifactCollection":
@@ -405,6 +535,13 @@ def _timestamp(value: object, field: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Provenance:
+    """Immutable audit record stamped onto every sealed output.
+
+    Captures the workload pin, negotiated features, input and parameter
+    digests, the execution contract digest, coordinator job/task identity,
+    and timestamps. Verification bindings are derived from it.
+    """
+
     workload: WorkloadId
     sdk_api_version: str
     protocol_version: str
@@ -433,34 +570,64 @@ class Provenance:
     def __post_init__(self) -> None:
         if not isinstance(self.workload, WorkloadId):
             raise ValueError("provenance workload must be a WorkloadId")
-        object.__setattr__(self, "sdk_api_version", require_string(self.sdk_api_version, "sdk_api_version"))
-        object.__setattr__(self, "protocol_version", require_string(self.protocol_version, "protocol_version"))
+        object.__setattr__(
+            self,
+            "sdk_api_version",
+            require_string(self.sdk_api_version, "sdk_api_version"),
+        )
+        object.__setattr__(
+            self,
+            "protocol_version",
+            require_string(self.protocol_version, "protocol_version"),
+        )
         parse_release(self.sdk_api_version, "sdk_api_version")
         parse_release(self.protocol_version, "protocol_version")
         object.__setattr__(
             self,
             "manifest_schema_version",
-            require_positive_int(self.manifest_schema_version, "manifest_schema_version"),
+            require_positive_int(
+                self.manifest_schema_version, "manifest_schema_version"
+            ),
         )
         object.__setattr__(
             self,
             "workflow_schema_version",
-            require_positive_int(self.workflow_schema_version, "workflow_schema_version"),
+            require_positive_int(
+                self.workflow_schema_version, "workflow_schema_version"
+            ),
         )
         if not isinstance(self.verifier, ComponentRef):
             raise ValueError("provenance verifier must be a ComponentRef")
         schemas = tuple(self.artifact_schemas)
         if not schemas or any(not isinstance(schema, SchemaRef) for schema in schemas):
-            raise ValueError("provenance artifact_schemas must contain SchemaRef values")
+            raise ValueError(
+                "provenance artifact_schemas must contain SchemaRef values"
+            )
         if len(schemas) != len(set(schemas)):
             raise ValueError("provenance artifact_schemas must be unique")
         if schemas != tuple(sorted(schemas, key=lambda schema: schema.canonical)):
             raise ValueError("provenance artifact_schemas must be in canonical order")
         object.__setattr__(self, "artifact_schemas", schemas)
-        object.__setattr__(self, "package_digest", require_sha256(self.package_digest, "package_digest", prefixed=True))
-        object.__setattr__(self, "manifest_digest", require_sha256(self.manifest_digest, "manifest_digest"))
-        object.__setattr__(self, "environment_digest", require_sha256(self.environment_digest, "environment_digest", prefixed=True))
-        runtime = freeze_json_mapping(self.worker_runtime, "worker_runtime", forbid_locations=True)
+        object.__setattr__(
+            self,
+            "package_digest",
+            require_sha256(self.package_digest, "package_digest", prefixed=True),
+        )
+        object.__setattr__(
+            self,
+            "manifest_digest",
+            require_sha256(self.manifest_digest, "manifest_digest"),
+        )
+        object.__setattr__(
+            self,
+            "environment_digest",
+            require_sha256(
+                self.environment_digest, "environment_digest", prefixed=True
+            ),
+        )
+        runtime = freeze_json_mapping(
+            self.worker_runtime, "worker_runtime", forbid_locations=True
+        )
         if len(canonical_json(runtime).encode("utf-8")) > 65_536:
             raise ValueError("worker_runtime exceeds 64 KiB")
         object.__setattr__(self, "worker_runtime", runtime)
@@ -471,8 +638,16 @@ class Provenance:
         if not resource_ids or len(resource_ids) != len(set(resource_ids)):
             raise ValueError("allocated_resource_ids must be non-empty and unique")
         object.__setattr__(self, "allocated_resource_ids", resource_ids)
-        object.__setattr__(self, "parameters_digest", require_sha256(self.parameters_digest, "parameters_digest"))
-        object.__setattr__(self, "input_collection_digest", require_sha256(self.input_collection_digest, "input_collection_digest"))
+        object.__setattr__(
+            self,
+            "parameters_digest",
+            require_sha256(self.parameters_digest, "parameters_digest"),
+        )
+        object.__setattr__(
+            self,
+            "input_collection_digest",
+            require_sha256(self.input_collection_digest, "input_collection_digest"),
+        )
         object.__setattr__(
             self,
             "execution_contract_digest",
@@ -488,7 +663,9 @@ class Provenance:
         )
         for name, version in selected_features.items():
             require_identifier(name, "provenance selected feature")
-            require_string(version, "provenance selected feature version", max_length=32)
+            require_string(
+                version, "provenance selected feature version", max_length=32
+            )
             parse_release(version, "provenance selected feature version")
         for name, fallback in optional_fallbacks.items():
             require_identifier(name, "provenance fallback feature")
@@ -497,21 +674,34 @@ class Provenance:
             raise ValueError("provenance feature cannot be selected and fallbacked")
         object.__setattr__(self, "selected_features", selected_features)
         object.__setattr__(self, "optional_fallbacks", optional_fallbacks)
-        object.__setattr__(self, "job_id", require_uuid(self.job_id, "provenance.job_id"))
-        object.__setattr__(self, "task_id", require_uuid(self.task_id, "provenance.task_id"))
-        object.__setattr__(self, "started_at", _timestamp(self.started_at, "started_at"))
-        object.__setattr__(self, "finished_at", _timestamp(self.finished_at, "finished_at"))
-        if datetime.fromisoformat(self.finished_at.replace("Z", "+00:00")) < datetime.fromisoformat(
-            self.started_at.replace("Z", "+00:00")
-        ):
+        object.__setattr__(
+            self, "job_id", require_uuid(self.job_id, "provenance.job_id")
+        )
+        object.__setattr__(
+            self, "task_id", require_uuid(self.task_id, "provenance.task_id")
+        )
+        object.__setattr__(
+            self, "started_at", _timestamp(self.started_at, "started_at")
+        )
+        object.__setattr__(
+            self, "finished_at", _timestamp(self.finished_at, "finished_at")
+        )
+        if datetime.fromisoformat(
+            self.finished_at.replace("Z", "+00:00")
+        ) < datetime.fromisoformat(self.started_at.replace("Z", "+00:00")):
             raise ValueError("finished_at must not precede started_at")
         trust_mode = require_identifier(self.trust_mode, "provenance.trust_mode")
         if trust_mode not in {"trusted", "verified", "untrusted_quorum"}:
             raise ValueError("provenance.trust_mode is unsupported")
         object.__setattr__(self, "trust_mode", trust_mode)
-        if self.random_seed is not None and (isinstance(self.random_seed, bool) or not isinstance(self.random_seed, int)):
+        if self.random_seed is not None and (
+            isinstance(self.random_seed, bool) or not isinstance(self.random_seed, int)
+        ):
             raise ValueError("random_seed must be an integer")
-        lineage = tuple(require_uuid(value, "checkpoint_lineage") for value in self.checkpoint_lineage)
+        lineage = tuple(
+            require_uuid(value, "checkpoint_lineage")
+            for value in self.checkpoint_lineage
+        )
         if len(lineage) != len(set(lineage)):
             raise ValueError("checkpoint_lineage must not contain duplicate artifacts")
         object.__setattr__(self, "checkpoint_lineage", lineage)
@@ -549,21 +739,43 @@ class Provenance:
         if not isinstance(value, Mapping):
             raise ValueError("provenance must be an object")
         fields = {
-            "workload", "sdk_api_version", "protocol_version", "manifest_schema_version",
-            "workflow_schema_version", "verifier", "artifact_schemas", "package_digest",
-            "manifest_digest", "environment_digest", "worker_runtime", "allocated_resource_ids",
-            "parameters_digest", "input_collection_digest", "execution_contract_digest",
-            "selected_features", "optional_fallbacks",
-            "job_id", "task_id",
-            "started_at", "finished_at",
-            "trust_mode", "random_seed", "checkpoint_lineage",
+            "workload",
+            "sdk_api_version",
+            "protocol_version",
+            "manifest_schema_version",
+            "workflow_schema_version",
+            "verifier",
+            "artifact_schemas",
+            "package_digest",
+            "manifest_digest",
+            "environment_digest",
+            "worker_runtime",
+            "allocated_resource_ids",
+            "parameters_digest",
+            "input_collection_digest",
+            "execution_contract_digest",
+            "selected_features",
+            "optional_fallbacks",
+            "job_id",
+            "task_id",
+            "started_at",
+            "finished_at",
+            "trust_mode",
+            "random_seed",
+            "checkpoint_lineage",
         }
         require_exact_keys(value, fields, "provenance")
         resource_ids = value["allocated_resource_ids"]
         artifact_schemas = value["artifact_schemas"]
         lineage = value["checkpoint_lineage"]
-        if not isinstance(resource_ids, list) or not isinstance(artifact_schemas, list) or not isinstance(lineage, list):
-            raise ValueError("provenance resource IDs and checkpoint lineage must be arrays")
+        if (
+            not isinstance(resource_ids, list)
+            or not isinstance(artifact_schemas, list)
+            or not isinstance(lineage, list)
+        ):
+            raise ValueError(
+                "provenance resource IDs and checkpoint lineage must be arrays"
+            )
         return cls(
             workload=WorkloadId.from_dict(value["workload"]),
             sdk_api_version=value["sdk_api_version"],  # type: ignore[arg-type]
@@ -571,7 +783,9 @@ class Provenance:
             manifest_schema_version=value["manifest_schema_version"],  # type: ignore[arg-type]
             workflow_schema_version=value["workflow_schema_version"],  # type: ignore[arg-type]
             verifier=ComponentRef.from_dict(value["verifier"]),
-            artifact_schemas=tuple(SchemaRef.from_dict(item) for item in artifact_schemas),
+            artifact_schemas=tuple(
+                SchemaRef.from_dict(item) for item in artifact_schemas
+            ),
             package_digest=value["package_digest"],  # type: ignore[arg-type]
             manifest_digest=value["manifest_digest"],  # type: ignore[arg-type]
             environment_digest=value["environment_digest"],  # type: ignore[arg-type]
@@ -601,7 +815,9 @@ class OutputManifest:
     schema_version: int = OUTPUT_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        require_schema_version(self.schema_version, OUTPUT_SCHEMA_VERSION, "output schema_version")
+        require_schema_version(
+            self.schema_version, OUTPUT_SCHEMA_VERSION, "output schema_version"
+        )
         object.__setattr__(self, "task_key", require_task_key(self.task_key))
         if not isinstance(self.outputs, Mapping) or not self.outputs:
             raise ValueError("outputs must be a non-empty object")
@@ -638,7 +854,9 @@ class OutputManifest:
                 details.append("missing " + ", ".join(missing))
             if unexpected:
                 details.append("unexpected " + ", ".join(unexpected))
-            raise ValueError("output ports do not match the declaration: " + "; ".join(details))
+            raise ValueError(
+                "output ports do not match the declaration: " + "; ".join(details)
+            )
         total = 0
         for name, port in expected.items():
             if not isinstance(port, PortSpec):
@@ -691,7 +909,10 @@ class OutputManifest:
         return cls(
             schema_version=value["schema_version"],  # type: ignore[arg-type]
             task_key=value["task_key"],  # type: ignore[arg-type]
-            outputs={name: ArtifactCollection.from_dict(item) for name, item in outputs.items()},
+            outputs={
+                name: ArtifactCollection.from_dict(item)
+                for name, item in outputs.items()
+            },
             metrics=value["metrics"],  # type: ignore[arg-type]
             provenance=Provenance.from_dict(value["provenance"]),
         )

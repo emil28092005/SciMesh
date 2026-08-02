@@ -17,3 +17,4 @@ class Workload(Protocol):
 
     def run(self, args: argparse.Namespace) -> int:
         """Execute the workload."""
+        ...

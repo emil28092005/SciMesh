@@ -1,26 +1,35 @@
 COMPLETED
 # Session Goal
 
-адаптируй код под sdk, где это необходимо. при надобности доработай SDK. главное чтобы workloads можно было дописывать не трогая остальной код программы, так как он в будущем будет закрытым. Workloads - в первую очередь пользовательские скрипты, поэтому sdk должен полностью покрывать необходимый функционал.
+пропиши абсолютно полную документацию scimesh в mkdocs.
 
 ## Plan
 
-1. SDK: добавить высокоуровневый каркас MapReduceWorkload (scimesh/sdk/batch.py) — манифест/стейджи/definition собираются автоматически, планировщик/раннер/редуктор — общий скелет с хуками (partition_input, compute_shard, parse/validate_partial_keys, reduce_partials, domain_validate).
-2. Рефакторинг: descriptor-batch, similarity-search, similarity-graph переписать на базовый класс (поведение/байты не меняются — парность покрыта тестами).
-3. Worker (закрываемый код): обобщить SciMeshRunner — загрузка ворклоадов из конфига/дискавери (allowlist), инвентарь из конфига воркера, fail-closed для неподдерживаемых форм; конфиг: SCIMESH_CAPABILITIES, SCIMESH_WORKLOAD_ALLOWLIST.
-4. CLI: добавить общий `scimesh workload list|run` (generic SDK-инструмент, без workload-специфичной логики) — пользовательские скрипты можно запускать локально без правки остального кода.
-5. Тесты: test_sdk_batch.py (каркас + хуки + fail-closed), тесты воркера на не-search ворклоаде, CLI-тесты; регрессия парности.
-6. Документация: workload-sdk.md (авторский гайд на базе MapReduceWorkload), handoff, STATUS.
-7. Полный прогон pytest, финальная верификация.
+1. Каталог `mkdocs/` — самостоятельный источник сайта (docs_dir: mkdocs); проектные `docs/` не трогаем.
+2. mkdocs.yml: docs_dir, полный nav (Home → SDK guides → API reference (все модули scimesh.sdk) → Documentation approach), edit_uri.
+3. Контент:
+   - index.md — лендинг: что такое SciMesh, архитектура, быстрый старт.
+   - sdk/overview.md — концепция SDK (framework-only, core-batch-v1, безопасность, fail-closed).
+   - sdk/authoring-workloads.md — полный гайд MapReduceWorkload (атрибуты, хуки, полный пример molwt-filter, регистрация, тесты).
+   - sdk/cli.md — scimesh workload list/run/export + env.
+   - sdk/worker-integration.md — воркер: claim/heartbeat/upload, SDK-мост, allowlist, ограничения v1.
+   - api/ — автогенерация mkdocstrings для ВСЕХ модулей scimesh.sdk (batch, artifacts, manifest, workflow, plans, registry, verification, runtime, resources, conformance, execution, identity, integrity, schema, protocols) + index.md.
+   - approach.md — зафиксированные правила написания документации.
+4. Убрать тестовые страницы mkdocs из docs/ (docs/index.md, docs/api/).
+5. make docs — проверить рендер всех страниц; итерации по ошибкам mkdocstrings.
+6. pytest + pyright — зелёные; /ui/docs/ интеграция не ломается; README/STATUS обновить.
 
 ## Progress
 
-- [x] `scimesh/sdk/batch.py`: `MapReduceWorkload` — identity/parameters/ports + 3 научных хука; сборка манифеста, map/reduce стейджей, workflow, pinned handlers, exact-artifact verifier; хуки: domain_validate, resolved_parameters, resolved_parameters_for_plan, plan_tasks, parse/validate_partial_keys, map_stage_inputs; экспортирован из scimesh.sdk.
-- [x] descriptor-batch, similarity-search, similarity-graph переписаны на MapReduceWorkload; парность с локальными reference сохранена (тесты byte-identical зелёные). `query_id`-резолюция переехала в run_search_shard (ворклоад сам валидирует параметры).
-- [x] Worker обобщён: SciMeshRunner принимает definitions+inventory+runtime, `for_worker(config)` грузит ворклоады через allowlist-дискавери (entry points) или built-in fallback; fail-closed для map-стейджей не по v1-контракту (single input); параметры таски проходят насквозь, валидация в ворклоаде. Конфиг: SCIMESH_CAPABILITIES, SCIMESH_WORKLOAD_ALLOWLIST (JSON {distribution,name,version,digest}); парсер вынесен в SDK (`workload_allowlist_from_json`).
-- [x] CLI: `scimesh workload list|run` (generic; SCIMESH_WORKLOAD_ALLOWLIST поддерживается; runtime строится из discovered-ворклоадов); зарегистрирован как ворклоад-модуль.
-- [x] `default_sdk_registry(allowlist=...)` и `default_sdk_runtime(workload_capabilities=..., environment_digests=...)` в library.
-- [x] Тесты: test_sdk_batch.py (5), test_cli_workload.py (6, включая end-to-end allowlisted custom workload), worker: generic execution (descriptor-batch), v1-contract rejection (graph), for_worker discovery, config parsing.
-- [x] Документация: workload-sdk.md (раздел "Authoring a workload" + worker/CLI), handoff, STATUS, README.
-- [x] Финальная верификация: 249 passed; scimesh workload list/run работают; scimesh.sdk не импортирует workloads (grep чист).
-- Изменения НЕ закоммичены (по AGENTS.md коммит только по явной просьбе).
+- [x] mkdocs.yml: `docs_dir: mkdocs`, полный nav, edit_uri; тема Material + mkdocstrings (handlers.python.options, show_if_no_docstring: true).
+- [x] index.md — лендинг (быстрый старт, карта сайта).
+- [x] sdk/overview.md, sdk/authoring-workloads.md (полный гайд + molwt-filter пример + plan_tasks блоки), sdk/cli.md, sdk/worker-integration.md.
+- [x] api/: 15 страниц `::: scimesh.sdk.<module>` + api/index.md (модульная карта) — ВСЕ модули SDK.
+- [x] approach.md — правила: типы страниц, reference только из docstrings (Google style), терминология, код-блоки, ссылки, когда обновлять, сборка.
+- [x] Удалены тестовые страницы mkdocs из docs/ (docs/index.md, docs/api/).
+- [x] Устранена проблема mkdocstrings-python 2.x: `default_options` → `handlers.python.options`; `show_if_no_docstring: true` (иначе члены без docstrings не рендерились).
+- [x] Добавлены Google-style docstrings ВСЕМ публичным членам scimesh.sdk без них (~50: artifacts, manifest, plans, workflow, execution, identity, protocols, registry, resources, runtime, verification, schema, conformance); починено подавление pyright в schema.py (перенесённый форматтером `# type: ignore`).
+- [x] make docs --strict: 0 ошибок/предупреждений; все 16 API-страниц + 4 гайда + approach рендерятся (проверено по содержимому HTML).
+- [x] pytest 256 passed; pyright scimesh/tests 0 errors.
+- [x] README/STATUS/handoff обновлены (mkdocs/ сайт, /ui/docs/).
+- Изменения НЕ закоммичены (коммит по запросу).

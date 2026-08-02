@@ -250,9 +250,9 @@ def test_json_backed_values_are_deeply_immutable_and_detached_from_callers() -> 
     with pytest.raises(TypeError):
         manifest.environment.metadata["python"]["version"][0] = 2
     with pytest.raises(TypeError):
-        manifest.inputs["another"] = manifest.inputs["dataset"]
+        manifest.inputs["another"] = manifest.inputs["dataset"]  # type: ignore[index]
     with pytest.raises(FrozenInstanceError):
-        manifest.description = "changed"
+        manifest.description = "changed"  # type: ignore[misc]
 
 
 def test_collection_kinds_have_distinct_ordering_key_and_duplicate_semantics() -> None:
@@ -324,7 +324,7 @@ def test_workflow_graph_validation_fails_closed_for_unbound_or_inconsistent_depe
         WorkflowSpec.from_dict(payload)
 
     payload = workload_manifest().workflow.to_dict()
-    payload["stages"][0]["needs"] = ["undeclared-stage"]
+    payload["stages"][0]["needs"] = ["undeclared-stage"]  # type: ignore[index]
     with pytest.raises(ValueError, match="needs do not match"):
         WorkflowSpec.from_dict(payload)
 
@@ -549,14 +549,14 @@ def test_expansion_is_bound_to_coordinator_parent_and_remaining_budget() -> None
     source = ArtifactCollection.single(artifact("dynamic-source"))
     planned = ArtifactCollection.single(artifact("dynamic-planned"))
     parent = TaskSpec(
-        **common,
+        **common,  # type: ignore[arg-type]
         task_key="root/planner",
         stage_id="planner",
         inputs={"dataset": source},
         expected_outputs={"planned": port},
     )
     child = TaskSpec(
-        **common,
+        **common,  # type: ignore[arg-type]
         task_key="root/planner/000",
         stage_id="compute",
         inputs={"dataset": planned},
@@ -992,7 +992,7 @@ def test_allocation_environment_exposes_only_allocation_derived_values() -> None
         "ROCR_VISIBLE_DEVICES": "GPU-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
     }
     with pytest.raises(TypeError):
-        environment["OMP_NUM_THREADS"] = "1"
+        environment["OMP_NUM_THREADS"] = "1"  # type: ignore[index]
 
     cpu_only = replace(allocation, accelerator_ids=())
     assert profile.allocation_environment(cpu_only)["CUDA_VISIBLE_DEVICES"] == ""

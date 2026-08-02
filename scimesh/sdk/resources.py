@@ -24,6 +24,8 @@ from ._validation import (
 
 
 class AcceleratorMode(str, Enum):
+    """How an accelerator is allocated: whole device or a managed partition."""
+
     NONE = "none"
     EXCLUSIVE_DEVICE = "exclusive_device"
     FRACTIONAL = "fractional"
@@ -36,6 +38,12 @@ def _resource_id(value: object, field: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class AcceleratorDevice:
+    """One physical accelerator advertised in a host inventory.
+
+    Declared but not schedulable until a runtime advertises the matching
+    accelerator features.
+    """
+
     kind: str
     vendor: str
     device_id: str
@@ -48,27 +56,55 @@ class AcceleratorDevice:
     healthy: bool = True
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "kind", require_identifier(self.kind, "accelerator.kind"))
-        object.__setattr__(self, "vendor", require_identifier(self.vendor, "accelerator.vendor"))
-        object.__setattr__(self, "device_id", _resource_id(self.device_id, "accelerator.device_id"))
-        object.__setattr__(self, "model", require_string(self.model, "accelerator.model", max_length=160))
-        object.__setattr__(self, "memory_mb", require_positive_int(self.memory_mb, "accelerator.memory_mb"))
-        modes = tuple(enum_value(AcceleratorMode, mode, "accelerator.mode") for mode in self.modes)
+        object.__setattr__(
+            self, "kind", require_identifier(self.kind, "accelerator.kind")
+        )
+        object.__setattr__(
+            self, "vendor", require_identifier(self.vendor, "accelerator.vendor")
+        )
+        object.__setattr__(
+            self, "device_id", _resource_id(self.device_id, "accelerator.device_id")
+        )
+        object.__setattr__(
+            self,
+            "model",
+            require_string(self.model, "accelerator.model", max_length=160),
+        )
+        object.__setattr__(
+            self,
+            "memory_mb",
+            require_positive_int(self.memory_mb, "accelerator.memory_mb"),
+        )
+        modes = tuple(
+            enum_value(AcceleratorMode, mode, "accelerator.mode") for mode in self.modes
+        )
         if not modes or AcceleratorMode.NONE in modes or len(modes) != len(set(modes)):
-            raise ValueError("accelerator modes must contain unique allocation modes other than none")
+            raise ValueError(
+                "accelerator modes must contain unique allocation modes other than none"
+            )
         object.__setattr__(self, "modes", modes)
-        capabilities = freeze_json_mapping(self.capabilities, "accelerator.capabilities")
+        capabilities = freeze_json_mapping(
+            self.capabilities, "accelerator.capabilities"
+        )
         if any(not isinstance(value, str) for value in capabilities.values()):
             raise ValueError("accelerator capabilities must use string values")
         object.__setattr__(self, "capabilities", capabilities)
         if self.topology_group is not None:
-            object.__setattr__(self, "topology_group", _resource_id(self.topology_group, "topology_group"))
+            object.__setattr__(
+                self,
+                "topology_group",
+                _resource_id(self.topology_group, "topology_group"),
+            )
         if self.partition_id is not None:
-            object.__setattr__(self, "partition_id", _resource_id(self.partition_id, "partition_id"))
+            object.__setattr__(
+                self, "partition_id", _resource_id(self.partition_id, "partition_id")
+            )
             if AcceleratorMode.PARTITION not in modes:
                 raise ValueError("a partition_id requires partition allocation support")
             if AcceleratorMode.EXCLUSIVE_DEVICE in modes:
-                raise ValueError("an accelerator partition cannot be allocated as a whole device")
+                raise ValueError(
+                    "an accelerator partition cannot be allocated as a whole device"
+                )
         if not isinstance(self.healthy, bool):
             raise ValueError("accelerator.healthy must be a boolean")
 
@@ -95,8 +131,16 @@ class AcceleratorDevice:
         if not isinstance(value, Mapping):
             raise ValueError("accelerator device must be an object")
         fields = {
-            "kind", "vendor", "device_id", "model", "memory_mb", "modes",
-            "capabilities", "topology_group", "partition_id", "healthy",
+            "kind",
+            "vendor",
+            "device_id",
+            "model",
+            "memory_mb",
+            "modes",
+            "capabilities",
+            "topology_group",
+            "partition_id",
+            "healthy",
         }
         require_exact_keys(value, fields, "accelerator device")
         modes = value["modes"]
@@ -118,6 +162,8 @@ class AcceleratorDevice:
 
 @dataclass(frozen=True, slots=True)
 class ResourceInventory:
+    """What a host offers: CPU, memory, scratch, architecture, environments, accelerators."""
+
     cpu_cores: int
     memory_mb: int
     scratch_mb: int
@@ -126,13 +172,31 @@ class ResourceInventory:
     environment_digests: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "cpu_cores", require_positive_int(self.cpu_cores, "inventory.cpu_cores"))
-        object.__setattr__(self, "memory_mb", require_positive_int(self.memory_mb, "inventory.memory_mb"))
-        object.__setattr__(self, "scratch_mb", require_nonnegative_int(self.scratch_mb, "inventory.scratch_mb"))
-        object.__setattr__(self, "architecture", require_identifier(self.architecture, "inventory.architecture"))
+        object.__setattr__(
+            self,
+            "cpu_cores",
+            require_positive_int(self.cpu_cores, "inventory.cpu_cores"),
+        )
+        object.__setattr__(
+            self,
+            "memory_mb",
+            require_positive_int(self.memory_mb, "inventory.memory_mb"),
+        )
+        object.__setattr__(
+            self,
+            "scratch_mb",
+            require_nonnegative_int(self.scratch_mb, "inventory.scratch_mb"),
+        )
+        object.__setattr__(
+            self,
+            "architecture",
+            require_identifier(self.architecture, "inventory.architecture"),
+        )
         devices = tuple(self.accelerators)
         if any(not isinstance(device, AcceleratorDevice) for device in devices):
-            raise ValueError("inventory accelerators must contain AcceleratorDevice values")
+            raise ValueError(
+                "inventory accelerators must contain AcceleratorDevice values"
+            )
         ids = [device.allocation_id for device in devices]
         if len(ids) != len(set(ids)):
             raise ValueError("inventory accelerator allocation IDs must be unique")
@@ -160,26 +224,40 @@ class ResourceInventory:
         if not isinstance(value, Mapping):
             raise ValueError("resource inventory must be an object")
         fields = {
-            "cpu_cores", "memory_mb", "scratch_mb", "architecture",
-            "accelerators", "environment_digests",
+            "cpu_cores",
+            "memory_mb",
+            "scratch_mb",
+            "architecture",
+            "accelerators",
+            "environment_digests",
         }
         require_exact_keys(value, fields, "resource inventory")
         accelerators = value["accelerators"]
         digests = value["environment_digests"]
         if not isinstance(accelerators, list) or not isinstance(digests, list):
-            raise ValueError("inventory accelerators and environment_digests must be arrays")
+            raise ValueError(
+                "inventory accelerators and environment_digests must be arrays"
+            )
         return cls(
             cpu_cores=value["cpu_cores"],  # type: ignore[arg-type]
             memory_mb=value["memory_mb"],  # type: ignore[arg-type]
             scratch_mb=value["scratch_mb"],  # type: ignore[arg-type]
             architecture=value["architecture"],  # type: ignore[arg-type]
-            accelerators=tuple(AcceleratorDevice.from_dict(device) for device in accelerators),
+            accelerators=tuple(
+                AcceleratorDevice.from_dict(device) for device in accelerators
+            ),
             environment_digests=tuple(digests),
         )
 
 
 @dataclass(frozen=True, slots=True)
 class ResourceRequirements:
+    """What one task needs; eligibility is checked against the inventory.
+
+    ``cpu_cores`` is a reservation, never a concurrency claim; accelerator
+    declarations remain fail-closed until runtime support exists.
+    """
+
     profile: str
     cpu_cores: int
     memory_mb: int
@@ -196,55 +274,107 @@ class ResourceRequirements:
     max_duration_seconds: int = 3600
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "profile", require_identifier(self.profile, "resources.profile"))
-        object.__setattr__(self, "cpu_cores", require_positive_int(self.cpu_cores, "resources.cpu_cores"))
-        object.__setattr__(self, "memory_mb", require_positive_int(self.memory_mb, "resources.memory_mb"))
-        object.__setattr__(self, "scratch_mb", require_nonnegative_int(self.scratch_mb, "resources.scratch_mb"))
+        object.__setattr__(
+            self, "profile", require_identifier(self.profile, "resources.profile")
+        )
+        object.__setattr__(
+            self,
+            "cpu_cores",
+            require_positive_int(self.cpu_cores, "resources.cpu_cores"),
+        )
+        object.__setattr__(
+            self,
+            "memory_mb",
+            require_positive_int(self.memory_mb, "resources.memory_mb"),
+        )
+        object.__setattr__(
+            self,
+            "scratch_mb",
+            require_nonnegative_int(self.scratch_mb, "resources.scratch_mb"),
+        )
         object.__setattr__(
             self,
             "accelerator_count",
-            require_nonnegative_int(self.accelerator_count, "resources.accelerator_count"),
+            require_nonnegative_int(
+                self.accelerator_count, "resources.accelerator_count"
+            ),
         )
         object.__setattr__(
             self,
             "accelerator_memory_mb",
-            require_nonnegative_int(self.accelerator_memory_mb, "resources.accelerator_memory_mb"),
+            require_nonnegative_int(
+                self.accelerator_memory_mb, "resources.accelerator_memory_mb"
+            ),
         )
         object.__setattr__(
             self,
             "accelerator_mode",
-            enum_value(AcceleratorMode, self.accelerator_mode, "resources.accelerator_mode"),
+            enum_value(
+                AcceleratorMode, self.accelerator_mode, "resources.accelerator_mode"
+            ),
         )
         if self.accelerator_count == 0:
-            if self.accelerator_kind is not None or self.accelerator_memory_mb or self.accelerator_mode is not AcceleratorMode.NONE:
-                raise ValueError("CPU-only resources must not declare accelerator constraints")
+            if (
+                self.accelerator_kind is not None
+                or self.accelerator_memory_mb
+                or self.accelerator_mode is not AcceleratorMode.NONE
+            ):
+                raise ValueError(
+                    "CPU-only resources must not declare accelerator constraints"
+                )
             if self.topology_group is not None:
-                raise ValueError("CPU-only resources must not declare accelerator topology")
+                raise ValueError(
+                    "CPU-only resources must not declare accelerator topology"
+                )
         else:
             if self.accelerator_kind is None:
-                raise ValueError("accelerator_kind is required when accelerator_count is non-zero")
-            object.__setattr__(self, "accelerator_kind", require_identifier(self.accelerator_kind, "accelerator_kind"))
+                raise ValueError(
+                    "accelerator_kind is required when accelerator_count is non-zero"
+                )
+            object.__setattr__(
+                self,
+                "accelerator_kind",
+                require_identifier(self.accelerator_kind, "accelerator_kind"),
+            )
             if self.accelerator_mode is AcceleratorMode.NONE:
-                raise ValueError("accelerator_mode is required when accelerator_count is non-zero")
+                raise ValueError(
+                    "accelerator_mode is required when accelerator_count is non-zero"
+                )
         if self.architecture is not None:
-            object.__setattr__(self, "architecture", require_identifier(self.architecture, "resources.architecture"))
+            object.__setattr__(
+                self,
+                "architecture",
+                require_identifier(self.architecture, "resources.architecture"),
+            )
         if self.topology_group is not None:
-            object.__setattr__(self, "topology_group", _resource_id(self.topology_group, "resources.topology_group"))
+            object.__setattr__(
+                self,
+                "topology_group",
+                _resource_id(self.topology_group, "resources.topology_group"),
+            )
         if self.environment_digest is not None:
             object.__setattr__(
                 self,
                 "environment_digest",
-                require_sha256(self.environment_digest, "resources.environment_digest", prefixed=True),
+                require_sha256(
+                    self.environment_digest,
+                    "resources.environment_digest",
+                    prefixed=True,
+                ),
             )
         object.__setattr__(
             self,
             "estimated_input_bytes",
-            require_nonnegative_int(self.estimated_input_bytes, "estimated_input_bytes"),
+            require_nonnegative_int(
+                self.estimated_input_bytes, "estimated_input_bytes"
+            ),
         )
         object.__setattr__(
             self,
             "estimated_output_bytes",
-            require_nonnegative_int(self.estimated_output_bytes, "estimated_output_bytes"),
+            require_nonnegative_int(
+                self.estimated_output_bytes, "estimated_output_bytes"
+            ),
         )
         object.__setattr__(
             self,
@@ -260,9 +390,15 @@ class ResourceRequirements:
             errors.append("insufficient-memory")
         if self.scratch_mb > inventory.scratch_mb:
             errors.append("insufficient-scratch")
-        if self.architecture is not None and self.architecture != inventory.architecture:
+        if (
+            self.architecture is not None
+            and self.architecture != inventory.architecture
+        ):
             errors.append("architecture-mismatch")
-        if self.environment_digest is not None and self.environment_digest not in inventory.environment_digests:
+        if (
+            self.environment_digest is not None
+            and self.environment_digest not in inventory.environment_digests
+        ):
             errors.append("environment-unavailable")
         matches = self._matching_devices(inventory.accelerators)
         if len(matches) < self.accelerator_count:
@@ -286,22 +422,35 @@ class ResourceRequirements:
             and device.memory_mb >= self.accelerator_memory_mb
             and self.accelerator_mode in device.modes
             and (
-                (self.accelerator_mode is AcceleratorMode.PARTITION and device.partition_id is not None)
+                (
+                    self.accelerator_mode is AcceleratorMode.PARTITION
+                    and device.partition_id is not None
+                )
                 or (
                     self.accelerator_mode is AcceleratorMode.EXCLUSIVE_DEVICE
                     and device.partition_id is None
                 )
                 or self.accelerator_mode is AcceleratorMode.FRACTIONAL
             )
-            and (self.topology_group is None or device.topology_group == self.topology_group)
+            and (
+                self.topology_group is None
+                or device.topology_group == self.topology_group
+            )
         ]
         if self.accelerator_count > 1 and self.topology_group is None:
             groups: dict[str | None, list[AcceleratorDevice]] = {}
             for device in matches:
                 groups.setdefault(device.topology_group, []).append(device)
-            sufficiently_large = [group for group in groups.values() if len(group) >= self.accelerator_count]
+            sufficiently_large = [
+                group
+                for group in groups.values()
+                if len(group) >= self.accelerator_count
+            ]
             if sufficiently_large:
-                matches = min(sufficiently_large, key=lambda group: tuple(item.allocation_id for item in group))
+                matches = min(
+                    sufficiently_large,
+                    key=lambda group: tuple(item.allocation_id for item in group),
+                )
         return tuple(sorted(matches, key=lambda device: device.allocation_id))
 
     def to_dict(self) -> dict[str, object]:
@@ -327,10 +476,20 @@ class ResourceRequirements:
         if not isinstance(value, Mapping):
             raise ValueError("resource requirements must be an object")
         fields = {
-            "profile", "cpu_cores", "memory_mb", "scratch_mb", "accelerator_count",
-            "accelerator_kind", "accelerator_memory_mb", "accelerator_mode", "architecture",
-            "topology_group", "environment_digest", "estimated_input_bytes",
-            "estimated_output_bytes", "max_duration_seconds",
+            "profile",
+            "cpu_cores",
+            "memory_mb",
+            "scratch_mb",
+            "accelerator_count",
+            "accelerator_kind",
+            "accelerator_memory_mb",
+            "accelerator_mode",
+            "architecture",
+            "topology_group",
+            "environment_digest",
+            "estimated_input_bytes",
+            "estimated_output_bytes",
+            "max_duration_seconds",
         }
         require_exact_keys(value, fields, "resource requirements")
         return cls(**value)  # type: ignore[arg-type]
@@ -346,16 +505,32 @@ class ResourceAllocation:
     accelerator_ids: tuple[str, ...]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "allocation_id", _resource_id(self.allocation_id, "allocation_id"))
+        object.__setattr__(
+            self, "allocation_id", _resource_id(self.allocation_id, "allocation_id")
+        )
         object.__setattr__(
             self,
             "owner_id",
             require_string(self.owner_id, "reservation owner_id", max_length=256),
         )
-        object.__setattr__(self, "cpu_cores", require_positive_int(self.cpu_cores, "allocation.cpu_cores"))
-        object.__setattr__(self, "memory_mb", require_positive_int(self.memory_mb, "allocation.memory_mb"))
-        object.__setattr__(self, "scratch_mb", require_nonnegative_int(self.scratch_mb, "allocation.scratch_mb"))
-        ids = tuple(_resource_id(value, "accelerator_id") for value in self.accelerator_ids)
+        object.__setattr__(
+            self,
+            "cpu_cores",
+            require_positive_int(self.cpu_cores, "allocation.cpu_cores"),
+        )
+        object.__setattr__(
+            self,
+            "memory_mb",
+            require_positive_int(self.memory_mb, "allocation.memory_mb"),
+        )
+        object.__setattr__(
+            self,
+            "scratch_mb",
+            require_nonnegative_int(self.scratch_mb, "allocation.scratch_mb"),
+        )
+        ids = tuple(
+            _resource_id(value, "accelerator_id") for value in self.accelerator_ids
+        )
         if len(ids) != len(set(ids)):
             raise ValueError("accelerator_ids must be unique")
         object.__setattr__(self, "accelerator_ids", ids)
@@ -379,7 +554,9 @@ class ResourcePool:
     this local state.
     """
 
-    def __init__(self, inventory: ResourceInventory, *, max_concurrency: int = 1) -> None:
+    def __init__(
+        self, inventory: ResourceInventory, *, max_concurrency: int = 1
+    ) -> None:
         if not isinstance(inventory, ResourceInventory):
             raise ValueError("inventory must be a ResourceInventory")
         self.inventory = inventory
@@ -396,20 +573,33 @@ class ResourcePool:
             return True
         return left.partition_id == right.partition_id
 
-    def reserve(self, owner_id: str, requirements: ResourceRequirements) -> ResourceAllocation:
+    def reserve(
+        self, owner_id: str, requirements: ResourceRequirements
+    ) -> ResourceAllocation:
         if not isinstance(requirements, ResourceRequirements):
             raise ValueError("requirements must be ResourceRequirements")
         owner_id = require_string(owner_id, "reservation owner_id", max_length=256)
         if requirements.accelerator_mode is AcceleratorMode.FRACTIONAL:
             raise ResourceUnavailableError("fractional-accelerator-unsupported")
         with self._lock:
-            if any(allocation.owner_id == owner_id for allocation in self._allocations.values()):
-                raise ValueError("reservation owner already has an active resource allocation")
+            if any(
+                allocation.owner_id == owner_id
+                for allocation in self._allocations.values()
+            ):
+                raise ValueError(
+                    "reservation owner already has an active resource allocation"
+                )
             if len(self._allocations) >= self.max_concurrency:
                 raise ResourceUnavailableError("execution-slot-unavailable")
-            used_cpu = sum(allocation.cpu_cores for allocation in self._allocations.values())
-            used_memory = sum(allocation.memory_mb for allocation in self._allocations.values())
-            used_scratch = sum(allocation.scratch_mb for allocation in self._allocations.values())
+            used_cpu = sum(
+                allocation.cpu_cores for allocation in self._allocations.values()
+            )
+            used_memory = sum(
+                allocation.memory_mb for allocation in self._allocations.values()
+            )
+            used_scratch = sum(
+                allocation.scratch_mb for allocation in self._allocations.values()
+            )
             if used_cpu + requirements.cpu_cores > self.inventory.cpu_cores:
                 raise ResourceUnavailableError("insufficient-cpu")
             if used_memory + requirements.memory_mb > self.inventory.memory_mb:
@@ -419,7 +609,13 @@ class ResourcePool:
             static_errors = tuple(
                 error
                 for error in requirements.eligibility_errors(self.inventory)
-                if error not in {"insufficient-cpu", "insufficient-memory", "insufficient-scratch", "accelerator-unavailable"}
+                if error
+                not in {
+                    "insufficient-cpu",
+                    "insufficient-memory",
+                    "insufficient-scratch",
+                    "accelerator-unavailable",
+                }
             )
             if static_errors:
                 raise ResourceUnavailableError(static_errors[0])
@@ -431,12 +627,18 @@ class ResourcePool:
             available_devices = tuple(
                 device
                 for device in self.inventory.accelerators
-                if not any(self._devices_conflict(device, reserved) for reserved in reserved_devices)
+                if not any(
+                    self._devices_conflict(device, reserved)
+                    for reserved in reserved_devices
+                )
             )
             devices = requirements._matching_devices(available_devices)
             if len(devices) < requirements.accelerator_count:
                 raise ResourceUnavailableError("accelerator-unavailable")
-            selected = tuple(device.allocation_id for device in devices[: requirements.accelerator_count])
+            selected = tuple(
+                device.allocation_id
+                for device in devices[: requirements.accelerator_count]
+            )
             allocation = ResourceAllocation(
                 allocation_id=str(uuid4()),
                 owner_id=owner_id,
@@ -460,4 +662,6 @@ class ResourcePool:
 
     def active_allocations(self) -> tuple[ResourceAllocation, ...]:
         with self._lock:
-            return tuple(sorted(self._allocations.values(), key=lambda item: item.owner_id))
+            return tuple(
+                sorted(self._allocations.values(), key=lambda item: item.owner_id)
+            )

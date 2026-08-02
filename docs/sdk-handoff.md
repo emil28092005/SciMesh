@@ -26,6 +26,8 @@ resolves `query_id` per task and rejects plan-time `max_rows`.
 
 **Default hooks + molwt-filter (2026-08-01):** `MapReduceWorkload` now provides default `partition_input` (row-bounded, header-preserving sharding for delimited inputs, `shard_rows` class attr) and default `reduce_partials` (`concatenate_partial_tables`, one header, byte-identical). A new built-in `molwt-filter@1.0.0` (`scimesh/workloads/molwt_filter/`) demonstrates the minimal authoring surface: only `compute_shard` is workload code. descriptor-batch dropped its now-redundant partition/reduce overrides.
 
+**MkDocs site (2026-08-02):** the standalone documentation site lives in `mkdocs/` (`docs_dir: mkdocs`) and does not use the project's `docs/` directory. It contains guides (`mkdocs/sdk/`: overview, authoring-workloads, cli, worker-integration), the full auto-generated API reference for all `scimesh.sdk` modules (`mkdocs/api/`, mkdocstrings `::: scimesh.sdk.<module>` — set `show_if_no_docstring: true`), and the writing rules (`mkdocs/approach.md`). `make docs` builds it; the UI serves it at `/ui/docs/`. All public SDK members now carry Google-style docstrings.
+
 **Authoring scaffold (2026-08-01):** `scimesh/sdk/batch.py` adds
 `MapReduceWorkload` — the primary authoring surface for `core-batch-v1`. A
 subclass declares identity/parameters/ports and three scientific hooks

@@ -22,6 +22,22 @@ def _clean_url(value: object | None) -> str | None:
     return text.rstrip("/") or None
 
 
+def _int_value(value: object | None, name: str) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"{name} must be a number")
+    return int(value)
+
+
+def _float_value(value: object | None, name: str) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"{name} must be a number")
+    return float(value)
+
+
 def _positive_number(value: object, name: str, *, allow_zero: bool = False) -> None:
     if (
         isinstance(value, bool)
@@ -190,16 +206,16 @@ class WorkerConfig:
             worker_id=str(worker_id) if worker_id is not None else None,
             work_dir=Path(str(work_dir)),
             worker_name=str(worker_name),
-            cpu_count=int(cpu_count),
-            memory_mb=int(memory_mb) if memory_mb is not None else None,
-            poll_interval=float(poll_interval),
-            request_timeout=float(request_timeout),
-            heartbeat_interval=float(heartbeat_interval),
+            cpu_count=_int_value(cpu_count, "cpu_count") or 1,
+            memory_mb=_int_value(memory_mb, "memory_mb"),
+            poll_interval=_float_value(poll_interval, "poll_interval") or 2.0,
+            request_timeout=_float_value(request_timeout, "request_timeout") or 30.0,
+            heartbeat_interval=_float_value(heartbeat_interval, "heartbeat_interval") or 15.0,
             bearer_token=str(bearer_token) if bearer_token is not None else None,
             worker_key=str(worker_key) if worker_key is not None else None,
             userservice_url=userservice_url,
-            cleanup_after_seconds=float(cleanup) if cleanup else None,
-            max_tasks=int(max_tasks) if max_tasks is not None else None,
+            cleanup_after_seconds=_float_value(cleanup, "cleanup_after_seconds"),
+            max_tasks=_int_value(max_tasks, "max_tasks"),
             exit_when_idle=bool(values.get("exit_when_idle", False)),
             capabilities=_capabilities(capabilities),
             workload_allowlist=_workload_allowlist(allowlist),

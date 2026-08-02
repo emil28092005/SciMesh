@@ -12,6 +12,7 @@ import pytest
 from scimesh.chemistry.dataset import find_molecule_by_id
 from scimesh.sdk import (
     ArtifactCollection,
+    WorkloadManifest,
     ArtifactSchema,
     CheckpointPolicy,
     CompatibilityError,
@@ -498,7 +499,7 @@ def test_local_executor_rejects_non_trusted_trust_modes(tmp_path: Path) -> None:
 def _advanced_execution_manifest(
     original: WorkloadDefinition,
     case: str,
-) -> tuple[tuple[str, ...], object]:
+) -> tuple[tuple[str, ...], WorkloadManifest]:
     """Declare one negotiable advanced profile the local executor cannot enforce."""
     stages = original.manifest.workflow.stages
     if case == "process-pool":

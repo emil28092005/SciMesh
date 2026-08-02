@@ -51,6 +51,9 @@ type Config struct {
 	LogFile string
 	// Directory where artifact bytes are stored.
 	StorageDir string
+	// Directory of the built MkDocs site (site/) served at /ui/docs/. Empty
+	// disables the docs route; the UI shows a hint page instead.
+	DocsDir string
 	// Upper bound on an uploaded dataset or artifact body, in bytes.
 	MaxUploadBytes int64
 
@@ -108,6 +111,7 @@ func LoadConfig() (Config, error) {
 		LogLevel:             getEnv("LOG_LEVEL", "info"),
 		LogFile:              os.Getenv("LOG_FILE"),
 		StorageDir:           getEnv("COORDINATOR_STORAGE_DIR", "./data"),
+		DocsDir:              os.Getenv("SCIMESH_DOCS_DIR"),
 		MaxUploadBytes:       1 << 30, // 1 GiB
 		DBMaxConns:           10,
 		DBConnectTimeout:     30 * time.Second,

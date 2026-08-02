@@ -12,7 +12,7 @@ import os
 import platform
 
 from scimesh.sdk.identity import SDK_API_VERSION
-from scimesh.sdk.registry import WorkloadRegistry
+from scimesh.sdk.registry import AllowedPackage, WorkloadRegistry
 from scimesh.sdk.resources import ResourceInventory
 from scimesh.sdk.runtime import RuntimeCapabilities
 
@@ -80,7 +80,12 @@ def default_sdk_runtime(
         features={"artifact-collections": "1.0.0", "exact-verifier": "1.0.0"},
         workload_capabilities=(
             workload_capabilities
-            or ("similarity-search", "similarity-graph", "descriptor-batch", "molwt-filter")
+            or (
+                "similarity-search",
+                "similarity-graph",
+                "descriptor-batch",
+                "molwt-filter",
+            )
         ),
         inventory=ResourceInventory(
             cpu_cores=max(os.cpu_count() or 1, 1),

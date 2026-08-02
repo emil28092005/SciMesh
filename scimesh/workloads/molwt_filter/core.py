@@ -68,7 +68,7 @@ def filter_molecules_by_molwt(
                 if not skip_invalid:
                     raise ValueError(f"row {scanned} has an invalid canonical_smiles")
                 continue
-            molwt = Descriptors.MolWt(molecule)
+            molwt = Descriptors.MolWt(molecule)  # type: ignore[attr-defined]
             if minimum is not None and molwt < minimum:
                 continue
             if maximum is not None and molwt > maximum:

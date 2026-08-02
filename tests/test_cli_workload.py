@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scimesh.cli import main
 
 
-def test_workload_cli_lists_sdk_workloads(capsys: object) -> None:
+def test_workload_cli_lists_sdk_workloads(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert main(["workload", "list"]) == 0
     output = capsys.readouterr().out
     assert "descriptor-batch" in output
@@ -16,7 +20,9 @@ def test_workload_cli_lists_sdk_workloads(capsys: object) -> None:
     assert "enabled" in output
 
 
-def test_workload_cli_runs_descriptor_batch(tmp_path: Path, capsys: object) -> None:
+def test_workload_cli_runs_descriptor_batch(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     dataset = tmp_path / "molecules.tsv"
     dataset.write_text(
         "chembl_id\tcanonical_smiles\nA\tCCO\nB\tCCCC\nC\tCCN\n",
@@ -107,7 +113,7 @@ def test_workload_cli_rejects_invalid_params_json(tmp_path: Path) -> None:
 
 
 def test_workload_cli_runs_an_allowlisted_custom_workload(
-    tmp_path: Path, monkeypatch: object, capsys: object
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     import csv
 

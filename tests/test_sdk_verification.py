@@ -523,7 +523,7 @@ def test_exact_verifier_rejects_owner_equivocation_without_leaking_identity() ->
         "candidate_count": 3,
         "equivocating_owner_count": 1,
     }
-    assert candidates.candidates[0].owner_id not in json.dumps(decision.to_dict())
+    assert (candidates.candidates[0].owner_id or "") not in json.dumps(decision.to_dict())
 
 
 def test_numeric_verifier_accepts_nested_values_with_absolute_and_relative_tolerance() -> None:

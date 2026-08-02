@@ -16,7 +16,11 @@ from datetime import datetime, timezone
 
 from .artifacts import ArtifactClient, sha256_file
 from .config import WorkerConfig
-from .coordinator import CoordinatorClient, CoordinatorConflictError, CoordinatorTransientError
+from .coordinator import (
+    CoordinatorClient,
+    CoordinatorConflictError,
+    CoordinatorTransientError,
+)
 from .models import ClaimedTask, UploadedArtifact
 from .runners import Runner
 
@@ -24,8 +28,11 @@ from .runners import Runner
 class LeaseHeartbeat:
     """Renews a claimed task lease while local work is in progress."""
 
-    def __init__(self, task: ClaimedTask, coordinator: CoordinatorClient, config: WorkerConfig) -> None:
+    def __init__(
+        self, task: ClaimedTask, coordinator: CoordinatorClient, config: WorkerConfig
+    ) -> None:
         self.task, self.coordinator, self.config = task, coordinator, config
+        self._worker_id = config.worker_id or ""
         self._stop = threading.Event()
         self._error: Exception | None = None
         self._thread: threading.Thread | None = None
@@ -33,11 +40,11 @@ class LeaseHeartbeat:
 
     def start(self) -> None:
         # Verify ownership before expensive download or calculation begins.
-        self._lease_expires_at = self.coordinator.heartbeat(
-            self.task, self.config.worker_id
-        )
+        self._lease_expires_at = self.coordinator.heartbeat(self.task, self._worker_id)
         self._next_delay()
-        self._thread = threading.Thread(target=self._run, name=f"lease-{self.task.task_id}", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run, name=f"lease-{self.task.task_id}", daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:
@@ -54,10 +61,12 @@ class LeaseHeartbeat:
         while not self._stop.wait(max(delay, 0.01)):
             try:
                 self._lease_expires_at = self.coordinator.heartbeat(
-                    self.task, self.config.worker_id
+                    self.task, self._worker_id
                 )
                 delay = self._next_delay()
-            except Exception as error:  # Surface the lease loss in the main state machine.
+            except (
+                Exception
+            ) as error:  # Surface the lease loss in the main state machine.
                 self._error = error
                 return
 
@@ -66,7 +75,9 @@ class LeaseHeartbeat:
 
     def _seconds_until_expiry(self) -> float:
         try:
-            expiry = datetime.fromisoformat(self._lease_expires_at.replace("Z", "+00:00"))
+            expiry = datetime.fromisoformat(
+                self._lease_expires_at.replace("Z", "+00:00")
+            )
         except ValueError as error:
             raise ValueError("invalid lease_expires_at") from error
         seconds = (expiry - datetime.now(timezone.utc)).total_seconds()
@@ -84,8 +95,19 @@ class RunOnceOutcome:
 
 
 class WorkerDaemon:
-    def __init__(self, config: WorkerConfig, coordinator: CoordinatorClient, artifacts: ArtifactClient, runner: Runner) -> None:
-        self.config, self.coordinator, self.artifacts, self.runner = config, coordinator, artifacts, runner
+    def __init__(
+        self,
+        config: WorkerConfig,
+        coordinator: CoordinatorClient,
+        artifacts: ArtifactClient,
+        runner: Runner,
+    ) -> None:
+        self.config, self.coordinator, self.artifacts, self.runner = (
+            config,
+            coordinator,
+            artifacts,
+            runner,
+        )
         self.worker_id = config.worker_id
         self._registered = False
         self.log = logging.getLogger("scimesh.worker")
@@ -129,14 +151,20 @@ class WorkerDaemon:
                             )
                             return True
                     elif self.config.exit_when_idle:
-                        self._log("stopped", reason="queue_empty", completed_tasks=completed_tasks)
+                        self._log(
+                            "stopped",
+                            reason="queue_empty",
+                            completed_tasks=completed_tasks,
+                        )
                         return True
                     else:
                         self._sleep(self.config.poll_interval)
                 except CoordinatorTransientError as error:
                     failures += 1
                     self._log("failed", error_type=type(error).__name__)
-                    self._sleep(min(self.config.poll_interval * 2 ** min(failures, 6), 60.0))
+                    self._sleep(
+                        min(self.config.poll_interval * 2 ** min(failures, 6), 60.0)
+                    )
         except KeyboardInterrupt:
             self._log("stopped", reason="interrupted", completed_tasks=completed_tasks)
             return False
@@ -183,11 +211,15 @@ class WorkerDaemon:
                 },
             )
             completed = True
-            self._log("completed", task, elapsed_seconds=round(time.monotonic() - started, 3))
+            self._log(
+                "completed", task, elapsed_seconds=round(time.monotonic() - started, 3)
+            )
         except KeyboardInterrupt:
             self._log("interrupted", task)
             try:
-                self._report_failure(task, InterruptedError("worker interrupted by operator"))
+                self._report_failure(
+                    task, InterruptedError("worker interrupted by operator")
+                )
             except CoordinatorTransientError:
                 self._log("failed", task, error_type="FailureReportError")
             raise
@@ -203,13 +235,16 @@ class WorkerDaemon:
     def _report_failure(self, task: ClaimedTask, error: Exception) -> None:
         message = self._sanitize_error_message(error)
         try:
-            self.coordinator.fail(task, {
-                "worker_id": self._worker_id(),
-                "attempt": task.attempt,
-                "error_code": type(error).__name__,
-                "error_message": message,
-                "retryable": self._is_retryable(error),
-            })
+            self.coordinator.fail(
+                task,
+                {
+                    "worker_id": self._worker_id(),
+                    "attempt": task.attempt,
+                    "error_code": type(error).__name__,
+                    "error_message": message,
+                    "retryable": self._is_retryable(error),
+                },
+            )
         except CoordinatorTransientError:
             raise
         except Exception:
@@ -218,7 +253,9 @@ class WorkerDaemon:
     @staticmethod
     def _is_retryable(error: Exception) -> bool:
         """Retry transient worker/transport failures, never invalid scientific input."""
-        return not isinstance(error, (ValueError, FileNotFoundError, subprocess.CalledProcessError))
+        return not isinstance(
+            error, (ValueError, FileNotFoundError, subprocess.CalledProcessError)
+        )
 
     def _sanitize_error_message(self, error: Exception) -> str:
         """Keep coordinator-visible failures useful without exposing local paths."""
@@ -264,12 +301,21 @@ class WorkerDaemon:
         log_level: int = logging.INFO,
         **extra: object,
     ) -> None:
-        fields = {"worker_id": self.config.worker_id, "task_id": task.task_id if task else None, "attempt": task.attempt if task else None, "state": state, **extra}
+        fields = {
+            "worker_id": self.config.worker_id,
+            "task_id": task.task_id if task else None,
+            "attempt": task.attempt if task else None,
+            "state": state,
+            **extra,
+        }
         self.log.log(log_level, "worker_event %s", fields)
 
     def _cleanup_expired_directories(self) -> None:
         """Remove only old task attempt directories when retention was configured."""
-        if self.config.cleanup_after_seconds is None or not self.config.work_dir.exists():
+        if (
+            self.config.cleanup_after_seconds is None
+            or not self.config.work_dir.exists()
+        ):
             return
         cutoff = time.time() - self.config.cleanup_after_seconds
         for task_dir in self.config.work_dir.iterdir():

@@ -479,7 +479,7 @@ def test_redirect_to_external_storage_strips_authorization() -> None:
         headers={"Authorization": "Bearer secret"},
     )
     redirected = handler.redirect_request(
-        source, None, 302, "Found", {}, "https://bucket.example/presigned"
+        source, None, 302, "Found", {}, "https://bucket.example/presigned"  # type: ignore[arg-type]
     )
     assert redirected is not None
     assert redirected.get_header("Authorization") is None

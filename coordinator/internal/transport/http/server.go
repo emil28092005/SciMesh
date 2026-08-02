@@ -56,6 +56,8 @@ type Server struct {
 	publicUserserviceURL string
 	// httpClient makes the login/register calls to the userservice.
 	httpClient *http.Client
+	// docsDir serves the built MkDocs site at /ui/docs/. Empty disables it.
+	docsDir string
 	// metrics holds the Prometheus registry and HTTP instrumentation.
 	metrics *metrics.Metrics
 	// ready probes downstream dependencies (the database) for /health. Kept as
@@ -78,6 +80,10 @@ func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval 
 	if len(publicURLs) > 1 {
 		publicUserserviceURL = strings.TrimRight(publicURLs[1], "/")
 	}
+	docsDir := ""
+	if len(publicURLs) > 2 {
+		docsDir = publicURLs[2]
+	}
 	return &Server{
 		uc:                   uc,
 		log:                  log,
@@ -88,6 +94,7 @@ func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval 
 		userserviceURL:       strings.TrimRight(userserviceURL, "/"),
 		publicCoordinatorURL: publicCoordinatorURL,
 		publicUserserviceURL: publicUserserviceURL,
+		docsDir:              docsDir,
 		httpClient:           &http.Client{Timeout: 10 * time.Second},
 		metrics:              m,
 		ready:                ready,
@@ -136,6 +143,8 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 			{"GET /ui", s.handleUIHome},
 			{"GET /ui/jobs/new", s.handleUINewJob},
 			{"GET /ui/workloads", s.handleUIWorkloads},
+			{"GET /ui/docs", s.handleUIDocsIndex},
+			{"GET /ui/docs/{path...}", s.handleUIDocs},
 			{"GET /ui/jobs/{job_id}", s.handleUIJob},
 			{"GET /ui/api/overview", s.handleUIOverviewJSON},
 			{"GET /ui/api/jobs/{job_id}", s.handleUIJobJSON},

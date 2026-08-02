@@ -87,6 +87,7 @@ def test_compatibility_failure_occurs_before_planner_invocation(
 
     class CountingPlanner:
         calls = 0
+        entry_point = "tests.sdk_fixture:plan@v1"
 
         def validate(self, request):
             self.calls += 1

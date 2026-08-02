@@ -34,6 +34,12 @@ from .schema import validate_schema_definition
 
 
 class DeterminismProfile(str, Enum):
+    """How a workload's output is guaranteed to repeat.
+
+    ``BYTE_EXACT`` is the only profile eligible for ``untrusted_quorum`` in
+    v1; the other profiles require future verifier or trust policies.
+    """
+
     BYTE_EXACT = "byte_exact"
     CANONICAL_EXACT = "canonical_exact"
     NUMERIC_TOLERANCE = "numeric_tolerance"
@@ -43,6 +49,13 @@ class DeterminismProfile(str, Enum):
 
 
 class TrustMode(str, Enum):
+    """Who may execute a workload and what acceptance requires.
+
+    ``TRUSTED`` accepts a single execution; ``VERIFIED`` requires a
+    coordinator-owned binding; ``UNTRUSTED_QUORUM`` requires distinct owners
+    to produce identical whole-artifact SHA-256 digests.
+    """
+
     TRUSTED = "trusted"
     VERIFIED = "verified"
     UNTRUSTED_QUORUM = "untrusted_quorum"
@@ -50,27 +63,49 @@ class TrustMode(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class PackageSpec:
+    """Identity pin of the installed distribution providing the workload.
+
+    ``digest`` is the measured content pin (``sha256:`` prefix) that
+    discovery compares before importing an entry point.
+    """
+
     distribution: str
     digest: str
     signature: str | None = None
 
     def __post_init__(self) -> None:
-        distribution = require_string(self.distribution, "package.distribution", max_length=128).lower()
+        distribution = require_string(
+            self.distribution, "package.distribution", max_length=128
+        ).lower()
         if not re.fullmatch(r"[a-z0-9]+(?:[-_.][a-z0-9]+)*", distribution):
-            raise ValueError("package.distribution must be a canonical Python distribution name")
+            raise ValueError(
+                "package.distribution must be a canonical Python distribution name"
+            )
         object.__setattr__(self, "distribution", distribution.replace("_", "-"))
-        object.__setattr__(self, "digest", require_sha256(self.digest, "package.digest", prefixed=True))
+        object.__setattr__(
+            self, "digest", require_sha256(self.digest, "package.digest", prefixed=True)
+        )
         if self.signature is not None:
-            object.__setattr__(self, "signature", require_string(self.signature, "package.signature", max_length=512))
+            object.__setattr__(
+                self,
+                "signature",
+                require_string(self.signature, "package.signature", max_length=512),
+            )
 
     def to_dict(self) -> dict[str, object]:
-        return {"distribution": self.distribution, "digest": self.digest, "signature": self.signature}
+        return {
+            "distribution": self.distribution,
+            "digest": self.digest,
+            "signature": self.signature,
+        }
 
     @classmethod
     def from_dict(cls, value: object) -> "PackageSpec":
         if not isinstance(value, Mapping):
             raise ValueError("package specification must be an object")
-        require_exact_keys(value, {"distribution", "digest", "signature"}, "package specification")
+        require_exact_keys(
+            value, {"distribution", "digest", "signature"}, "package specification"
+        )
         return cls(
             distribution=value["distribution"],  # type: ignore[arg-type]
             digest=value["digest"],  # type: ignore[arg-type]
@@ -80,23 +115,43 @@ class PackageSpec:
 
 @dataclass(frozen=True, slots=True)
 class EnvironmentSpec:
+    """Pinned execution environment (kind, digest, metadata).
+
+    Negotiation fails unless the runtime inventory advertises this exact
+    environment digest.
+    """
+
     kind: str
     digest: str
     metadata: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "kind", require_identifier(self.kind, "environment.kind"))
-        object.__setattr__(self, "digest", require_sha256(self.digest, "environment.digest", prefixed=True))
-        object.__setattr__(self, "metadata", freeze_json_mapping(self.metadata, "environment.metadata"))
+        object.__setattr__(
+            self, "kind", require_identifier(self.kind, "environment.kind")
+        )
+        object.__setattr__(
+            self,
+            "digest",
+            require_sha256(self.digest, "environment.digest", prefixed=True),
+        )
+        object.__setattr__(
+            self, "metadata", freeze_json_mapping(self.metadata, "environment.metadata")
+        )
 
     def to_dict(self) -> dict[str, object]:
-        return {"kind": self.kind, "digest": self.digest, "metadata": thaw_json(self.metadata)}
+        return {
+            "kind": self.kind,
+            "digest": self.digest,
+            "metadata": thaw_json(self.metadata),
+        }
 
     @classmethod
     def from_dict(cls, value: object) -> "EnvironmentSpec":
         if not isinstance(value, Mapping):
             raise ValueError("environment specification must be an object")
-        require_exact_keys(value, {"kind", "digest", "metadata"}, "environment specification")
+        require_exact_keys(
+            value, {"kind", "digest", "metadata"}, "environment specification"
+        )
         return cls(
             kind=value["kind"],  # type: ignore[arg-type]
             digest=value["digest"],  # type: ignore[arg-type]
@@ -106,6 +161,12 @@ class EnvironmentSpec:
 
 @dataclass(frozen=True, slots=True)
 class VerifierSpec:
+    """The manifest acceptance verifier and its bounded configuration.
+
+    The verifier must be installed in the definition and its handler
+    configuration must match this declaration exactly.
+    """
+
     verifier: ComponentRef
     configuration: Mapping[str, Any]
 
@@ -128,7 +189,9 @@ class VerifierSpec:
     def from_dict(cls, value: object) -> "VerifierSpec":
         if not isinstance(value, Mapping):
             raise ValueError("verifier specification must be an object")
-        require_exact_keys(value, {"verifier", "configuration"}, "verifier specification")
+        require_exact_keys(
+            value, {"verifier", "configuration"}, "verifier specification"
+        )
         return cls(
             verifier=ComponentRef.from_dict(value["verifier"]),
             configuration=value["configuration"],  # type: ignore[arg-type]
@@ -137,6 +200,12 @@ class VerifierSpec:
 
 @dataclass(frozen=True, slots=True)
 class WorkloadLimits:
+    """Hard resource and size bounds enforced by planning and execution.
+
+    Covers input bytes, task count, output bytes, parameter bytes, and the
+    total artifact count for one job.
+    """
+
     max_input_bytes: int
     max_tasks: int
     max_output_bytes: int
@@ -145,9 +214,17 @@ class WorkloadLimits:
 
     def __post_init__(self) -> None:
         for field in (
-            "max_input_bytes", "max_tasks", "max_output_bytes", "max_parameter_bytes", "max_artifacts"
+            "max_input_bytes",
+            "max_tasks",
+            "max_output_bytes",
+            "max_parameter_bytes",
+            "max_artifacts",
         ):
-            object.__setattr__(self, field, require_positive_int(getattr(self, field), f"limits.{field}"))
+            object.__setattr__(
+                self,
+                field,
+                require_positive_int(getattr(self, field), f"limits.{field}"),
+            )
 
     def to_dict(self) -> dict[str, int]:
         return {
@@ -163,7 +240,11 @@ class WorkloadLimits:
         if not isinstance(value, Mapping):
             raise ValueError("workload limits must be an object")
         fields = {
-            "max_input_bytes", "max_tasks", "max_output_bytes", "max_parameter_bytes", "max_artifacts",
+            "max_input_bytes",
+            "max_tasks",
+            "max_output_bytes",
+            "max_parameter_bytes",
+            "max_artifacts",
         }
         require_exact_keys(value, fields, "workload limits")
         return cls(**value)  # type: ignore[arg-type]
@@ -186,6 +267,15 @@ def _ports(
 
 @dataclass(frozen=True, slots=True)
 class WorkloadManifest:
+    """The installed workload's complete, immutable declaration.
+
+    Pins identity, SDK/protocol compatibility ranges, package and environment
+    digests, the strict parameter schema, the workflow DAG, external ports,
+    determinism, trust modes, the acceptance verifier, limits, capabilities,
+    and conformance profiles. ``digest`` is the canonical JSON content pin
+    carried by every plan and task.
+    """
+
     sdk_api: VersionRange
     protocol: VersionRange
     workload: WorkloadId
@@ -212,16 +302,33 @@ class WorkloadManifest:
             MANIFEST_SCHEMA_VERSION,
             "manifest_schema_version",
         )
-        if not isinstance(self.sdk_api, VersionRange) or not isinstance(self.protocol, VersionRange):
-            raise ValueError("sdk_api and protocol must be explicit VersionRange values")
+        if not isinstance(self.sdk_api, VersionRange) or not isinstance(
+            self.protocol, VersionRange
+        ):
+            raise ValueError(
+                "sdk_api and protocol must be explicit VersionRange values"
+            )
         if not isinstance(self.workload, WorkloadId):
             raise ValueError("workload must be a WorkloadId")
-        object.__setattr__(self, "description", require_string(self.description, "description", max_length=512))
-        if not isinstance(self.package, PackageSpec) or not isinstance(self.environment, EnvironmentSpec):
-            raise ValueError("manifest package and environment declarations are required")
+        object.__setattr__(
+            self,
+            "description",
+            require_string(self.description, "description", max_length=512),
+        )
+        if not isinstance(self.package, PackageSpec) or not isinstance(
+            self.environment, EnvironmentSpec
+        ):
+            raise ValueError(
+                "manifest package and environment declarations are required"
+            )
         schema = freeze_json_mapping(self.parameters_schema, "parameters_schema")
-        if schema.get("type") != "object" or schema.get("additionalProperties") is not False:
-            raise ValueError("parameters_schema must be an object schema with additionalProperties=false")
+        if (
+            schema.get("type") != "object"
+            or schema.get("additionalProperties") is not False
+        ):
+            raise ValueError(
+                "parameters_schema must be an object schema with additionalProperties=false"
+            )
         properties = schema.get("properties")
         if not isinstance(properties, Mapping):
             raise ValueError("parameters_schema.properties must be an object")
@@ -231,14 +338,22 @@ class WorkloadManifest:
         object.__setattr__(self, "parameters_schema", schema)
         if not isinstance(self.workflow, WorkflowSpec):
             raise ValueError("workflow must be a WorkflowSpec")
-        object.__setattr__(self, "inputs", _ports(self.inputs, "manifest.inputs", allow_empty=True))
+        object.__setattr__(
+            self, "inputs", _ports(self.inputs, "manifest.inputs", allow_empty=True)
+        )
         object.__setattr__(self, "outputs", _ports(self.outputs, "manifest.outputs"))
         if dict(self.inputs) != dict(self.workflow.inputs):
             raise ValueError("manifest inputs must match workflow inputs")
         if dict(self.outputs) != dict(self.workflow.output_ports()):
             raise ValueError("manifest outputs must match workflow outputs")
-        object.__setattr__(self, "determinism", enum_value(DeterminismProfile, self.determinism, "determinism"))
-        modes = tuple(enum_value(TrustMode, mode, "trust_mode") for mode in self.trust_modes)
+        object.__setattr__(
+            self,
+            "determinism",
+            enum_value(DeterminismProfile, self.determinism, "determinism"),
+        )
+        modes = tuple(
+            enum_value(TrustMode, mode, "trust_mode") for mode in self.trust_modes
+        )
         if not modes or len(modes) != len(set(modes)):
             raise ValueError("trust_modes must be non-empty and unique")
         object.__setattr__(self, "trust_modes", modes)
@@ -250,9 +365,13 @@ class WorkloadManifest:
         }
         for stage in self.workflow.stages:
             if not set(stage.trust_modes).issubset(manifest_mode_values):
-                raise ValueError("stage trust modes must be a subset of manifest trust_modes")
+                raise ValueError(
+                    "stage trust modes must be a subset of manifest trust_modes"
+                )
             if stage.verifier is None:
-                raise ValueError("every output-producing stage requires an acceptance verifier")
+                raise ValueError(
+                    "every output-producing stage requires an acceptance verifier"
+                )
             resource_sets = (stage.resources,) + (
                 (stage.gang.per_replica_resources,) if stage.gang is not None else ()
             )
@@ -279,19 +398,26 @@ class WorkloadManifest:
             raise ValueError("workflow max_tasks exceeds the workload limit")
         if self.workflow.max_output_bytes > self.limits.max_output_bytes:
             raise ValueError("workflow max_output_bytes exceeds the workload limit")
-        capabilities = tuple(require_identifier(value, "capability") for value in self.capabilities)
+        capabilities = tuple(
+            require_identifier(value, "capability") for value in self.capabilities
+        )
         if not capabilities or len(capabilities) != len(set(capabilities)):
             raise ValueError("capabilities must be non-empty and unique")
         if self.workload.name not in capabilities:
             raise ValueError("capabilities must include the canonical workload name")
         object.__setattr__(self, "capabilities", capabilities)
-        profiles = tuple(require_identifier(value, "conformance_profile") for value in self.conformance_profiles)
+        profiles = tuple(
+            require_identifier(value, "conformance_profile")
+            for value in self.conformance_profiles
+        )
         if "core-batch-v1" not in profiles or len(profiles) != len(set(profiles)):
             raise ValueError("conformance_profiles must uniquely include core-batch-v1")
         object.__setattr__(self, "conformance_profiles", profiles)
         required = tuple(self.required_features)
         optional = tuple(self.optional_features)
-        if any(not isinstance(item, FeatureRequirement) for item in required + optional):
+        if any(
+            not isinstance(item, FeatureRequirement) for item in required + optional
+        ):
             raise ValueError("features must contain FeatureRequirement values")
         names = [item.name for item in required + optional]
         if len(names) != len(set(names)):
@@ -308,23 +434,34 @@ class WorkloadManifest:
         if self.determinism is DeterminismProfile.BYTE_EXACT and not exact:
             raise ValueError("byte_exact workloads require exact-artifact verifier")
         if self.determinism is DeterminismProfile.CANONICAL_EXACT and not canonical:
-            raise ValueError("canonical_exact workloads require canonical-record verifier")
+            raise ValueError(
+                "canonical_exact workloads require canonical-record verifier"
+            )
         if self.determinism is DeterminismProfile.NUMERIC_TOLERANCE and not numeric:
-            raise ValueError("numeric_tolerance workloads require numeric-tolerance verifier")
+            raise ValueError(
+                "numeric_tolerance workloads require numeric-tolerance verifier"
+            )
         if TrustMode.UNTRUSTED_QUORUM in self.trust_modes:
             if self.determinism is not DeterminismProfile.BYTE_EXACT or not exact:
-                raise ValueError("untrusted_quorum v1 requires byte_exact and exact-artifact")
-            if any(stage.kind is StageKind.SIDE_EFFECT for stage in self.workflow.stages):
+                raise ValueError(
+                    "untrusted_quorum v1 requires byte_exact and exact-artifact"
+                )
+            if any(
+                stage.kind is StageKind.SIDE_EFFECT for stage in self.workflow.stages
+            ):
                 raise ValueError("side-effect stages cannot use untrusted quorum")
         if self.determinism is DeterminismProfile.SIDE_EFFECTING:
             if self.trust_modes != (TrustMode.TRUSTED,):
                 raise ValueError("side_effecting workloads must be trusted-only")
-            if not any(stage.kind is StageKind.SIDE_EFFECT for stage in self.workflow.stages):
+            if not any(
+                stage.kind is StageKind.SIDE_EFFECT for stage in self.workflow.stages
+            ):
                 raise ValueError("side_effecting workload requires a side-effect stage")
 
     @property
     def digest(self) -> str:
         import hashlib
+
         return hashlib.sha256(self.to_json().encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, object]:
@@ -358,21 +495,41 @@ class WorkloadManifest:
         if not isinstance(value, Mapping):
             raise ValueError("workload manifest must be an object")
         fields = {
-            "manifest_schema_version", "sdk_api", "protocol", "workload", "description",
-            "package", "environment", "parameters_schema", "workflow", "inputs", "outputs",
-            "determinism", "trust_modes", "verifier", "limits", "capabilities",
-            "conformance_profiles", "required_features", "optional_features",
+            "manifest_schema_version",
+            "sdk_api",
+            "protocol",
+            "workload",
+            "description",
+            "package",
+            "environment",
+            "parameters_schema",
+            "workflow",
+            "inputs",
+            "outputs",
+            "determinism",
+            "trust_modes",
+            "verifier",
+            "limits",
+            "capabilities",
+            "conformance_profiles",
+            "required_features",
+            "optional_features",
         }
         require_exact_keys(value, fields, "workload manifest")
         inputs, outputs = value["inputs"], value["outputs"]
         arrays = (
-            value["trust_modes"], value["capabilities"], value["conformance_profiles"],
-            value["required_features"], value["optional_features"],
+            value["trust_modes"],
+            value["capabilities"],
+            value["conformance_profiles"],
+            value["required_features"],
+            value["optional_features"],
         )
         if not isinstance(inputs, Mapping) or not isinstance(outputs, Mapping):
             raise ValueError("manifest inputs and outputs must be objects")
         if any(not isinstance(item, list) for item in arrays):
-            raise ValueError("manifest trust, capability, profile, and feature fields must be arrays")
+            raise ValueError(
+                "manifest trust, capability, profile, and feature fields must be arrays"
+            )
         return cls(
             manifest_schema_version=value["manifest_schema_version"],  # type: ignore[arg-type]
             sdk_api=VersionRange.from_dict(value["sdk_api"]),
@@ -392,10 +549,12 @@ class WorkloadManifest:
             capabilities=tuple(value["capabilities"]),  # type: ignore[arg-type]
             conformance_profiles=tuple(value["conformance_profiles"]),  # type: ignore[arg-type]
             required_features=tuple(
-                FeatureRequirement.from_dict(item) for item in value["required_features"]  # type: ignore[union-attr]
+                FeatureRequirement.from_dict(item)
+                for item in value["required_features"]  # type: ignore[union-attr]
             ),
             optional_features=tuple(
-                FeatureRequirement.from_dict(item) for item in value["optional_features"]  # type: ignore[union-attr]
+                FeatureRequirement.from_dict(item)
+                for item in value["optional_features"]  # type: ignore[union-attr]
             ),
         )
 

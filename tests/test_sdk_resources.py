@@ -92,7 +92,7 @@ def test_resource_inventory_and_requirements_round_trip_without_mutable_aliases(
     capabilities["compute"] = "mutated"
     assert device.capabilities["compute"] == "9.0"
     with pytest.raises(TypeError):
-        device.capabilities["compute"] = "mutated"
+        device.capabilities["compute"] = "mutated"  # type: ignore[index]
     assert ResourceInventory.from_dict(inventory.to_dict()) == inventory
     assert ResourceRequirements.from_dict(requirements.to_dict()) == requirements
     assert requirements.eligibility_errors(inventory) == ()

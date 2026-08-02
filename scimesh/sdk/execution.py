@@ -23,6 +23,12 @@ from .resources import ResourceAllocation, ResourceRequirements
 
 
 class ProcessModel(str, Enum):
+    """How a task's code is executed.
+
+    ``SINGLE`` is the only profile the local conformance runtime executes;
+    the other models require runtime features that are fail-closed in v1.
+    """
+
     SINGLE = "single"
     PROCESS_POOL = "process_pool"
     THREAD_POOL = "thread_pool"
@@ -30,6 +36,12 @@ class ProcessModel(str, Enum):
 
 
 class NetworkPolicy(str, Enum):
+    """Network isolation declared for a stage.
+
+    ``TRUSTED`` is the only policy the local conformance runtime accepts;
+    stricter policies require runtime enforcement.
+    """
+
     NONE = "none"
     COORDINATOR_ARTIFACTS_ONLY = "coordinator_artifacts_only"
     ALLOWLISTED_EGRESS = "allowlisted_egress"
@@ -37,6 +49,8 @@ class NetworkPolicy(str, Enum):
 
 
 class FailureCategory(str, Enum):
+    """Sanitized failure classification for retry and reporting policy."""
+
     INPUT = "input"
     SCIENTIFIC = "scientific"
     RESOURCE = "resource"
@@ -48,13 +62,23 @@ class FailureCategory(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
+    """Retry budget and backoff for a stage.
+
+    ``max_attempts`` greater than one requires the runtime to advertise
+    ``retries``; the local conformance executor rejects retries.
+    """
+
     max_attempts: int = 1
     retryable_categories: tuple[FailureCategory, ...] = ()
     initial_backoff_seconds: int = 1
     max_backoff_seconds: int = 60
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "max_attempts", require_positive_int(self.max_attempts, "retry.max_attempts"))
+        object.__setattr__(
+            self,
+            "max_attempts",
+            require_positive_int(self.max_attempts, "retry.max_attempts"),
+        )
         categories = tuple(
             enum_value(FailureCategory, value, "retryable_category")
             for value in self.retryable_categories
@@ -65,22 +89,30 @@ class RetryPolicy:
         object.__setattr__(
             self,
             "initial_backoff_seconds",
-            require_nonnegative_int(self.initial_backoff_seconds, "retry.initial_backoff_seconds"),
+            require_nonnegative_int(
+                self.initial_backoff_seconds, "retry.initial_backoff_seconds"
+            ),
         )
         object.__setattr__(
             self,
             "max_backoff_seconds",
-            require_nonnegative_int(self.max_backoff_seconds, "retry.max_backoff_seconds"),
+            require_nonnegative_int(
+                self.max_backoff_seconds, "retry.max_backoff_seconds"
+            ),
         )
         if self.max_backoff_seconds < self.initial_backoff_seconds:
-            raise ValueError("retry max_backoff_seconds must not be less than initial_backoff_seconds")
+            raise ValueError(
+                "retry max_backoff_seconds must not be less than initial_backoff_seconds"
+            )
         if self.max_attempts == 1 and categories:
             raise ValueError("a non-retrying policy must not list retryable categories")
 
     def to_dict(self) -> dict[str, object]:
         return {
             "max_attempts": self.max_attempts,
-            "retryable_categories": [category.value for category in self.retryable_categories],
+            "retryable_categories": [
+                category.value for category in self.retryable_categories
+            ],
             "initial_backoff_seconds": self.initial_backoff_seconds,
             "max_backoff_seconds": self.max_backoff_seconds,
         }
@@ -89,7 +121,12 @@ class RetryPolicy:
     def from_dict(cls, value: object) -> "RetryPolicy":
         if not isinstance(value, Mapping):
             raise ValueError("retry policy must be an object")
-        fields = {"max_attempts", "retryable_categories", "initial_backoff_seconds", "max_backoff_seconds"}
+        fields = {
+            "max_attempts",
+            "retryable_categories",
+            "initial_backoff_seconds",
+            "max_backoff_seconds",
+        }
         require_exact_keys(value, fields, "retry policy")
         categories = value["retryable_categories"]
         if not isinstance(categories, list):
@@ -104,6 +141,12 @@ class RetryPolicy:
 
 @dataclass(frozen=True, slots=True)
 class CheckpointPolicy:
+    """Checkpoint declaration for a stage.
+
+    Declared but not executable until a runtime advertises ``checkpoints``;
+    enabled policies require a schema and a compatibility version.
+    """
+
     enabled: bool = False
     schema: SchemaRef | None = None
     compatibility_version: int | None = None
@@ -113,23 +156,38 @@ class CheckpointPolicy:
         if not isinstance(self.enabled, bool):
             raise ValueError("checkpoint.enabled must be a boolean")
         if not self.enabled:
-            if any(value is not None for value in (self.schema, self.compatibility_version, self.interval_seconds)):
-                raise ValueError("disabled checkpoint policy must not declare checkpoint fields")
+            if any(
+                value is not None
+                for value in (
+                    self.schema,
+                    self.compatibility_version,
+                    self.interval_seconds,
+                )
+            ):
+                raise ValueError(
+                    "disabled checkpoint policy must not declare checkpoint fields"
+                )
             return
         if not isinstance(self.schema, SchemaRef):
             raise ValueError("enabled checkpoint policy requires a schema")
         if self.compatibility_version is None:
-            raise ValueError("enabled checkpoint policy requires a compatibility_version")
+            raise ValueError(
+                "enabled checkpoint policy requires a compatibility_version"
+            )
         object.__setattr__(
             self,
             "compatibility_version",
-            require_positive_int(self.compatibility_version, "checkpoint.compatibility_version"),
+            require_positive_int(
+                self.compatibility_version, "checkpoint.compatibility_version"
+            ),
         )
         if self.interval_seconds is not None:
             object.__setattr__(
                 self,
                 "interval_seconds",
-                require_positive_int(self.interval_seconds, "checkpoint.interval_seconds"),
+                require_positive_int(
+                    self.interval_seconds, "checkpoint.interval_seconds"
+                ),
             )
 
     def to_dict(self) -> dict[str, object]:
@@ -171,27 +229,52 @@ class ExecutionProfile:
     secret_handles: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "profile", require_identifier(self.profile, "execution.profile"))
-        object.__setattr__(self, "process_model", enum_value(ProcessModel, self.process_model, "process_model"))
-        object.__setattr__(self, "max_processes", require_positive_int(self.max_processes, "max_processes"))
+        object.__setattr__(
+            self, "profile", require_identifier(self.profile, "execution.profile")
+        )
+        object.__setattr__(
+            self,
+            "process_model",
+            enum_value(ProcessModel, self.process_model, "process_model"),
+        )
+        object.__setattr__(
+            self,
+            "max_processes",
+            require_positive_int(self.max_processes, "max_processes"),
+        )
         object.__setattr__(
             self,
             "threads_per_process",
             require_positive_int(self.threads_per_process, "threads_per_process"),
         )
-        object.__setattr__(self, "native_threads", require_positive_int(self.native_threads, "native_threads"))
+        object.__setattr__(
+            self,
+            "native_threads",
+            require_positive_int(self.native_threads, "native_threads"),
+        )
         if not isinstance(self.nested_parallelism, bool):
             raise ValueError("nested_parallelism must be a boolean")
-        object.__setattr__(self, "network", enum_value(NetworkPolicy, self.network, "network"))
-        object.__setattr__(self, "timeout_seconds", require_positive_int(self.timeout_seconds, "timeout_seconds"))
+        object.__setattr__(
+            self, "network", enum_value(NetworkPolicy, self.network, "network")
+        )
+        object.__setattr__(
+            self,
+            "timeout_seconds",
+            require_positive_int(self.timeout_seconds, "timeout_seconds"),
+        )
         object.__setattr__(
             self,
             "cancellation_grace_seconds",
-            require_nonnegative_int(self.cancellation_grace_seconds, "cancellation_grace_seconds"),
+            require_nonnegative_int(
+                self.cancellation_grace_seconds, "cancellation_grace_seconds"
+            ),
         )
         if not isinstance(self.checkpoint, CheckpointPolicy):
             raise ValueError("checkpoint must be a CheckpointPolicy")
-        egress = tuple(require_string(value, "allowed_egress", max_length=253) for value in self.allowed_egress)
+        egress = tuple(
+            require_string(value, "allowed_egress", max_length=253)
+            for value in self.allowed_egress
+        )
         if len(egress) != len(set(egress)):
             raise ValueError("allowed_egress must be unique")
         if self.network is NetworkPolicy.ALLOWLISTED_EGRESS and not egress:
@@ -199,7 +282,9 @@ class ExecutionProfile:
         if self.network is not NetworkPolicy.ALLOWLISTED_EGRESS and egress:
             raise ValueError("allowed_egress is valid only for allowlisted egress")
         object.__setattr__(self, "allowed_egress", egress)
-        handles = tuple(require_identifier(value, "secret_handle") for value in self.secret_handles)
+        handles = tuple(
+            require_identifier(value, "secret_handle") for value in self.secret_handles
+        )
         if len(handles) != len(set(handles)):
             raise ValueError("secret_handles must be unique")
         if handles and self.network is NetworkPolicy.NONE:
@@ -208,8 +293,14 @@ class ExecutionProfile:
         if self.process_model is ProcessModel.SINGLE and (
             self.max_processes != 1 or self.threads_per_process != 1
         ):
-            raise ValueError("single process model requires one process and one Python thread")
-        if not self.nested_parallelism and self.threads_per_process > 1 and self.native_threads > 1:
+            raise ValueError(
+                "single process model requires one process and one Python thread"
+            )
+        if (
+            not self.nested_parallelism
+            and self.threads_per_process > 1
+            and self.native_threads > 1
+        ):
             raise ValueError("nested thread pools require nested_parallelism=true")
 
     @property
@@ -222,7 +313,9 @@ class ExecutionProfile:
         if self.timeout_seconds > resources.max_duration_seconds:
             raise ValueError("execution timeout exceeds the resource maximum duration")
 
-    def allocation_environment(self, allocation: ResourceAllocation) -> Mapping[str, str]:
+    def allocation_environment(
+        self, allocation: ResourceAllocation
+    ) -> Mapping[str, str]:
         """Return only allocation-derived thread/device isolation variables."""
         if not isinstance(allocation, ResourceAllocation):
             raise ValueError("allocation must be a ResourceAllocation")
@@ -261,15 +354,26 @@ class ExecutionProfile:
         if not isinstance(value, Mapping):
             raise ValueError("execution profile must be an object")
         fields = {
-            "profile", "process_model", "max_processes", "threads_per_process",
-            "native_threads", "nested_parallelism", "network", "timeout_seconds",
-            "cancellation_grace_seconds", "checkpoint", "allowed_egress", "secret_handles",
+            "profile",
+            "process_model",
+            "max_processes",
+            "threads_per_process",
+            "native_threads",
+            "nested_parallelism",
+            "network",
+            "timeout_seconds",
+            "cancellation_grace_seconds",
+            "checkpoint",
+            "allowed_egress",
+            "secret_handles",
         }
         require_exact_keys(value, fields, "execution profile")
         allowed_egress = value["allowed_egress"]
         secret_handles = value["secret_handles"]
         if not isinstance(allowed_egress, list) or not isinstance(secret_handles, list):
-            raise ValueError("execution allowed_egress and secret_handles must be arrays")
+            raise ValueError(
+                "execution allowed_egress and secret_handles must be arrays"
+            )
         return cls(
             profile=value["profile"],  # type: ignore[arg-type]
             process_model=value["process_model"],  # type: ignore[arg-type]
@@ -288,6 +392,12 @@ class ExecutionProfile:
 
 @dataclass(frozen=True, slots=True)
 class FailureReport:
+    """A sanitized, location-free failure report for durable audit trails.
+
+    Message and evidence are bounded and reject local paths and transport
+    URLs; evidence is limited to 16 KiB.
+    """
+
     code: str
     category: FailureCategory
     retryable: bool
@@ -296,13 +406,27 @@ class FailureReport:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "code", require_identifier(self.code, "failure.code"))
-        object.__setattr__(self, "category", enum_value(FailureCategory, self.category, "failure.category"))
+        object.__setattr__(
+            self,
+            "category",
+            enum_value(FailureCategory, self.category, "failure.category"),
+        )
         if not isinstance(self.retryable, bool):
             raise ValueError("failure.retryable must be a boolean")
-        object.__setattr__(self, "message", require_safe_message(self.message, "failure.message", max_length=512))
-        evidence = freeze_json_mapping(self.evidence, "failure.evidence", forbid_locations=True)
+        object.__setattr__(
+            self,
+            "message",
+            require_safe_message(self.message, "failure.message", max_length=512),
+        )
+        evidence = freeze_json_mapping(
+            self.evidence, "failure.evidence", forbid_locations=True
+        )
         import json
-        if len(json.dumps(thaw_json(evidence), allow_nan=False).encode("utf-8")) > 16_384:
+
+        if (
+            len(json.dumps(thaw_json(evidence), allow_nan=False).encode("utf-8"))
+            > 16_384
+        ):
             raise ValueError("failure evidence exceeds 16 KiB")
         object.__setattr__(self, "evidence", evidence)
 

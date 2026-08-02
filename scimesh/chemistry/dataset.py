@@ -14,7 +14,7 @@ ID_COLUMN = "chembl_id"
 SMILES_COLUMN = "canonical_smiles"
 
 # Invalid records are expected in large datasets; suppress one RDKit error per row.
-RDLogger.DisableLog("rdApp.error")
+RDLogger.DisableLog("rdApp.error")  # type: ignore[attr-defined]
 
 
 @dataclass

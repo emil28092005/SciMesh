@@ -85,6 +85,12 @@ def _fallbacks(value: object, field: str) -> Mapping[str, str]:
 
 @dataclass(frozen=True, slots=True)
 class JobRequest:
+    """A user-requested job: workload identity, strict parameters, and inputs.
+
+    Parameters are frozen, JSON-safe, and location-free; required features
+    must be declared by the workload and available in the runtime.
+    """
+
     workload: WorkloadId
     parameters: Mapping[str, Any]
     inputs: Mapping[str, ArtifactCollection]
@@ -97,10 +103,15 @@ class JobRequest:
         object.__setattr__(
             self,
             "parameters",
-            freeze_json_mapping(self.parameters, "job.parameters", forbid_locations=True),
+            freeze_json_mapping(
+                self.parameters, "job.parameters", forbid_locations=True
+            ),
         )
         object.__setattr__(self, "inputs", _collections(self.inputs, "job.inputs"))
-        features = tuple(require_identifier(value, "required_feature") for value in self.required_features)
+        features = tuple(
+            require_identifier(value, "required_feature")
+            for value in self.required_features
+        )
         if len(features) != len(set(features)):
             raise ValueError("required_features must be unique")
         object.__setattr__(self, "required_features", features)
@@ -112,7 +123,9 @@ class JobRequest:
 
     @property
     def parameters_digest(self) -> str:
-        return hashlib.sha256(canonical_json(self.parameters).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            canonical_json(self.parameters).encode("utf-8")
+        ).hexdigest()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -135,11 +148,16 @@ class JobRequest:
         inputs = value["inputs"]
         features = value["required_features"]
         if not isinstance(inputs, Mapping) or not isinstance(features, list):
-            raise ValueError("job inputs must be an object and required_features an array")
+            raise ValueError(
+                "job inputs must be an object and required_features an array"
+            )
         return cls(
             workload=WorkloadId.from_dict(value["workload"]),
             parameters=value["parameters"],  # type: ignore[arg-type]
-            inputs={name: ArtifactCollection.from_dict(item) for name, item in inputs.items()},
+            inputs={
+                name: ArtifactCollection.from_dict(item)
+                for name, item in inputs.items()
+            },
             required_features=tuple(features),
             trust_mode=value["trust_mode"],  # type: ignore[arg-type]
         )
@@ -155,6 +173,12 @@ class JobRequest:
 
 @dataclass(frozen=True, slots=True)
 class ValidatedJob:
+    """A job after planner validation, carrying the resolved parameter set.
+
+    The planner may replace ambiguous parameters (for example a query id)
+    with their resolved values before tasks are planned.
+    """
+
     request: JobRequest
     resolved_parameters: Mapping[str, Any]
 
@@ -173,7 +197,9 @@ class ValidatedJob:
 
     @property
     def parameters_digest(self) -> str:
-        return hashlib.sha256(canonical_json(self.resolved_parameters).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            canonical_json(self.resolved_parameters).encode("utf-8")
+        ).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,7 +227,9 @@ class TaskSpec:
     schema_version: int = TASK_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        require_schema_version(self.schema_version, TASK_SCHEMA_VERSION, "task schema_version")
+        require_schema_version(
+            self.schema_version, TASK_SCHEMA_VERSION, "task schema_version"
+        )
         if not isinstance(self.workload, WorkloadId):
             raise ValueError("task workload must be a WorkloadId")
         object.__setattr__(
@@ -227,24 +255,32 @@ class TaskSpec:
         object.__setattr__(
             self,
             "protocol_version",
-            require_string(self.protocol_version, "task protocol_version", max_length=32),
+            require_string(
+                self.protocol_version, "task protocol_version", max_length=32
+            ),
         )
         parse_release(self.sdk_api_version, "task sdk_api_version")
         parse_release(self.protocol_version, "task protocol_version")
         object.__setattr__(
             self,
             "manifest_schema_version",
-            require_positive_int(self.manifest_schema_version, "task manifest_schema_version"),
+            require_positive_int(
+                self.manifest_schema_version, "task manifest_schema_version"
+            ),
         )
         object.__setattr__(
             self,
             "workflow_schema_version",
-            require_positive_int(self.workflow_schema_version, "task workflow_schema_version"),
+            require_positive_int(
+                self.workflow_schema_version, "task workflow_schema_version"
+            ),
         )
         object.__setattr__(
             self,
             "environment_digest",
-            require_sha256(self.environment_digest, "task environment_digest", prefixed=True),
+            require_sha256(
+                self.environment_digest, "task environment_digest", prefixed=True
+            ),
         )
         if not isinstance(self.verifier, ComponentRef):
             raise ValueError("task verifier must be a ComponentRef")
@@ -261,14 +297,22 @@ class TaskSpec:
         if set(self.selected_features).intersection(self.optional_fallbacks):
             raise ValueError("one task feature cannot be selected and fallbacked")
         object.__setattr__(self, "task_key", require_task_key(self.task_key))
-        object.__setattr__(self, "stage_id", require_identifier(self.stage_id, "stage_id"))
+        object.__setattr__(
+            self, "stage_id", require_identifier(self.stage_id, "stage_id")
+        )
         object.__setattr__(
             self,
             "parameters",
-            freeze_json_mapping(self.parameters, "task.parameters", forbid_locations=True),
+            freeze_json_mapping(
+                self.parameters, "task.parameters", forbid_locations=True
+            ),
         )
         object.__setattr__(self, "inputs", _collections(self.inputs, "task.inputs"))
-        object.__setattr__(self, "expected_outputs", _ports(self.expected_outputs, "task.expected_outputs"))
+        object.__setattr__(
+            self,
+            "expected_outputs",
+            _ports(self.expected_outputs, "task.expected_outputs"),
+        )
         if not self.expected_outputs:
             raise ValueError("task expected_outputs must not be empty")
         if not isinstance(self.resources, ResourceRequirements):
@@ -283,9 +327,9 @@ class TaskSpec:
             canonical_port = require_identifier(port_name, "expected input key port")
             if not isinstance(keys, (list, tuple)):
                 raise ValueError("expected input keys must be arrays")
-            canonical_keys = tuple(sorted(
-                require_identifier(key, "expected input key") for key in keys
-            ))
+            canonical_keys = tuple(
+                sorted(require_identifier(key, "expected input key") for key in keys)
+            )
             if not canonical_keys or len(canonical_keys) != len(set(canonical_keys)):
                 raise ValueError("expected input keys must be non-empty and unique")
             expected_keys[canonical_port] = canonical_keys
@@ -310,7 +354,9 @@ class TaskSpec:
                 item.key for item in self.inputs[name].items if item.key is not None
             )
             if set(actual_keys) != set(expected_keys):
-                raise ValueError("task keyed input does not match its coordinator expected keys")
+                raise ValueError(
+                    "task keyed input does not match its coordinator expected keys"
+                )
         keyed_many_ports = {
             name
             for name, declaration in stage.inputs.items()
@@ -326,7 +372,9 @@ class TaskSpec:
         if self.resources != stage.resources or self.execution != stage.execution:
             raise ValueError("task execution requirements do not match the stage")
         if self.verifier != stage.verifier:
-            raise ValueError("task verifier does not match the stage acceptance verifier")
+            raise ValueError(
+                "task verifier does not match the stage acceptance verifier"
+            )
         if self.trust_mode.value not in stage.trust_modes:
             raise ValueError("task trust mode is not allowed by the stage")
         return self
@@ -350,7 +398,9 @@ class TaskSpec:
             "stage_id": self.stage_id,
             "parameters": thaw_json(self.parameters),
             "inputs": {name: value.to_dict() for name, value in self.inputs.items()},
-            "expected_outputs": {name: value.to_dict() for name, value in self.expected_outputs.items()},
+            "expected_outputs": {
+                name: value.to_dict() for name, value in self.expected_outputs.items()
+            },
             "resources": self.resources.to_dict(),
             "execution": self.execution.to_dict(),
             "expected_input_keys": {
@@ -371,12 +421,27 @@ class TaskSpec:
         if not isinstance(value, Mapping):
             raise ValueError("task specification must be an object")
         fields = {
-            "schema_version", "workload", "package_digest", "manifest_digest", "trust_mode",
-            "sdk_api_version", "protocol_version", "manifest_schema_version",
-            "workflow_schema_version", "environment_digest", "verifier",
-            "selected_features", "optional_fallbacks",
-            "task_key", "stage_id", "parameters", "inputs",
-            "expected_outputs", "resources", "execution", "expected_input_keys",
+            "schema_version",
+            "workload",
+            "package_digest",
+            "manifest_digest",
+            "trust_mode",
+            "sdk_api_version",
+            "protocol_version",
+            "manifest_schema_version",
+            "workflow_schema_version",
+            "environment_digest",
+            "verifier",
+            "selected_features",
+            "optional_fallbacks",
+            "task_key",
+            "stage_id",
+            "parameters",
+            "inputs",
+            "expected_outputs",
+            "resources",
+            "execution",
+            "expected_input_keys",
         }
         require_exact_keys(value, fields, "task specification")
         inputs, outputs = value["inputs"], value["expected_outputs"]
@@ -399,8 +464,13 @@ class TaskSpec:
             task_key=value["task_key"],  # type: ignore[arg-type]
             stage_id=value["stage_id"],  # type: ignore[arg-type]
             parameters=value["parameters"],  # type: ignore[arg-type]
-            inputs={name: ArtifactCollection.from_dict(item) for name, item in inputs.items()},
-            expected_outputs={name: PortSpec.from_dict(item) for name, item in outputs.items()},
+            inputs={
+                name: ArtifactCollection.from_dict(item)
+                for name, item in inputs.items()
+            },
+            expected_outputs={
+                name: PortSpec.from_dict(item) for name, item in outputs.items()
+            },
             resources=ResourceRequirements.from_dict(value["resources"]),
             execution=ExecutionProfile.from_dict(value["execution"]),
             expected_input_keys=value["expected_input_keys"],  # type: ignore[arg-type]
@@ -417,6 +487,12 @@ class TaskSpec:
 
 @dataclass(frozen=True, slots=True)
 class WorkflowPlan:
+    """The immutable result of planning: tasks plus the exact workload pin.
+
+    Every task must carry the same package, manifest, environment, trust
+    mode, schema versions, and negotiated features as the plan itself.
+    """
+
     workload: WorkloadId
     package_digest: str
     manifest_digest: str
@@ -461,24 +537,32 @@ class WorkflowPlan:
         object.__setattr__(
             self,
             "protocol_version",
-            require_string(self.protocol_version, "plan protocol_version", max_length=32),
+            require_string(
+                self.protocol_version, "plan protocol_version", max_length=32
+            ),
         )
         parse_release(self.sdk_api_version, "plan sdk_api_version")
         parse_release(self.protocol_version, "plan protocol_version")
         object.__setattr__(
             self,
             "manifest_schema_version",
-            require_positive_int(self.manifest_schema_version, "plan manifest_schema_version"),
+            require_positive_int(
+                self.manifest_schema_version, "plan manifest_schema_version"
+            ),
         )
         object.__setattr__(
             self,
             "workflow_schema_version",
-            require_positive_int(self.workflow_schema_version, "plan workflow_schema_version"),
+            require_positive_int(
+                self.workflow_schema_version, "plan workflow_schema_version"
+            ),
         )
         object.__setattr__(
             self,
             "environment_digest",
-            require_sha256(self.environment_digest, "plan environment_digest", prefixed=True),
+            require_sha256(
+                self.environment_digest, "plan environment_digest", prefixed=True
+            ),
         )
         if not isinstance(self.verifier, ComponentRef):
             raise ValueError("plan verifier must be a ComponentRef")
@@ -494,7 +578,9 @@ class WorkflowPlan:
         )
         if set(self.selected_features).intersection(self.optional_fallbacks):
             raise ValueError("one plan feature cannot be selected and fallbacked")
-        object.__setattr__(self, "workflow_id", require_identifier(self.workflow_id, "workflow_id"))
+        object.__setattr__(
+            self, "workflow_id", require_identifier(self.workflow_id, "workflow_id")
+        )
         object.__setattr__(
             self,
             "resolved_parameters",
@@ -524,7 +610,9 @@ class WorkflowPlan:
                 or task.selected_features != self.selected_features
                 or task.optional_fallbacks != self.optional_fallbacks
             ):
-                raise ValueError("workflow plan tasks must carry the plan's exact workload pin")
+                raise ValueError(
+                    "workflow plan tasks must carry the plan's exact workload pin"
+                )
         object.__setattr__(self, "tasks", tasks)
 
     def validate_workflow(self, workflow: WorkflowSpec) -> "WorkflowPlan":
@@ -538,10 +626,14 @@ class WorkflowPlan:
             try:
                 task.validate_stage(stages[task.stage_id])
             except KeyError as error:
-                raise ValueError(f"workflow plan references unknown stage: {task.stage_id}") from error
+                raise ValueError(
+                    f"workflow plan references unknown stage: {task.stage_id}"
+                ) from error
             task_counts[task.stage_id] = task_counts.get(task.stage_id, 0) + 1
             if task_counts[task.stage_id] > stages[task.stage_id].max_fan_out:
-                raise ValueError(f"workflow plan exceeds max_fan_out for stage {task.stage_id}")
+                raise ValueError(
+                    f"workflow plan exceeds max_fan_out for stage {task.stage_id}"
+                )
         return self
 
     @property
@@ -576,11 +668,22 @@ class WorkflowPlan:
         if not isinstance(value, Mapping):
             raise ValueError("workflow plan must be an object")
         fields = {
-            "schema_version", "workload", "package_digest", "manifest_digest", "trust_mode",
-            "sdk_api_version", "protocol_version", "manifest_schema_version",
-            "workflow_schema_version", "environment_digest", "verifier",
-            "selected_features", "optional_fallbacks",
-            "workflow_id", "resolved_parameters", "tasks",
+            "schema_version",
+            "workload",
+            "package_digest",
+            "manifest_digest",
+            "trust_mode",
+            "sdk_api_version",
+            "protocol_version",
+            "manifest_schema_version",
+            "workflow_schema_version",
+            "environment_digest",
+            "verifier",
+            "selected_features",
+            "optional_fallbacks",
+            "workflow_id",
+            "resolved_parameters",
+            "tasks",
         }
         require_exact_keys(value, fields, "workflow plan")
         tasks = value["tasks"]
@@ -625,14 +728,20 @@ class ExpansionManifest:
     schema_version: int = 1
 
     def __post_init__(self) -> None:
-        require_schema_version(self.schema_version, 1, "expansion manifest schema_version")
-        object.__setattr__(self, "job_id", require_uuid(self.job_id, "expansion job_id"))
+        require_schema_version(
+            self.schema_version, 1, "expansion manifest schema_version"
+        )
+        object.__setattr__(
+            self, "job_id", require_uuid(self.job_id, "expansion job_id")
+        )
         object.__setattr__(
             self,
             "parent_task_id",
             require_uuid(self.parent_task_id, "expansion parent_task_id"),
         )
-        object.__setattr__(self, "parent_task_key", require_task_key(self.parent_task_key))
+        object.__setattr__(
+            self, "parent_task_key", require_task_key(self.parent_task_key)
+        )
         object.__setattr__(
             self,
             "parent_execution_contract_digest",
@@ -641,15 +750,23 @@ class ExpansionManifest:
                 "expansion parent_execution_contract_digest",
             ),
         )
-        object.__setattr__(self, "max_children", require_positive_int(self.max_children, "max_children"))
+        object.__setattr__(
+            self,
+            "max_children",
+            require_positive_int(self.max_children, "max_children"),
+        )
         tasks = tuple(self.tasks)
         if not tasks or len(tasks) > self.max_children:
-            raise ValueError("expansion tasks must be non-empty and within max_children")
+            raise ValueError(
+                "expansion tasks must be non-empty and within max_children"
+            )
         keys = [task.task_key for task in tasks]
         if keys != sorted(keys) or len(keys) != len(set(keys)):
             raise ValueError("expansion child task keys must be unique and ascending")
         if any(not key.startswith(self.parent_task_key + "/") for key in keys):
-            raise ValueError("expansion child task keys must be namespaced by the parent")
+            raise ValueError(
+                "expansion child task keys must be namespaced by the parent"
+            )
         first = tasks[0]
         if any(
             task.workload != first.workload
@@ -691,7 +808,9 @@ class ExpansionManifest:
             raise ValueError("expansion workflow must be a WorkflowSpec")
         if self.job_id != require_uuid(job_id, "coordinator job_id"):
             raise ValueError("expansion belongs to another job")
-        if self.parent_task_id != require_uuid(parent_task_id, "coordinator parent_task_id"):
+        if self.parent_task_id != require_uuid(
+            parent_task_id, "coordinator parent_task_id"
+        ):
             raise ValueError("expansion belongs to another durable parent task")
         if self.parent_task_key != parent.task_key:
             raise ValueError("expansion parent task key does not match")
@@ -703,7 +822,9 @@ class ExpansionManifest:
         try:
             parent_stage = stages[parent.stage_id]
         except KeyError as error:
-            raise ValueError("expansion parent references an unknown workflow stage") from error
+            raise ValueError(
+                "expansion parent references an unknown workflow stage"
+            ) from error
         parent.validate_stage(parent_stage)
         if parent_stage.kind is not StageKind.PLAN:
             raise ValueError("v1 expansion parent must be a plan stage")
@@ -726,8 +847,12 @@ class ExpansionManifest:
             for port_name, collection in ports.items():
                 canonical_port = require_identifier(port_name, "authorized input port")
                 declaration = stages[canonical_stage].inputs.get(canonical_port)
-                if declaration is None or not isinstance(collection, ArtifactCollection):
-                    raise ValueError("authorized_inputs references an unknown input port")
+                if declaration is None or not isinstance(
+                    collection, ArtifactCollection
+                ):
+                    raise ValueError(
+                        "authorized_inputs references an unknown input port"
+                    )
                 declaration.validate_collection(
                     collection,
                     f"authorized input {canonical_stage}.{canonical_port}",
@@ -762,23 +887,34 @@ class ExpansionManifest:
                 or task.selected_features != parent.selected_features
                 or task.optional_fallbacks != parent.optional_fallbacks
             ):
-                raise ValueError("expansion child task does not share the parent workload pin")
+                raise ValueError(
+                    "expansion child task does not share the parent workload pin"
+                )
             try:
                 stage = stages[task.stage_id]
             except KeyError as error:
-                raise ValueError("expansion child references an unknown workflow stage") from error
+                raise ValueError(
+                    "expansion child references an unknown workflow stage"
+                ) from error
             if parent.stage_id not in stage.needs:
-                raise ValueError("v1 expansion child must be a direct successor of its parent stage")
+                raise ValueError(
+                    "v1 expansion child must be a direct successor of its parent stage"
+                )
             task.validate_stage(stage)
             target_ports = allowed_by_target.get(task.stage_id, {})
             for port_name, collection in task.inputs.items():
                 allowed = target_ports.get(port_name)
                 if allowed is None or collection.kind is not allowed.kind:
-                    raise ValueError("expansion child input target is not coordinator-authorized")
+                    raise ValueError(
+                        "expansion child input target is not coordinator-authorized"
+                    )
                 if collection.kind is CollectionKind.ORDERED:
                     cursor = 0
                     for item in collection.items:
-                        while cursor < len(allowed.items) and allowed.items[cursor] != item:
+                        while (
+                            cursor < len(allowed.items)
+                            and allowed.items[cursor] != item
+                        ):
                             cursor += 1
                         if cursor == len(allowed.items):
                             raise ValueError(
@@ -798,7 +934,9 @@ class ExpansionManifest:
 
     @property
     def digest(self) -> str:
-        return hashlib.sha256(canonical_json(self.to_dict()).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            canonical_json(self.to_dict()).encode("utf-8")
+        ).hexdigest()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -819,8 +957,13 @@ class ExpansionManifest:
         if not isinstance(value, Mapping):
             raise ValueError("expansion manifest must be an object")
         fields = {
-            "schema_version", "job_id", "parent_task_id", "parent_task_key",
-            "parent_execution_contract_digest", "max_children", "tasks",
+            "schema_version",
+            "job_id",
+            "parent_task_id",
+            "parent_task_key",
+            "parent_execution_contract_digest",
+            "max_children",
+            "tasks",
         }
         require_exact_keys(value, fields, "expansion manifest")
         tasks = value["tasks"]

@@ -12,7 +12,7 @@ from decimal import Decimal
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import Any, Callable, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence, cast
 
 from ._validation import (
     enum_value,
@@ -34,6 +34,12 @@ from .manifest import TrustMode
 
 
 class VerificationStatus(str, Enum):
+    """The outcome of verification.
+
+    Only ``ACCEPTED`` satisfies a stage; ``INCONCLUSIVE`` must never be
+    treated as success by a reducer default.
+    """
+
     ACCEPTED = "accepted"
     REJECTED = "rejected"
     INCONCLUSIVE = "inconclusive"
@@ -41,6 +47,12 @@ class VerificationStatus(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class VerificationDecision:
+    """An immutable verifier outcome with bounded sanitized evidence.
+
+    ``accepted_digest`` is set only for accepted decisions; evidence is
+    limited to 16 KiB and rejects local paths and transport URLs.
+    """
+
     status: VerificationStatus
     verifier: ComponentRef
     reason_code: str
@@ -48,12 +60,29 @@ class VerificationDecision:
     accepted_digest: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "status", enum_value(VerificationStatus, self.status, "verification.status"))
+        object.__setattr__(
+            self,
+            "status",
+            enum_value(VerificationStatus, self.status, "verification.status"),
+        )
         if not isinstance(self.verifier, ComponentRef):
             raise ValueError("verification verifier must be a ComponentRef")
-        object.__setattr__(self, "reason_code", require_identifier(self.reason_code, "verification.reason_code"))
-        evidence = freeze_json_mapping(self.evidence, "verification.evidence", forbid_locations=True)
-        if len(json.dumps(thaw_json(evidence), sort_keys=True, allow_nan=False).encode("utf-8")) > 16_384:
+        object.__setattr__(
+            self,
+            "reason_code",
+            require_identifier(self.reason_code, "verification.reason_code"),
+        )
+        evidence = freeze_json_mapping(
+            self.evidence, "verification.evidence", forbid_locations=True
+        )
+        if (
+            len(
+                json.dumps(thaw_json(evidence), sort_keys=True, allow_nan=False).encode(
+                    "utf-8"
+                )
+            )
+            > 16_384
+        ):
             raise ValueError("verification evidence exceeds 16 KiB")
         object.__setattr__(self, "evidence", evidence)
         if self.accepted_digest is not None:
@@ -64,7 +93,10 @@ class VerificationDecision:
             )
         if self.status is VerificationStatus.ACCEPTED and self.accepted_digest is None:
             raise ValueError("accepted verification requires an accepted_digest")
-        if self.status is not VerificationStatus.ACCEPTED and self.accepted_digest is not None:
+        if (
+            self.status is not VerificationStatus.ACCEPTED
+            and self.accepted_digest is not None
+        ):
             raise ValueError("only accepted verification may carry an accepted_digest")
 
     def to_dict(self) -> dict[str, object]:
@@ -126,7 +158,9 @@ class VerificationBinding:
         object.__setattr__(
             self,
             "package_digest",
-            require_sha256(self.package_digest, "verification package_digest", prefixed=True),
+            require_sha256(
+                self.package_digest, "verification package_digest", prefixed=True
+            ),
         )
         object.__setattr__(
             self,
@@ -173,7 +207,9 @@ class VerificationBinding:
         )
         for name, version in selected_features.items():
             require_identifier(name, "verification selected feature")
-            require_string(version, "verification selected feature version", max_length=32)
+            require_string(
+                version, "verification selected feature version", max_length=32
+            )
             parse_release(version, "verification selected feature version")
         for name, fallback in optional_fallbacks.items():
             require_identifier(name, "verification fallback feature")
@@ -183,19 +219,28 @@ class VerificationBinding:
         object.__setattr__(self, "selected_features", selected_features)
         object.__setattr__(self, "optional_fallbacks", optional_fallbacks)
         from ._validation import require_uuid
-        object.__setattr__(self, "job_id", require_uuid(self.job_id, "verification job_id"))
-        object.__setattr__(self, "task_id", require_uuid(self.task_id, "verification task_id"))
+
+        object.__setattr__(
+            self, "job_id", require_uuid(self.job_id, "verification job_id")
+        )
+        object.__setattr__(
+            self, "task_id", require_uuid(self.task_id, "verification task_id")
+        )
         if not isinstance(self.verifier, ComponentRef):
             raise ValueError("verification binding verifier must be a ComponentRef")
         object.__setattr__(
             self,
             "sdk_api_version",
-            require_string(self.sdk_api_version, "verification sdk_api_version", max_length=32),
+            require_string(
+                self.sdk_api_version, "verification sdk_api_version", max_length=32
+            ),
         )
         object.__setattr__(
             self,
             "protocol_version",
-            require_string(self.protocol_version, "verification protocol_version", max_length=32),
+            require_string(
+                self.protocol_version, "verification protocol_version", max_length=32
+            ),
         )
         parse_release(self.sdk_api_version, "verification sdk_api_version")
         parse_release(self.protocol_version, "verification protocol_version")
@@ -217,11 +262,15 @@ class VerificationBinding:
         )
         schemas = tuple(self.artifact_schemas)
         if not schemas or any(not isinstance(schema, SchemaRef) for schema in schemas):
-            raise ValueError("verification artifact_schemas must contain schema identities")
+            raise ValueError(
+                "verification artifact_schemas must contain schema identities"
+            )
         if len(schemas) != len(set(schemas)) or schemas != tuple(
             sorted(schemas, key=lambda schema: schema.canonical)
         ):
-            raise ValueError("verification artifact_schemas must be unique and canonical")
+            raise ValueError(
+                "verification artifact_schemas must be unique and canonical"
+            )
         object.__setattr__(self, "artifact_schemas", schemas)
         try:
             trust_mode = TrustMode(self.trust_mode)
@@ -283,14 +332,25 @@ class VerificationBinding:
         if not isinstance(value, Mapping):
             raise ValueError("verification binding must be an object")
         fields = {
-            "workload", "task_key", "package_digest", "manifest_digest",
-            "environment_digest", "parameters_digest", "input_collection_digest",
+            "workload",
+            "task_key",
+            "package_digest",
+            "manifest_digest",
+            "environment_digest",
+            "parameters_digest",
+            "input_collection_digest",
             "execution_contract_digest",
-            "selected_features", "optional_fallbacks",
-            "job_id", "task_id",
-            "verifier", "sdk_api_version", "protocol_version",
-            "manifest_schema_version", "workflow_schema_version",
-            "artifact_schemas", "trust_mode",
+            "selected_features",
+            "optional_fallbacks",
+            "job_id",
+            "task_id",
+            "verifier",
+            "sdk_api_version",
+            "protocol_version",
+            "manifest_schema_version",
+            "workflow_schema_version",
+            "artifact_schemas",
+            "trust_mode",
         }
         require_exact_keys(value, fields, "verification binding")
         schemas = value["artifact_schemas"]
@@ -321,6 +381,12 @@ class VerificationBinding:
 
 @dataclass(frozen=True, slots=True)
 class VerifyContext:
+    """Coordinator-owned verification inputs: expected outputs, byte budget,
+    quorum size, an optional reference, and the binding for non-trusted modes.
+
+    Multi-vote contexts automatically require distinct authenticated owners.
+    """
+
     expected_outputs: Mapping[str, PortSpec]
     max_output_bytes: int
     minimum_matches: int = 1
@@ -339,8 +405,16 @@ class VerifyContext:
                 raise ValueError("expected_outputs values must be PortSpec values")
             ports[canonical] = port
         object.__setattr__(self, "expected_outputs", MappingProxyType(ports))
-        object.__setattr__(self, "max_output_bytes", require_positive_int(self.max_output_bytes, "max_output_bytes"))
-        object.__setattr__(self, "minimum_matches", require_positive_int(self.minimum_matches, "minimum_matches"))
+        object.__setattr__(
+            self,
+            "max_output_bytes",
+            require_positive_int(self.max_output_bytes, "max_output_bytes"),
+        )
+        object.__setattr__(
+            self,
+            "minimum_matches",
+            require_positive_int(self.minimum_matches, "minimum_matches"),
+        )
         if not isinstance(self.require_distinct_owners, bool):
             raise ValueError("require_distinct_owners must be a boolean")
         # A multi-vote quorum is never allowed to fall back to anonymous
@@ -348,7 +422,9 @@ class VerifyContext:
         # convenient, while every quorum must carry coordinator-owned owners.
         if self.minimum_matches > 1:
             object.__setattr__(self, "require_distinct_owners", True)
-        if self.binding is not None and not isinstance(self.binding, VerificationBinding):
+        if self.binding is not None and not isinstance(
+            self.binding, VerificationBinding
+        ):
             raise ValueError("binding must be a VerificationBinding")
         try:
             trust_mode = TrustMode(self.trust_mode)
@@ -356,21 +432,29 @@ class VerifyContext:
             raise ValueError("verification trust_mode is unsupported") from error
         object.__setattr__(self, "trust_mode", trust_mode)
         if self.binding is not None and self.binding.trust_mode is not trust_mode:
-            raise ValueError("verification context trust mode does not match its binding")
+            raise ValueError(
+                "verification context trust mode does not match its binding"
+            )
         if trust_mode is not TrustMode.TRUSTED and self.binding is None:
             raise ValueError("non-trusted verification requires a coordinator binding")
         if trust_mode is TrustMode.UNTRUSTED_QUORUM:
             if self.minimum_matches < 2:
-                raise ValueError("untrusted quorum requires at least two matching owners")
+                raise ValueError(
+                    "untrusted quorum requires at least two matching owners"
+                )
             object.__setattr__(self, "require_distinct_owners", True)
         if self.require_distinct_owners and self.binding is None:
             raise ValueError("multi-owner verification requires a coordinator binding")
         if self.reference is not None:
             if not isinstance(self.reference, OutputManifest):
                 raise ValueError("reference must be an OutputManifest")
-            self.reference.validate_against(self.expected_outputs, max_output_bytes=self.max_output_bytes)
+            self.reference.validate_against(
+                self.expected_outputs, max_output_bytes=self.max_output_bytes
+            )
             if self.binding is not None and not self.binding.matches(self.reference):
-                raise ValueError("reference output does not match the coordinator binding")
+                raise ValueError(
+                    "reference output does not match the coordinator binding"
+                )
 
 
 _CANDIDATE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
@@ -432,9 +516,15 @@ class CandidateOutput:
         ).encode("utf-8")
 
     def authenticated_by(self, key: bytes) -> bool:
-        if self.authentication_tag is None or not isinstance(key, bytes) or len(key) < 32:
+        if (
+            self.authentication_tag is None
+            or not isinstance(key, bytes)
+            or len(key) < 32
+        ):
             return False
-        expected = hmac.new(key, self._authentication_payload(), hashlib.sha256).hexdigest()
+        expected = hmac.new(
+            key, self._authentication_payload(), hashlib.sha256
+        ).hexdigest()
         return hmac.compare_digest(self.authentication_tag, expected)
 
     @classmethod
@@ -451,7 +541,9 @@ class CandidateOutput:
         cannot confer this process-local authority marker.
         """
         if not isinstance(authentication_key, bytes) or len(authentication_key) < 32:
-            raise ValueError("candidate authentication key must contain at least 32 bytes")
+            raise ValueError(
+                "candidate authentication key must contain at least 32 bytes"
+            )
         unsigned = cls(candidate_id, owner_id, manifest)
         tag = hmac.new(
             authentication_key,
@@ -531,7 +623,7 @@ class CandidateOutputs:
         else:
             if any(not isinstance(value, CandidateOutput) for value in values):
                 raise ValueError("candidates must contain CandidateOutput values")
-            normalized = values
+            normalized = cast(tuple[CandidateOutput, ...], values)
         candidate_ids = [value.candidate_id for value in normalized]
         if len(candidate_ids) != len(set(candidate_ids)):
             raise ValueError("candidate_id values must be unique")
@@ -553,7 +645,9 @@ class CandidateOutputs:
         candidates = value["candidates"]
         if not isinstance(candidates, list):
             raise ValueError("candidate outputs candidates must be an array")
-        return cls(candidates=tuple(CandidateOutput.from_dict(item) for item in candidates))
+        return cls(
+            candidates=tuple(CandidateOutput.from_dict(item) for item in candidates)
+        )
 
     @classmethod
     def from_authenticated_dict(
@@ -568,7 +662,9 @@ class CandidateOutputs:
         """
         decoded = cls.from_dict(value)
         if not isinstance(authentication_key, bytes) or len(authentication_key) < 32:
-            raise ValueError("candidate authentication key must contain at least 32 bytes")
+            raise ValueError(
+                "candidate authentication key must contain at least 32 bytes"
+            )
         for candidate in decoded.candidates:
             if not candidate.authenticated_by(authentication_key):
                 raise ValueError("candidate envelope authentication failed")
@@ -588,8 +684,7 @@ def _authentication_failure(
     ):
         return None
     invalid = sum(
-        candidate.owner_id is None
-        or not candidate.coordinator_authenticated
+        candidate.owner_id is None or not candidate.coordinator_authenticated
         for candidate in candidates.candidates
     )
     if invalid:
@@ -612,7 +707,9 @@ def _verify_loaded_candidates(
     compare: Callable[[OutputManifest, OutputManifest], VerificationDecision],
 ) -> VerificationDecision:
     """Apply a package-owned loader/comparator without trusting vote replay."""
-    if not isinstance(context, VerifyContext) or not isinstance(candidates, CandidateOutputs):
+    if not isinstance(context, VerifyContext) or not isinstance(
+        candidates, CandidateOutputs
+    ):
         raise ValueError("verifier requires VerifyContext and CandidateOutputs")
     authentication_failure = _authentication_failure(context, candidates, identity)
     if authentication_failure is not None:
@@ -643,7 +740,9 @@ def _verify_loaded_candidates(
                 continue
             seen_owners.add(candidate.owner_id)
         try:
-            if context.binding is not None and not context.binding.matches(candidate.manifest):
+            if context.binding is not None and not context.binding.matches(
+                candidate.manifest
+            ):
                 raise ValueError("candidate does not match the coordinator binding")
             candidate.manifest.validate_against(
                 context.expected_outputs,
@@ -686,6 +785,14 @@ def _verify_loaded_candidates(
 
 
 class ExactArtifactVerifier:
+    """Whole-artifact SHA-256 acceptance for byte-exact workloads.
+
+    Compares logical port/collection/schema/content digests while ignoring
+    coordinator UUIDs, timestamps, and worker identity; counts at most one
+    vote per owner and accepts only a declared reference match or an
+    unambiguous quorum.
+    """
+
     identity = ComponentRef("exact-artifact", 1)
     configuration: Mapping[str, object] = MappingProxyType({})
 
@@ -694,9 +801,15 @@ class ExactArtifactVerifier:
         context: VerifyContext,
         candidates: CandidateOutputs,
     ) -> VerificationDecision:
-        if not isinstance(context, VerifyContext) or not isinstance(candidates, CandidateOutputs):
-            raise ValueError("exact verifier requires VerifyContext and CandidateOutputs")
-        authentication_failure = _authentication_failure(context, candidates, self.identity)
+        if not isinstance(context, VerifyContext) or not isinstance(
+            candidates, CandidateOutputs
+        ):
+            raise ValueError(
+                "exact verifier requires VerifyContext and CandidateOutputs"
+            )
+        authentication_failure = _authentication_failure(
+            context, candidates, self.identity
+        )
         if authentication_failure is not None:
             return authentication_failure
         if context.require_distinct_owners:
@@ -718,7 +831,9 @@ class ExactArtifactVerifier:
         invalid = 0
         for candidate in candidates.candidates:
             try:
-                if context.binding is not None and not context.binding.matches(candidate.manifest):
+                if context.binding is not None and not context.binding.matches(
+                    candidate.manifest
+                ):
                     raise ValueError("candidate does not match the coordinator binding")
                 candidate.manifest.validate_against(
                     context.expected_outputs,
@@ -735,7 +850,10 @@ class ExactArtifactVerifier:
                 else VerificationStatus.INCONCLUSIVE,
                 self.identity,
                 "no-valid-candidates" if candidates.candidates else "no-candidates",
-                {"candidate_count": len(candidates.candidates), "invalid_count": invalid},
+                {
+                    "candidate_count": len(candidates.candidates),
+                    "invalid_count": invalid,
+                },
             )
         owner_digests: dict[str, set[str]] = {}
         for candidate in valid:
@@ -819,12 +937,14 @@ class ExactArtifactVerifier:
                 VerificationStatus.ACCEPTED,
                 self.identity,
                 "quorum-match",
-                with_duplicate_evidence({
-                    "matched": matches,
-                    "required": context.minimum_matches,
-                    "distinct_digests": len(counts),
-                    "invalid_count": invalid,
-                }),
+                with_duplicate_evidence(
+                    {
+                        "matched": matches,
+                        "required": context.minimum_matches,
+                        "distinct_digests": len(counts),
+                        "invalid_count": invalid,
+                    }
+                ),
                 digest,
             )
         if tied and matches >= context.minimum_matches:
@@ -837,12 +957,14 @@ class ExactArtifactVerifier:
             status,
             self.identity,
             reason,
-            with_duplicate_evidence({
-                "largest_group": matches,
-                "required": context.minimum_matches,
-                "distinct_digests": len(counts),
-                "invalid_count": invalid,
-            }),
+            with_duplicate_evidence(
+                {
+                    "largest_group": matches,
+                    "required": context.minimum_matches,
+                    "distinct_digests": len(counts),
+                    "invalid_count": invalid,
+                }
+            ),
         )
 
 
@@ -865,8 +987,7 @@ def _numeric_digest_value(value: object, depth: int = 0) -> object:
         if any(not isinstance(key, str) for key in value):
             raise ValueError("numeric objects must use JSON string keys")
         return {
-            key: _numeric_digest_value(child, depth + 1)
-            for key, child in value.items()
+            key: _numeric_digest_value(child, depth + 1) for key, child in value.items()
         }
     if isinstance(value, (list, tuple)):
         return [_numeric_digest_value(child, depth + 1) for child in value]
@@ -911,6 +1032,9 @@ def _decimal_evidence(value: Decimal) -> int | float | str:
 
 @dataclass(frozen=True, slots=True)
 class NumericTolerance:
+    """Bounded numeric comparison policy: absolute/relative/ULP tolerances,
+    NaN policy, and a maximum element count for structured values."""
+
     absolute: float = 0.0
     relative: float = 0.0
     max_ulps: int = 0
@@ -920,8 +1044,14 @@ class NumericTolerance:
     def __post_init__(self) -> None:
         for field in ("absolute", "relative"):
             value = getattr(self, field)
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
-                raise ValueError(f"numeric tolerance {field} must be a finite non-negative number")
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or value < 0
+            ):
+                raise ValueError(
+                    f"numeric tolerance {field} must be a finite non-negative number"
+                )
             try:
                 converted = float(value)
             except (OverflowError, ValueError) as error:
@@ -929,10 +1059,18 @@ class NumericTolerance:
                     f"numeric tolerance {field} must be a finite non-negative number"
                 ) from error
             if not math.isfinite(converted):
-                raise ValueError(f"numeric tolerance {field} must be a finite non-negative number")
+                raise ValueError(
+                    f"numeric tolerance {field} must be a finite non-negative number"
+                )
             object.__setattr__(self, field, converted)
-        if isinstance(self.max_ulps, bool) or not isinstance(self.max_ulps, int) or self.max_ulps < 0:
-            raise ValueError("numeric tolerance max_ulps must be a non-negative integer")
+        if (
+            isinstance(self.max_ulps, bool)
+            or not isinstance(self.max_ulps, int)
+            or self.max_ulps < 0
+        ):
+            raise ValueError(
+                "numeric tolerance max_ulps must be a non-negative integer"
+            )
         if self.nan_policy not in {"reject", "equal"}:
             raise ValueError("numeric tolerance nan_policy must be reject or equal")
         object.__setattr__(
@@ -943,6 +1081,13 @@ class NumericTolerance:
 
 
 class NumericToleranceVerifier:
+    """Reference-based structured numeric comparison verifier.
+
+    Requires a package-owned ``value_loader`` to turn artifacts into bounded
+    structured values; without one, verification returns ``inconclusive``
+    rather than accepting bytes it did not parse.
+    """
+
     identity = ComponentRef("numeric-tolerance", 1)
 
     def __init__(
@@ -974,8 +1119,12 @@ class NumericToleranceVerifier:
         context: VerifyContext,
         candidates: CandidateOutputs,
     ) -> VerificationDecision:
-        if not isinstance(context, VerifyContext) or not isinstance(candidates, CandidateOutputs):
-            raise ValueError("numeric verifier requires VerifyContext and CandidateOutputs")
+        if not isinstance(context, VerifyContext) or not isinstance(
+            candidates, CandidateOutputs
+        ):
+            raise ValueError(
+                "numeric verifier requires VerifyContext and CandidateOutputs"
+            )
         if self._value_loader is None:
             return VerificationDecision(
                 VerificationStatus.INCONCLUSIVE,
@@ -984,7 +1133,9 @@ class NumericToleranceVerifier:
                 {"candidate_count": len(candidates.candidates)},
             )
 
-        def compare(reference: OutputManifest, candidate: OutputManifest) -> VerificationDecision:
+        def compare(
+            reference: OutputManifest, candidate: OutputManifest
+        ) -> VerificationDecision:
             assert self._value_loader is not None
             return self.verify_values(
                 self._value_loader(reference),
@@ -1045,15 +1196,20 @@ class NumericToleranceVerifier:
                 difference_int = abs(actual - expected)
                 allowed_decimal = max(
                     Decimal(str(self.tolerance.absolute)),
-                    Decimal(str(self.tolerance.relative)) * Decimal(max(abs(expected), abs(actual))),
+                    Decimal(str(self.tolerance.relative))
+                    * Decimal(max(abs(expected), abs(actual))),
                 )
                 if Decimal(difference_int) <= allowed_decimal:
                     return None
-                return "numeric-mismatch", location, {
-                    "absolute_error": difference_int,
-                    "allowed_error": _decimal_evidence(allowed_decimal),
-                    "ulp_distance": 0,
-                }
+                return (
+                    "numeric-mismatch",
+                    location,
+                    {
+                        "absolute_error": difference_int,
+                        "allowed_error": _decimal_evidence(allowed_decimal),
+                        "ulp_distance": 0,
+                    },
+                )
             if (
                 isinstance(expected, int)
                 and abs(expected).bit_length() > 1024
@@ -1064,7 +1220,11 @@ class NumericToleranceVerifier:
             left = float(expected) if isinstance(expected, int) else expected
             right = float(actual) if isinstance(actual, int) else actual
             if math.isnan(left) or math.isnan(right):
-                if self.tolerance.nan_policy == "equal" and math.isnan(left) and math.isnan(right):
+                if (
+                    self.tolerance.nan_policy == "equal"
+                    and math.isnan(left)
+                    and math.isnan(right)
+                ):
                     return None
                 return "nan-policy", location, {}
             if not math.isfinite(left) or not math.isfinite(right):
@@ -1094,39 +1254,61 @@ class NumericToleranceVerifier:
                 ulp_distance is not None and ulp_distance <= self.tolerance.max_ulps
             ):
                 return None
-            return "numeric-mismatch", location, {
-                "absolute_error": _decimal_evidence(difference_decimal),
-                "allowed_error": _decimal_evidence(allowed_decimal),
-                "ulp_distance": ulp_distance if ulp_distance is not None else 0,
-            }
+            return (
+                "numeric-mismatch",
+                location,
+                {
+                    "absolute_error": _decimal_evidence(difference_decimal),
+                    "allowed_error": _decimal_evidence(allowed_decimal),
+                    "ulp_distance": ulp_distance if ulp_distance is not None else 0,
+                },
+            )
         if isinstance(expected, Mapping) and isinstance(actual, Mapping):
             if any(not isinstance(key, str) for key in expected) or any(
                 not isinstance(key, str) for key in actual
             ):
                 return "type-mismatch", location, {}
             if set(expected) != set(actual):
-                return "shape-mismatch", location, {
-                    "missing_keys": sorted(str(key) for key in set(expected) - set(actual))[:32],
-                    "extra_keys": sorted(str(key) for key in set(actual) - set(expected))[:32],
-                }
+                return (
+                    "shape-mismatch",
+                    location,
+                    {
+                        "missing_keys": sorted(
+                            str(key) for key in set(expected) - set(actual)
+                        )[:32],
+                        "extra_keys": sorted(
+                            str(key) for key in set(actual) - set(expected)
+                        )[:32],
+                    },
+                )
             for key in sorted(expected, key=str):
-                mismatch = self._compare(expected[key], actual[key], f"{location}.{key}", depth + 1)
+                mismatch = self._compare(
+                    expected[key], actual[key], f"{location}.{key}", depth + 1
+                )
                 if mismatch is not None:
                     return mismatch
             return None
         if isinstance(expected, (list, tuple)) and isinstance(actual, (list, tuple)):
             if len(expected) != len(actual):
-                return "shape-mismatch", location, {"expected_length": len(expected), "actual_length": len(actual)}
+                return (
+                    "shape-mismatch",
+                    location,
+                    {"expected_length": len(expected), "actual_length": len(actual)},
+                )
             for index, (left, right) in enumerate(zip(expected, actual)):
                 mismatch = self._compare(left, right, f"{location}[{index}]", depth + 1)
                 if mismatch is not None:
                     return mismatch
             return None
         if type(expected) is not type(actual):
-            return "type-mismatch", location, {
-                "expected_type": type(expected).__name__,
-                "actual_type": type(actual).__name__,
-            }
+            return (
+                "type-mismatch",
+                location,
+                {
+                    "expected_type": type(expected).__name__,
+                    "actual_type": type(actual).__name__,
+                },
+            )
         return None if expected == actual else ("value-mismatch", location, {})
 
 
@@ -1159,8 +1341,12 @@ class CanonicalRecordVerifier:
         context: VerifyContext,
         candidates: CandidateOutputs,
     ) -> VerificationDecision:
-        if not isinstance(context, VerifyContext) or not isinstance(candidates, CandidateOutputs):
-            raise ValueError("canonical verifier requires VerifyContext and CandidateOutputs")
+        if not isinstance(context, VerifyContext) or not isinstance(
+            candidates, CandidateOutputs
+        ):
+            raise ValueError(
+                "canonical verifier requires VerifyContext and CandidateOutputs"
+            )
         if self._record_loader is None:
             return VerificationDecision(
                 VerificationStatus.INCONCLUSIVE,
@@ -1169,7 +1355,9 @@ class CanonicalRecordVerifier:
                 {"candidate_count": len(candidates.candidates)},
             )
 
-        def compare(reference: OutputManifest, candidate: OutputManifest) -> VerificationDecision:
+        def compare(
+            reference: OutputManifest, candidate: OutputManifest
+        ) -> VerificationDecision:
             assert self._record_loader is not None
             return self.verify_records(
                 self._record_loader(reference),
@@ -1178,12 +1366,16 @@ class CanonicalRecordVerifier:
 
         return _verify_loaded_candidates(context, candidates, self.identity, compare)
 
-    def verify_records(self, expected: Iterable[object], actual: Iterable[object]) -> VerificationDecision:
+    def verify_records(
+        self, expected: Iterable[object], actual: Iterable[object]
+    ) -> VerificationDecision:
         expected_digest = hashlib.sha256()
         actual_digest = hashlib.sha256()
         counts = [0, 0]
         try:
-            for index, (stream, digest) in enumerate(((expected, expected_digest), (actual, actual_digest))):
+            for index, (stream, digest) in enumerate(
+                ((expected, expected_digest), (actual, actual_digest))
+            ):
                 for record in stream:
                     counts[index] += 1
                     if counts[index] > self._max_records:

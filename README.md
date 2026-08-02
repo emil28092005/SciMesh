@@ -56,6 +56,13 @@ python3 -m venv .venv
 make demo-ui
 ```
 
+The MkDocs documentation site is served inside the UI at `/ui/docs/`
+(`make docs` builds it from `mkdocs/`; the demo mounts `site/`
+automatically, or set `SCIMESH_DOCS_DIR` for a manual coordinator). The site
+covers the complete Workload SDK: guides (`mkdocs/sdk/`), the full
+auto-generated API reference for `scimesh.sdk` (`mkdocs/api/`), and the
+documentation rules the site is written by (`mkdocs/approach.md`).
+
 Open `http://localhost:18080/ui` and sign in with username `operator` and
 password `demo-ui-secret`. The command starts PostgreSQL, the coordinator, and
 two local reference workers. Upload a small ChEMBL TSV, then use the job page

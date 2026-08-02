@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from http.client import HTTPMessage
+from typing import IO
 from urllib.request import HTTPRedirectHandler, Request
 from urllib.parse import urlsplit
 
@@ -24,10 +26,10 @@ class SameOriginAuthRedirectHandler(HTTPRedirectHandler):
     def redirect_request(
         self,
         req: Request,
-        fp: object,
+        fp: IO[bytes],
         code: int,
         msg: str,
-        headers: object,
+        headers: HTTPMessage,
         newurl: str,
     ) -> Request | None:
         redirected = super().redirect_request(req, fp, code, msg, headers, newurl)

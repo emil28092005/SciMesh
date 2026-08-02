@@ -1,7 +1,9 @@
 site_name: SciMesh
 site_description: Local-first distributed scientific computation for molecular workloads
+site_url: https://github.com/emil28092005/SciMesh
 repo_url: https://github.com/emil28092005/SciMesh
-edit_uri: blob/main/docs/
+edit_uri: blob/main/mkdocs/
+docs_dir: mkdocs
 
 theme:
   name: material
@@ -13,18 +15,24 @@ theme:
     - navigation.instant
     - navigation.tracking
     - navigation.top
+    - navigation.expand
     - search.suggest
     - content.code.copy
+    - content.code.annotate
   icon:
     repo: fontawesome/brands/github
 
 plugins:
   - search
   - mkdocstrings:
-      default_options:
-        show_root_heading: true
-        show_symbol_type_heading: true
-        show_source: false
+      handlers:
+        python:
+          options:
+            show_root_heading: true
+            show_symbol_type_heading: true
+            show_source: false
+            members_order: source
+            show_if_no_docstring: true
 
 markdown_extensions:
   - admonition
@@ -33,11 +41,35 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.highlight:
       anchor_linenums: true
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
 
 nav:
   - Home: index.md
+  - SDK:
+      - Overview: sdk/overview.md
+      - Authoring workloads: sdk/authoring-workloads.md
+      - Workload CLI: sdk/cli.md
+      - Worker integration: sdk/worker-integration.md
   - API reference:
-      - SDK batch scaffold: api/sdk-batch.md
+      - Read me: api/index.md
+      - Artifacts and ports: api/sdk-artifacts.md
+      - Batch scaffold (MapReduceWorkload): api/sdk-batch.md
+      - Conformance runtime: api/sdk-conformance.md
+      - Execution profiles: api/sdk-execution.md
+      - Identities and versions: api/sdk-identity.md
+      - Package integrity: api/sdk-integrity.md
+      - Manifests: api/sdk-manifest.md
+      - Plans and tasks: api/sdk-plans.md
+      - Handler protocols: api/sdk-protocols.md
+      - Registry and discovery: api/sdk-registry.md
+      - Resources: api/sdk-resources.md
+      - Runtime negotiation: api/sdk-runtime.md
+      - Parameter schemas: api/sdk-schema.md
+      - Verification: api/sdk-verification.md
+      - Workflow DAGs: api/sdk-workflow.md
+  - Documentation approach: approach.md
 
 extra:
   generator: false

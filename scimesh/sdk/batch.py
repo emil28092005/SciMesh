@@ -342,7 +342,11 @@ class MapReduceWorkload:
         """
         import csv
 
-        if isinstance(self.shard_rows, bool) or not isinstance(self.shard_rows, int) or self.shard_rows < 1:
+        if (
+            isinstance(self.shard_rows, bool)
+            or not isinstance(self.shard_rows, int)
+            or self.shard_rows < 1
+        ):
             raise ValueError("shard_rows must be a positive integer")
         media_type = self.input_port.schema.media_type
         if media_type == "text/tab-separated-values":
@@ -564,6 +568,7 @@ class MapReduceWorkload:
 
     def run(self, context: TaskContext) -> OutputManifest:
         context.cancellation.raise_if_cancelled()
+        assert self.map_stage_inputs is not None
         workspace = context.workspace
         workspace.mkdir(parents=True, exist_ok=True)
         inputs: dict[str, Path] = {}
@@ -572,8 +577,10 @@ class MapReduceWorkload:
             if collection is None:
                 raise ValueError(f"map task requires the {name} input")
             port.validate_collection(collection, f"map input {name}")
-            assert collection.items
-            inputs[name] = context.catalog.materialize(collection.items[0].artifact)
+            item = next(iter(collection.items), None)
+            if item is None:
+                raise ValueError(f"map task input {name} is empty")
+            inputs[name] = context.catalog.materialize(item.artifact)
         output_path = workspace / "result.csv"
         metrics = self.compute_shard(
             inputs,

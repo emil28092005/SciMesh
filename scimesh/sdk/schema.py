@@ -91,7 +91,10 @@ def _json_key(value: object, depth: int = 0) -> object:
     if isinstance(value, bool):
         return ("boolean", value)
     if isinstance(value, (int, float)):
-        return ("number", Fraction(value) if isinstance(value, int) else Fraction.from_float(value))
+        return (
+            "number",
+            Fraction(value) if isinstance(value, int) else Fraction.from_float(value),
+        )
     if isinstance(value, str):
         return ("string", value)
     if isinstance(value, Mapping):
@@ -148,7 +151,14 @@ def _is_json_multiple(value: int | float, divisor: int | float) -> bool:
     return (value_fraction / divisor_fraction).denominator == 1
 
 
-def validate_schema_definition(schema: Mapping[str, object], *, _depth: int = 0) -> None:
+def validate_schema_definition(
+    schema: Mapping[str, object], *, _depth: int = 0
+) -> None:
+    """Validate a parameter schema against the bounded JSON Schema subset.
+
+    Raises ``ValueError`` on unknown keywords, unsupported types, unsafe
+    patterns, or malformed bounds.
+    """
     if _depth > 64:
         raise _schema_error("nesting exceeds 64 levels")
     if not isinstance(schema, Mapping):
@@ -167,7 +177,9 @@ def validate_schema_definition(schema: Mapping[str, object], *, _depth: int = 0)
             raise _schema_error("type alternatives must be unique")
     properties = schema.get("properties")
     if properties is not None:
-        if not isinstance(properties, Mapping) or any(not isinstance(name, str) for name in properties):
+        if not isinstance(properties, Mapping) or any(
+            not isinstance(name, str) for name in properties
+        ):
             raise _schema_error("properties must be an object")
         for child in properties.values():
             validate_schema_definition(child, _depth=_depth + 1)  # type: ignore[arg-type]
@@ -178,7 +190,9 @@ def validate_schema_definition(schema: Mapping[str, object], *, _depth: int = 0)
         validate_schema_definition(additional, _depth=_depth + 1)
     required = schema.get("required")
     if required is not None:
-        if not isinstance(required, (list, tuple)) or any(not isinstance(name, str) for name in required):
+        if not isinstance(required, (list, tuple)) or any(
+            not isinstance(name, str) for name in required
+        ):
             raise _schema_error("required must be an array of strings")
         if len(required) != len(set(required)):
             raise _schema_error("required names must be unique")
@@ -205,20 +219,35 @@ def validate_schema_definition(schema: Mapping[str, object], *, _depth: int = 0)
                 raise _schema_error("enum values must be unique")
             seen_enum.add(key)
     for keyword in (
-        "minProperties", "maxProperties", "minItems", "maxItems", "minLength", "maxLength"
+        "minProperties",
+        "maxProperties",
+        "minItems",
+        "maxItems",
+        "minLength",
+        "maxLength",
     ):
         value = schema.get(keyword)
-        if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+        ):
             raise _schema_error(f"{keyword} must be a non-negative integer")
     for minimum, maximum in (
         ("minProperties", "maxProperties"),
         ("minItems", "maxItems"),
         ("minLength", "maxLength"),
     ):
-        if minimum in schema and maximum in schema and schema[minimum] > schema[maximum]:  # type: ignore[operator]
+        if (
+            minimum in schema
+            and maximum in schema
+            and schema[minimum] > schema[maximum]  # type: ignore[operator]
+        ):
             raise _schema_error(f"{minimum} must not exceed {maximum}")
     for keyword in (
-        "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"
+        "minimum",
+        "maximum",
+        "exclusiveMinimum",
+        "exclusiveMaximum",
+        "multipleOf",
     ):
         value = schema.get(keyword)
         if value is not None and (
@@ -262,7 +291,9 @@ def _type_matches(value: object, expected: str) -> bool:
 
 
 def _failure(path: str, reason: str) -> ParameterValidationError:
-    return ParameterValidationError(f"job parameters violate their schema at {path}: {reason}")
+    return ParameterValidationError(
+        f"job parameters violate their schema at {path}: {reason}"
+    )
 
 
 def validate_parameter_instance(
@@ -272,6 +303,11 @@ def validate_parameter_instance(
     path: str = "$",
     _depth: int = 0,
 ) -> None:
+    """Validate one parameter value against a schema subset node.
+
+    Raises ``ParameterValidationError`` (a ``ValueError``) with a sanitized
+    JSON path on the first violation.
+    """
     if _depth > 64:
         raise _failure(path, "nesting exceeds 64 levels")
     raw_type = schema.get("type")
@@ -280,7 +316,8 @@ def validate_parameter_instance(
         if not any(_type_matches(value, item) for item in expected):
             raise _failure(path, "type mismatch")
     if "enum" in schema and not any(
-        _json_equal(value, candidate) for candidate in schema["enum"]  # type: ignore[union-attr]
+        _json_equal(value, candidate)
+        for candidate in schema["enum"]  # type: ignore[union-attr]
     ):
         raise _failure(path, "value is outside enum")
     if "const" in schema and not _json_equal(value, schema["const"]):
@@ -334,7 +371,9 @@ def validate_parameter_instance(
             elif additional is False:
                 raise _failure(path, f"unknown field {name}")
             elif isinstance(additional, Mapping):
-                validate_parameter_instance(child, additional, path=f"{path}.{name}", _depth=_depth + 1)
+                validate_parameter_instance(
+                    child, additional, path=f"{path}.{name}", _depth=_depth + 1
+                )
     if isinstance(value, (list, tuple)):
         minimum = schema.get("minItems")
         maximum = schema.get("maxItems")

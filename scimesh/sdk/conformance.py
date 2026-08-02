@@ -66,7 +66,8 @@ class LocalArtifactStore:
                     tuple[int | None, tuple[int, ...]],
                 ],
             ],
-        ] | None = None,
+        ]
+        | None = None,
     ) -> None:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -96,7 +97,9 @@ class LocalArtifactStore:
         try:
             source_fd = os.open(path, source_flags)
         except OSError as error:
-            raise ValueError("artifact sink could not open a regular non-symlink file") from error
+            raise ValueError(
+                "artifact sink could not open a regular non-symlink file"
+            ) from error
         try:
             return self.seal_descriptor(
                 source_fd,
@@ -116,7 +119,11 @@ class LocalArtifactStore:
         dimensions: tuple[int, ...] = (),
     ) -> ArtifactRef:
         """Copy and validate one already safely opened regular-file descriptor."""
-        if isinstance(descriptor, bool) or not isinstance(descriptor, int) or descriptor < 0:
+        if (
+            isinstance(descriptor, bool)
+            or not isinstance(descriptor, int)
+            or descriptor < 0
+        ):
             raise ValueError("artifact descriptor must be an open file descriptor")
         if not isinstance(declaration, ArtifactSchema):
             raise ValueError("artifact declaration must be an ArtifactSchema")
@@ -127,9 +134,10 @@ class LocalArtifactStore:
         try:
             if not stat.S_ISREG(os.fstat(source_fd).st_mode):
                 raise ValueError("artifact sink accepts only regular files")
-            with os.fdopen(source_fd, "rb", closefd=True) as source_file, os.fdopen(
-                temporary_fd, "wb", closefd=True
-            ) as destination_file:
+            with (
+                os.fdopen(source_fd, "rb", closefd=True) as source_file,
+                os.fdopen(temporary_fd, "wb", closefd=True) as destination_file,
+            ):
                 source_fd = -1
                 temporary_fd = -1
                 for block in iter(lambda: source_file.read(1024 * 1024), b""):
@@ -150,14 +158,22 @@ class LocalArtifactStore:
                 declaration,
             )
             if records is not None and records != measured_records:
-                raise ValueError("artifact record summary does not match inspected content")
+                raise ValueError(
+                    "artifact record summary does not match inspected content"
+                )
             if dimensions and dimensions != measured_dimensions:
-                raise ValueError("artifact dimension summary does not match inspected content")
+                raise ValueError(
+                    "artifact dimension summary does not match inspected content"
+                )
             if declaration.max_records is not None:
                 if measured_records is None:
-                    raise ValueError("artifact validator did not produce a required record count")
+                    raise ValueError(
+                        "artifact validator did not produce a required record count"
+                    )
                 if measured_records > declaration.max_records:
-                    raise ValueError("sealed artifact exceeds its declared record limit")
+                    raise ValueError(
+                        "sealed artifact exceeds its declared record limit"
+                    )
             if declaration.max_dimensions:
                 if len(measured_dimensions) != len(declaration.max_dimensions) or any(
                     actual > maximum
@@ -166,7 +182,9 @@ class LocalArtifactStore:
                         declaration.max_dimensions,
                     )
                 ):
-                    raise ValueError("sealed artifact exceeds its declared dimension limits")
+                    raise ValueError(
+                        "sealed artifact exceeds its declared dimension limits"
+                    )
             reference = ArtifactRef(
                 artifact_id,
                 digest,
@@ -178,7 +196,9 @@ class LocalArtifactStore:
             )
             with self._lock:
                 if destination.is_symlink():
-                    raise ValueError("local artifact destination must not be a symbolic link")
+                    raise ValueError(
+                        "local artifact destination must not be a symbolic link"
+                    )
                 if destination.exists():
                     if not destination.is_file() or _sha256_file(destination) != digest:
                         raise ValueError("local artifact identity collision")
@@ -188,7 +208,9 @@ class LocalArtifactStore:
                 destination.chmod(0o444)
                 existing = self._references.get(artifact_id)
                 if existing is not None and existing != reference:
-                    raise ValueError("local artifact identity was reused with different metadata")
+                    raise ValueError(
+                        "local artifact identity was reused with different metadata"
+                    )
                 self._paths[artifact_id] = destination
                 self._references[artifact_id] = reference
                 self._refcounts[artifact_id] = self._refcounts.get(artifact_id, 0) + 1
@@ -254,7 +276,9 @@ class LocalArtifactStore:
         configuration = dict(declaration.validator_configuration)
         unknown = set(configuration) - {"columns", "required_columns"}
         if unknown:
-            raise ValueError("delimited-table validator configuration has unknown fields")
+            raise ValueError(
+                "delimited-table validator configuration has unknown fields"
+            )
         columns = configuration.get("columns")
         required = configuration.get("required_columns", ())
         if columns is not None and not isinstance(columns, (list, tuple)):
@@ -267,34 +291,54 @@ class LocalArtifactStore:
             (expected_columns or (), "columns"),
             (required_columns, "required_columns"),
         ):
-            if (
-                any(not isinstance(value, str) or not value for value in values)
-                or len(values) != len(set(values))
-            ):
+            if any(not isinstance(value, str) or not value for value in values) or len(
+                values
+            ) != len(set(values)):
                 raise ValueError(f"delimited-table {field_name} must be unique strings")
-        delimiter = "\t" if declaration.media_type == "text/tab-separated-values" else ","
+        delimiter = (
+            "\t" if declaration.media_type == "text/tab-separated-values" else ","
+        )
         try:
             with path.open("r", encoding="utf-8", newline="") as source_file:
                 reader = csv.reader(source_file, delimiter=delimiter)
                 try:
                     header = tuple(next(reader))
                 except StopIteration as error:
-                    raise ValueError("delimited-table artifact must contain a header") from error
-                if not header or any(not value for value in header) or len(header) != len(set(header)):
+                    raise ValueError(
+                        "delimited-table artifact must contain a header"
+                    ) from error
+                if (
+                    not header
+                    or any(not value for value in header)
+                    or len(header) != len(set(header))
+                ):
                     raise ValueError("delimited-table artifact has an invalid header")
                 if expected_columns is not None and header != expected_columns:
-                    raise ValueError("delimited-table artifact header does not match its schema")
+                    raise ValueError(
+                        "delimited-table artifact header does not match its schema"
+                    )
                 if not set(required_columns).issubset(header):
-                    raise ValueError("delimited-table artifact is missing required columns")
+                    raise ValueError(
+                        "delimited-table artifact is missing required columns"
+                    )
                 count = 0
                 for row in reader:
                     if len(row) != len(header):
-                        raise ValueError("delimited-table artifact has an inconsistent row width")
+                        raise ValueError(
+                            "delimited-table artifact has an inconsistent row width"
+                        )
                     count += 1
-                    if declaration.max_records is not None and count > declaration.max_records:
-                        raise ValueError("sealed artifact exceeds its declared record limit")
+                    if (
+                        declaration.max_records is not None
+                        and count > declaration.max_records
+                    ):
+                        raise ValueError(
+                            "sealed artifact exceeds its declared record limit"
+                        )
         except (UnicodeError, csv.Error) as error:
-            raise ValueError("sealed tabular artifact is not valid bounded text") from error
+            raise ValueError(
+                "sealed tabular artifact is not valid bounded text"
+            ) from error
         return count, ()
 
     @staticmethod
@@ -325,8 +369,15 @@ class LocalArtifactStore:
                         ValueError("non-finite JSON number")
                     ),
                 )
-        except (UnicodeError, json.JSONDecodeError, ValueError, RecursionError) as error:
-            raise ValueError("sealed JSON artifact is not a valid bounded document") from error
+        except (
+            UnicodeError,
+            json.JSONDecodeError,
+            ValueError,
+            RecursionError,
+        ) as error:
+            raise ValueError(
+                "sealed JSON artifact is not a valid bounded document"
+            ) from error
         if top_level == "array" and not isinstance(value, list):
             raise ValueError("JSON artifact must contain a top-level array")
         if top_level == "object" and not isinstance(value, dict):
@@ -392,9 +443,13 @@ class LocalArtifactStore:
                 path = self._paths[artifact.artifact_id]
                 stored = self._references[artifact.artifact_id]
             except KeyError as error:
-                raise ValueError("artifact is not present in the local store") from error
+                raise ValueError(
+                    "artifact is not present in the local store"
+                ) from error
         if stored != artifact:
-            raise ValueError("artifact metadata does not match the sealed local reference")
+            raise ValueError(
+                "artifact metadata does not match the sealed local reference"
+            )
         if (
             path.is_symlink()
             or not path.is_file()
@@ -479,13 +534,13 @@ class ScopedArtifactSink:
         try:
             lexical_relative = lexical.relative_to(self._workspace)
         except ValueError as error:
-            raise ValueError("attempt artifact must remain inside its workspace") from error
+            raise ValueError(
+                "attempt artifact must remain inside its workspace"
+            ) from error
         if not lexical_relative.parts:
             raise ValueError("attempt artifact must name a file inside its workspace")
         directory_flags = (
-            os.O_RDONLY
-            | getattr(os, "O_DIRECTORY", 0)
-            | getattr(os, "O_NOFOLLOW", 0)
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
         )
         opened_directories: list[int] = []
         file_descriptor = -1
@@ -530,11 +585,15 @@ class ScopedArtifactSink:
                 existing = self._sealed.get(reference.artifact_id)
                 if existing is not None and existing != reference:
                     self._store.release(reference)
-                    raise ValueError("attempt sealed conflicting metadata for one artifact")
+                    raise ValueError(
+                        "attempt sealed conflicting metadata for one artifact"
+                    )
                 if existing is None:
                     if self._sealed_bytes + reference.size_bytes > self._max_bytes:
                         self._store.release(reference)
-                        raise ValueError("attempt artifact bytes exceed their sink limit")
+                        raise ValueError(
+                            "attempt artifact bytes exceed their sink limit"
+                        )
                     self._sealed[reference.artifact_id] = reference
                     self._sealed_bytes += reference.size_bytes
                     if self._transaction is not None:
@@ -567,7 +626,9 @@ class ScopedArtifactCatalog:
                 raise ValueError("catalog allowlist must contain ArtifactRef values")
             existing = allowed.get(artifact.artifact_id)
             if existing is not None and existing != artifact:
-                raise ValueError("catalog allowlist contains conflicting artifact metadata")
+                raise ValueError(
+                    "catalog allowlist contains conflicting artifact metadata"
+                )
             allowed[artifact.artifact_id] = artifact
         self.__allowed = allowed
         resolved_workspace = workspace.resolve()
@@ -620,6 +681,8 @@ class ScopedArtifactCatalog:
 
 
 class CancellationFlag:
+    """A thread-safe cancellation signal for local conformance runs."""
+
     def __init__(self) -> None:
         self._event = Event()
 
@@ -636,6 +699,12 @@ class CancellationFlag:
 
 @dataclass(frozen=True, slots=True)
 class LocalPlanningContext:
+    """Scoped catalog/sink/workspace handed to a planner by the local executor.
+
+    Wraps a ``LocalArtifactStore`` into attempt-scoped catalog and sink so a
+    planner can materialize job inputs and seal shards.
+    """
+
     catalog: ArtifactCatalog
     sink: ArtifactSink
     workspace: Path
@@ -651,8 +720,14 @@ class LocalPlanningContext:
         if any(not isinstance(value, ArtifactRef) for value in allowed_artifacts):
             raise ValueError("allowed_artifacts must contain ArtifactRef values")
         object.__setattr__(self, "allowed_artifacts", allowed_artifacts)
-        object.__setattr__(self, "max_artifacts", require_positive_int(self.max_artifacts, "max_artifacts"))
-        object.__setattr__(self, "max_bytes", require_positive_int(self.max_bytes, "max_bytes"))
+        object.__setattr__(
+            self,
+            "max_artifacts",
+            require_positive_int(self.max_artifacts, "max_artifacts"),
+        )
+        object.__setattr__(
+            self, "max_bytes", require_positive_int(self.max_bytes, "max_bytes")
+        )
         if isinstance(self.catalog, LocalArtifactStore):
             object.__setattr__(
                 self,
@@ -675,6 +750,12 @@ class LocalPlanningContext:
 
 @dataclass(frozen=True, slots=True)
 class LocalTaskContext:
+    """Scoped context handed to a map/reduce handler by the local executor.
+
+    Carries the digest-pinned ``TaskSpec``, attempt workspace, cancellation
+    flag, provenance, and the accepted inputs for reducers.
+    """
+
     task: TaskSpec
     catalog: ArtifactCatalog
     sink: ArtifactSink
@@ -689,8 +770,14 @@ class LocalTaskContext:
     def __post_init__(self) -> None:
         workspace = self.workspace.resolve()
         object.__setattr__(self, "workspace", workspace)
-        object.__setattr__(self, "max_artifacts", require_positive_int(self.max_artifacts, "max_artifacts"))
-        object.__setattr__(self, "max_bytes", require_positive_int(self.max_bytes, "max_bytes"))
+        object.__setattr__(
+            self,
+            "max_artifacts",
+            require_positive_int(self.max_artifacts, "max_artifacts"),
+        )
+        object.__setattr__(
+            self, "max_bytes", require_positive_int(self.max_bytes, "max_bytes")
+        )
         if isinstance(self.catalog, LocalArtifactStore):
             allowed_artifacts = tuple(
                 item.artifact
@@ -741,7 +828,9 @@ def _provenance(
     job_id: str,
     task_id: str,
 ) -> Provenance:
-    parameters_digest = hashlib.sha256(canonical_json(task.parameters).encode("utf-8")).hexdigest()
+    parameters_digest = hashlib.sha256(
+        canonical_json(task.parameters).encode("utf-8")
+    ).hexdigest()
     return Provenance(
         workload=definition.manifest.workload,
         sdk_api_version=task.sdk_api_version,
@@ -755,9 +844,7 @@ def _provenance(
                     item.artifact.schema
                     for collection in task.inputs.values()
                     for item in collection.items
-                }.union(
-                    port.schema.ref for port in task.expected_outputs.values()
-                ),
+                }.union(port.schema.ref for port in task.expected_outputs.values()),
                 key=lambda value: value.canonical,
             )
         ),
@@ -768,7 +855,9 @@ def _provenance(
         allocated_resource_ids=(allocation.allocation_id,) + allocation.accelerator_ids,
         parameters_digest=parameters_digest,
         input_collection_digest=_input_digest(task.inputs),
-        execution_contract_digest=hashlib.sha256(task.to_json().encode("utf-8")).hexdigest(),
+        execution_contract_digest=hashlib.sha256(
+            task.to_json().encode("utf-8")
+        ).hexdigest(),
         selected_features=task.selected_features,
         optional_fallbacks=task.optional_fallbacks,
         job_id=job_id,
@@ -800,7 +889,7 @@ def _verification_binding(manifest: OutputManifest) -> VerificationBinding:
         manifest_schema_version=provenance.manifest_schema_version,
         workflow_schema_version=provenance.workflow_schema_version,
         artifact_schemas=provenance.artifact_schemas,
-        trust_mode=provenance.trust_mode,
+        trust_mode=TrustMode(provenance.trust_mode),
     )
 
 
@@ -828,15 +917,23 @@ class LocalCoreBatchExecutor:
         self.resources = ResourcePool(runtime.inventory, max_concurrency=1)
 
     @staticmethod
-    def _assert_supported_profile(request: JobRequest, definition: WorkloadDefinition) -> None:
+    def _assert_supported_profile(
+        request: JobRequest, definition: WorkloadDefinition
+    ) -> None:
         if request.trust_mode is not TrustMode.TRUSTED:
-            raise ValueError("local conformance execution supports only trusted workloads")
+            raise ValueError(
+                "local conformance execution supports only trusted workloads"
+            )
         workflow = definition.manifest.workflow
         if workflow.failure_policy is not WorkflowFailurePolicy.FAIL_FAST:
-            raise ValueError("local conformance execution supports only fail-fast workflows")
+            raise ValueError(
+                "local conformance execution supports only fail-fast workflows"
+            )
         for stage in workflow.stages:
             if stage.kind not in {StageKind.MAP, StageKind.REDUCE}:
-                raise ValueError("local conformance execution does not implement advanced stages")
+                raise ValueError(
+                    "local conformance execution does not implement advanced stages"
+                )
             execution = stage.execution
             if (
                 execution.process_model is not ProcessModel.SINGLE
@@ -845,7 +942,9 @@ class LocalCoreBatchExecutor:
                 or execution.native_threads != 1
                 or execution.nested_parallelism
             ):
-                raise ValueError("local conformance execution supports one non-nested host thread")
+                raise ValueError(
+                    "local conformance execution supports one non-nested host thread"
+                )
             if execution.network is not NetworkPolicy.TRUSTED:
                 raise ValueError(
                     "local conformance execution cannot enforce a restricted network policy"
@@ -857,19 +956,22 @@ class LocalCoreBatchExecutor:
                 or stage.gang is not None
                 or stage.resources.accelerator_count
             ):
-                raise ValueError("local conformance execution cannot enforce this stage profile")
+                raise ValueError(
+                    "local conformance execution cannot enforce this stage profile"
+                )
             if stage.retry.max_attempts != 1:
-                raise ValueError("local conformance execution does not implement retries")
-        reducers = tuple(stage for stage in workflow.stages if stage.kind is StageKind.REDUCE)
+                raise ValueError(
+                    "local conformance execution does not implement retries"
+                )
+        reducers = tuple(
+            stage for stage in workflow.stages if stage.kind is StageKind.REDUCE
+        )
         if len(reducers) == 1:
             reducer = reducers[0]
-            if (
-                set(workflow.outputs) != set(reducer.outputs)
-                or any(
-                    external_name != reference.port
-                    or reference.stage_id != reducer.stage_id
-                    for external_name, reference in workflow.outputs.items()
-                )
+            if set(workflow.outputs) != set(reducer.outputs) or any(
+                external_name != reference.port
+                or reference.stage_id != reducer.stage_id
+                for external_name, reference in workflow.outputs.items()
             ):
                 raise ValueError(
                     "local conformance execution requires identity-mapped reducer outputs"
@@ -930,11 +1032,14 @@ class LocalCoreBatchExecutor:
                 or task.protocol_version != self.runtime.protocol_version
                 or task.manifest_schema_version
                 != definition.manifest.manifest_schema_version
-                or task.workflow_schema_version != definition.manifest.workflow.schema_version
+                or task.workflow_schema_version
+                != definition.manifest.workflow.schema_version
                 or task.environment_digest != definition.manifest.environment.digest
                 or task.verifier != stage.verifier
             ):
-                raise ValueError("task resolved pins do not match the selected runtime and manifest")
+                raise ValueError(
+                    "task resolved pins do not match the selected runtime and manifest"
+                )
             provenance = _provenance(
                 definition,
                 self.runtime,
@@ -960,9 +1065,13 @@ class LocalCoreBatchExecutor:
             if not isinstance(manifest, OutputManifest):
                 raise ValueError("workload handler must return an OutputManifest")
             if manifest.task_key != task.task_key:
-                raise ValueError("handler output task_key does not match its trusted task")
+                raise ValueError(
+                    "handler output task_key does not match its trusted task"
+                )
             if manifest.provenance != provenance:
-                raise ValueError("handler output provenance does not match its trusted context")
+                raise ValueError(
+                    "handler output provenance does not match its trusted context"
+                )
             manifest.validate_against(
                 task.expected_outputs,
                 max_output_bytes=max_output_bytes,
@@ -1012,14 +1121,16 @@ class LocalCoreBatchExecutor:
                 expected_outputs,  # type: ignore[arg-type]
                 max_output_bytes,
                 binding=_verification_binding(output),
-                trust_mode=output.provenance.trust_mode,
+                trust_mode=TrustMode(output.provenance.trust_mode),
             ),
             CandidateOutputs((output,)),
         )
         if not isinstance(decision, VerificationDecision):
             raise ValueError("declared verifier must return a VerificationDecision")
         if decision.verifier != verifier_ref:
-            raise ValueError("verification decision identity does not match the declared verifier")
+            raise ValueError(
+                "verification decision identity does not match the declared verifier"
+            )
         if decision.status is not VerificationStatus.ACCEPTED:
             raise ValueError("task output did not pass its declared verifier")
 
@@ -1059,13 +1170,18 @@ class LocalCoreBatchExecutor:
         self._assert_supported_profile(request, definition)
         workflow = definition.manifest.workflow
         map_stages = [stage for stage in workflow.stages if stage.kind is StageKind.MAP]
-        reduce_stages = [stage for stage in workflow.stages if stage.kind is StageKind.REDUCE]
+        reduce_stages = [
+            stage for stage in workflow.stages if stage.kind is StageKind.REDUCE
+        ]
         unsupported = [
-            stage for stage in workflow.stages
+            stage
+            for stage in workflow.stages
             if stage.kind not in {StageKind.MAP, StageKind.REDUCE}
         ]
         if len(map_stages) != 1 or len(reduce_stages) != 1 or unsupported:
-            raise ValueError("local core-batch executor supports one static map stage and one reducer")
+            raise ValueError(
+                "local core-batch executor supports one static map stage and one reducer"
+            )
         limits = definition.manifest.limits
         output_limit = min(limits.max_output_bytes, workflow.max_output_bytes)
         job_id = str(uuid4())
@@ -1103,7 +1219,9 @@ class LocalCoreBatchExecutor:
         }
         for issued in planning.sink.sealed_references:
             if planned_references.get(issued.artifact_id) != issued:
-                raise ValueError("planner sealed an artifact that is not referenced by its plan")
+                raise ValueError(
+                    "planner sealed an artifact that is not referenced by its plan"
+                )
         authorized_plan_inputs = {
             item.artifact.artifact_id: item.artifact
             for collection in request.inputs.values()
@@ -1141,7 +1259,9 @@ class LocalCoreBatchExecutor:
                 for reference in workflow.outputs.values()
             )
         ):
-            raise ValueError("local core-batch executor requires a canonical map-to-reduce DAG")
+            raise ValueError(
+                "local core-batch executor requires a canonical map-to-reduce DAG"
+            )
         runner = definition.runners[map_stage.entry_point]
         map_results: list[OutputManifest] = []
         for task_index, task in enumerate(plan.tasks):
@@ -1171,16 +1291,22 @@ class LocalCoreBatchExecutor:
                 raise ValueError("job exceeds the cumulative output byte limit")
             map_results.append(manifest)
         if len(map_results) != len(plan.tasks):
-            raise ValueError("map execution did not produce exactly one accepted result per task")
+            raise ValueError(
+                "map execution did not produce exactly one accepted result per task"
+            )
         if len(map_stage.outputs) != 1 or len(reducer_stage.inputs) != 1:
-            raise ValueError("core map/reduce adapter requires one map output and one reducer input")
+            raise ValueError(
+                "core map/reduce adapter requires one map output and one reducer input"
+            )
         map_port = next(iter(map_stage.outputs))
         reducer_input_name = next(iter(reducer_stage.inputs))
         partial_items: list[ArtifactItem] = []
         for task, result in zip(plan.tasks, map_results):
             collection = result.outputs[map_port]
             if len(collection.items) != 1:
-                raise ValueError("core map stage must produce exactly one partial per planned task")
+                raise ValueError(
+                    "core map stage must produce exactly one partial per planned task"
+                )
             partial_items.append(
                 ArtifactItem(
                     collection.items[0].artifact,
@@ -1188,8 +1314,11 @@ class LocalCoreBatchExecutor:
                 )
             )
         if len(partial_items) != len(plan.tasks):
-            raise ValueError("core map stage must produce exactly one partial per planned task")
+            raise ValueError(
+                "core map stage must produce exactly one partial per planned task"
+            )
         accepted = ArtifactCollection(CollectionKind.KEYED, tuple(partial_items))
+        assert reducer_stage.verifier is not None
         reducer_task = TaskSpec(
             workload=plan.workload,
             package_digest=plan.package_digest,
@@ -1234,5 +1363,7 @@ class LocalCoreBatchExecutor:
         )
         if output_bytes > output_limit:
             raise ValueError("job exceeds the cumulative output byte limit")
-        final.validate_against(definition.manifest.outputs, max_output_bytes=output_limit)
+        final.validate_against(
+            definition.manifest.outputs, max_output_bytes=output_limit
+        )
         return final

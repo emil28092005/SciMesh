@@ -1,4 +1,10 @@
-"""Versioned identities used across the SciMesh workload SDK."""
+"""Versioned identities used across the SciMesh workload SDK.
+
+The module-level constants ``SDK_API_VERSION``, ``MANIFEST_SCHEMA_VERSION``,
+``WORKFLOW_SCHEMA_VERSION``, ``TASK_SCHEMA_VERSION``, and
+``OUTPUT_SCHEMA_VERSION`` pin the current wire/schema versions; manifests
+declare explicit compatibility ranges against them.
+"""
 
 from __future__ import annotations
 
@@ -35,7 +41,9 @@ class VersionRange:
     expression: str
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "expression", validate_version_range(self.expression, "version range"))
+        object.__setattr__(
+            self, "expression", validate_version_range(self.expression, "version range")
+        )
 
     def contains(self, version: str) -> bool:
         return version_in_range(version, self.expression)
@@ -50,12 +58,16 @@ class VersionRange:
 
 @dataclass(frozen=True, slots=True)
 class WorkloadId:
+    """The exact identity of a workload: canonical hyphenated name and semantic version."""
+
     name: str
     version: str
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", require_workload_name(self.name))
-        object.__setattr__(self, "version", require_semver(self.version, "workload.version"))
+        object.__setattr__(
+            self, "version", require_semver(self.version, "workload.version")
+        )
 
     def to_dict(self) -> dict[str, str]:
         return {"name": self.name, "version": self.version}
@@ -70,12 +82,22 @@ class WorkloadId:
 
 @dataclass(frozen=True, slots=True)
 class SchemaRef:
+    """A versioned artifact schema identity (``name@version``).
+
+    Schemas are content contracts: two artifacts share a schema only when
+    their ``SchemaRef`` values are equal.
+    """
+
     name: str
     version: int
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "name", require_identifier(self.name, "schema.name"))
-        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
+        if (
+            isinstance(self.version, bool)
+            or not isinstance(self.version, int)
+            or self.version < 1
+        ):
             raise ValueError("schema.version must be a positive integer")
 
     @property
@@ -111,8 +133,14 @@ class ComponentRef:
     version: int
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "name", require_identifier(self.name, "component.name"))
-        if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
+        object.__setattr__(
+            self, "name", require_identifier(self.name, "component.name")
+        )
+        if (
+            isinstance(self.version, bool)
+            or not isinstance(self.version, int)
+            or self.version < 1
+        ):
             raise ValueError("component.version must be a positive integer")
 
     @property
@@ -135,6 +163,12 @@ class ComponentRef:
 
 @dataclass(frozen=True, slots=True)
 class FeatureRequirement:
+    """A versioned feature a workload requires or optionally selects.
+
+    Optional features may declare a fallback that negotiation records when
+    the runtime does not provide the feature.
+    """
+
     name: str
     versions: VersionRange
     fallback: str | None = None
@@ -144,10 +178,15 @@ class FeatureRequirement:
         if not isinstance(self.versions, VersionRange):
             raise ValueError("feature.versions must be a VersionRange")
         if self.fallback is not None:
-            object.__setattr__(self, "fallback", require_identifier(self.fallback, "feature.fallback"))
+            object.__setattr__(
+                self, "fallback", require_identifier(self.fallback, "feature.fallback")
+            )
 
     def to_dict(self) -> dict[str, object]:
-        result: dict[str, object] = {"name": self.name, "versions": self.versions.expression}
+        result: dict[str, object] = {
+            "name": self.name,
+            "versions": self.versions.expression,
+        }
         if self.fallback is not None:
             result["fallback"] = self.fallback
         return result

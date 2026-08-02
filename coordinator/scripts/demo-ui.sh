@@ -32,6 +32,29 @@ worker_bin=${SCIMESH_WORKER_BIN:-"$repo_dir/.venv/bin/scimesh-worker"}
 pid_file="$demo_dir/workers.pids"
 logs_dir="$demo_dir/logs"
 
+# The built MkDocs site is mounted into the demo coordinator so the UI can
+# serve it at /ui/docs/. When site/ is missing (make docs), the docs route
+# shows a build hint instead.
+docs_compose_file="$demo_dir/docker-compose.docs.yml"
+docs_compose_files=""
+
+prepare_docs_override() {
+  mkdir -p "$demo_dir"
+  if [[ -d "$repo_dir/site" ]]; then
+    cat > "$docs_compose_file" <<DOCS_OVERRIDE_EOF
+services:
+  coordinator:
+    volumes:
+      - $repo_dir/site:/site:ro
+    environment:
+      SCIMESH_DOCS_DIR: /site
+DOCS_OVERRIDE_EOF
+    docs_compose_files="-f $docs_compose_file"
+  else
+    docs_compose_files=""
+  fi
+}
+
 compose() {
   POSTGRES_PORT="$postgres_port" \
   COORDINATOR_PORT="$coordinator_port" \
@@ -46,7 +69,8 @@ compose() {
   docker compose -p "$project" \
     -f "$coordinator_dir/docker-compose.yml" \
     -f "$coordinator_dir/docker-compose.users.yml" \
-    -f "$coordinator_dir/docker-compose.monitoring.yml" "$@"
+    -f "$coordinator_dir/docker-compose.monitoring.yml" \
+    $docs_compose_files "$@"
 }
 
 stop_workers() {
@@ -116,6 +140,7 @@ wait_for_workers() {
 }
 
 start() {
+  prepare_docs_override
   if ! [[ "$workers" =~ ^[1-9][0-9]*$ ]]; then
     echo "DEMO_WORKERS must be a positive integer (got $workers)." >&2
     exit 2

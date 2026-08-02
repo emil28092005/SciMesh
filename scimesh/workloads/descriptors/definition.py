@@ -9,6 +9,7 @@ partition, compute, and merge.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Mapping
 
 from scimesh.sdk.artifacts import ArtifactSchema, ComponentRef, PortSpec
@@ -131,6 +132,7 @@ class DescriptorBatchWorkload(MapReduceWorkload):
         if not isinstance(value, bool):
             raise ValueError("skip_invalid must be a boolean")
         return value
+
 
 def descriptor_batch_sdk_definition(
     *,

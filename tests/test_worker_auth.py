@@ -49,7 +49,9 @@ class SeqOpener:
 
 
 def _exchange_response(token: str, expires_in: int) -> FakeResponse:
-    return FakeResponse(200, json.dumps({"token": token, "expires_in": expires_in}).encode())
+    return FakeResponse(
+        200, json.dumps({"token": token, "expires_in": expires_in}).encode()
+    )
 
 
 def test_static_provider_returns_fixed_token_and_never_refreshes():
@@ -68,13 +70,13 @@ def test_worker_key_provider_exchanges_once_then_caches():
     provider = WorkerKeyTokenProvider(
         "http://users", "scimesh_wk_live_x", timeout=5, now=lambda: clock["t"]
     )
-    provider._opener = SeqOpener([_exchange_response("jwt-1", 100)])
+    provider._opener = SeqOpener([_exchange_response("jwt-1", 100)])  # type: ignore[reportAttributeAccessIssue]
 
     # First call exchanges; a second call well within the TTL reuses the cache.
     assert provider.token() == "jwt-1"
     clock["t"] = 1050.0  # 50s later, TTL 100s with 0.2 leeway → refresh at +80s
     assert provider.token() == "jwt-1"
-    assert len(provider._opener.requests) == 1
+    assert len(provider._opener.requests) == 1  # type: ignore[reportAttributeAccessIssue]
 
 
 def test_worker_key_provider_refreshes_after_leeway():
@@ -82,22 +84,26 @@ def test_worker_key_provider_refreshes_after_leeway():
     provider = WorkerKeyTokenProvider(
         "http://users", "k", timeout=5, now=lambda: clock["t"]
     )
-    provider._opener = SeqOpener([
-        _exchange_response("jwt-1", 100),
-        _exchange_response("jwt-2", 100),
-    ])
+    provider._opener = SeqOpener(  # type: ignore[reportAttributeAccessIssue]
+        [
+            _exchange_response("jwt-1", 100),
+            _exchange_response("jwt-2", 100),
+        ]
+    )
     assert provider.token() == "jwt-1"
     clock["t"] = 85.0  # past the 80s refresh point
     assert provider.token() == "jwt-2"
-    assert len(provider._opener.requests) == 2
+    assert len(provider._opener.requests) == 2  # type: ignore[reportAttributeAccessIssue]
 
 
 def test_worker_key_provider_force_refresh():
     provider = WorkerKeyTokenProvider("http://users", "k", timeout=5, now=lambda: 0.0)
-    provider._opener = SeqOpener([
-        _exchange_response("jwt-1", 100),
-        _exchange_response("jwt-2", 100),
-    ])
+    provider._opener = SeqOpener(  # type: ignore[reportAttributeAccessIssue]
+        [
+            _exchange_response("jwt-1", 100),
+            _exchange_response("jwt-2", 100),
+        ]
+    )
     assert provider.token() == "jwt-1"
     provider.refresh()
     assert provider.token() == "jwt-2"
@@ -105,14 +111,18 @@ def test_worker_key_provider_force_refresh():
 
 def test_worker_key_provider_raises_on_rejected_key():
     provider = WorkerKeyTokenProvider("http://users", "bad", timeout=5, now=lambda: 0.0)
-    provider._opener = SeqOpener([HTTPError("http://users", 401, "unauthorized", {}, None)])
+    provider._opener = SeqOpener(  # type: ignore[reportAttributeAccessIssue]
+        [HTTPError("http://users", 401, "unauthorized", {}, None)]  # type: ignore[reportArgumentType]
+    )
     with pytest.raises(TokenExchangeError):
         provider.token()
 
 
 def test_worker_key_provider_raises_when_token_missing():
     provider = WorkerKeyTokenProvider("http://users", "k", timeout=5, now=lambda: 0.0)
-    provider._opener = SeqOpener([FakeResponse(200, json.dumps({"expires_in": 100}).encode())])
+    provider._opener = SeqOpener(  # type: ignore[reportAttributeAccessIssue]
+        [FakeResponse(200, json.dumps({"expires_in": 100}).encode())]
+    )
     with pytest.raises(TokenExchangeError):
         provider.token()
 
@@ -152,10 +162,12 @@ class RefreshCountingProvider:
 def test_coordinator_client_refreshes_and_retries_once_on_401():
     provider = RefreshCountingProvider()
     client = HttpCoordinatorClient("http://coord", timeout=5, token_provider=provider)
-    client._opener = SeqOpener([
-        HTTPError("http://coord/tasks/claim", 401, "unauthorized", {}, None),
-        FakeResponse(204, b""),
-    ])
+    client._opener = SeqOpener(  # type: ignore[reportAttributeAccessIssue]
+        [
+            HTTPError("http://coord/tasks/claim", 401, "unauthorized", {}, None),  # type: ignore[reportArgumentType]
+            FakeResponse(204, b""),
+        ]
+    )
 
     status, _ = client._request("POST", "/tasks/claim", {"worker_id": "w"})
 
@@ -168,10 +180,12 @@ def test_coordinator_client_refreshes_and_retries_once_on_401():
 def test_coordinator_client_does_not_loop_on_persistent_401():
     provider = RefreshCountingProvider()
     client = HttpCoordinatorClient("http://coord", timeout=5, token_provider=provider)
-    client._opener = SeqOpener([
-        HTTPError("http://coord/x", 401, "unauthorized", {}, None),
-        HTTPError("http://coord/x", 401, "unauthorized", {}, None),
-    ])
+    client._opener = SeqOpener(  # type: ignore[reportAttributeAccessIssue]
+        [
+            HTTPError("http://coord/x", 401, "unauthorized", {}, None),  # type: ignore[reportArgumentType]
+            HTTPError("http://coord/x", 401, "unauthorized", {}, None),  # type: ignore[reportArgumentType]
+        ]
+    )
 
     status, _ = client._request("POST", "/x", {})
 
@@ -195,7 +209,9 @@ def test_worker_key_requires_userservice_url():
 
 
 def test_worker_key_with_userservice_url_is_valid():
-    cfg = WorkerConfig(**_base_config(worker_key="scimesh_wk_live_x", userservice_url="http://users"))
+    cfg = WorkerConfig(
+        **_base_config(worker_key="scimesh_wk_live_x", userservice_url="http://users")
+    )
     assert cfg.worker_key == "scimesh_wk_live_x"
     assert cfg.userservice_url == "http://users"
 
