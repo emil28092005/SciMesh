@@ -1,11 +1,13 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help agent demo-ui demo-down demo-logs smoke-two-worker docs docs-serve
+.PHONY: help agent coordinator demo-ui demo-down demo-logs smoke-two-worker docs docs-serve
 
 help:
 	@printf '%s\n' \
 	  'SciMesh developer commands:' \
 	  '  make agent                   Build the Go worker agent (coordinator/bin/worker-agent).' \
+	  '  make coordinator             Build the coordinator server as a static binary' \
+	  '                              (coordinator/bin/coordinator).' \
 	  '  make demo-ui                 Start the local UI pipeline demo with 2 Go worker agents.' \
 	  '  make demo-ui WORKERS=3       Start the demo with 3 workers.' \
 	  '  make demo-logs               Follow coordinator logs for the demo.' \
@@ -21,6 +23,9 @@ help:
 # through, for example: make demo-ui WORKERS=3
 agent:
 	$(MAKE) -C coordinator agent
+
+coordinator:
+	$(MAKE) -C coordinator coordinator
 
 demo-ui:
 	$(MAKE) -C coordinator demo-ui
