@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 from scimesh.worker.task import _EXIT_PERMANENT, _EXIT_RETRYABLE
 

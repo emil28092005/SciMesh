@@ -15,11 +15,9 @@ from scimesh.sdk import (
     LocalCoreBatchExecutor,
     LocalPlanningContext,
     StageKind,
-    WorkloadRegistry,
     assert_manifest_round_trip,
 )
 from scimesh.workloads.library import default_sdk_registry, default_sdk_runtime
-from scimesh.workloads.search import similarity_search_sdk_definition
 from scimesh.workloads.similarity_search import (
     find_molecule_by_id,
     search_similar,

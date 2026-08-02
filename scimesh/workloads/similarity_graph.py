@@ -12,7 +12,7 @@ from typing import Any
 
 from rdkit import DataStructs
 
-from scimesh.chemistry.dataset import DatasetStats, MoleculeRecord, iter_valid_molecules
+from scimesh.chemistry.dataset import DatasetStats, iter_valid_molecules
 from scimesh.chemistry.fingerprints import fingerprint
 
 

@@ -24,9 +24,7 @@ from typing import Any, Mapping, Sequence
 
 from .artifacts import (
     ArtifactCollection,
-    ArtifactItem,
     ArtifactRef,
-    ArtifactSchema,
     Cardinality,
     CollectionKind,
     OutputManifest,
@@ -295,8 +293,6 @@ class MapReduceWorkload:
             conformance_profiles=("core-batch-v1",),
         )
         self._exact_verifier = _EXACT_VERIFIER
-        self._resources = resources
-        self._execution = execution
         self._limits = limits
 
     # ------------------------------------------------------------------

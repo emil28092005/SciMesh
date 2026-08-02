@@ -8,7 +8,6 @@ workload definition packages (``search``, ``graph``, ``descriptors``) and the
 from __future__ import annotations
 
 import hashlib
-import os
 import platform
 import sys
 

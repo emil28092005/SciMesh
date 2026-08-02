@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from threading import Lock
-from types import MappingProxyType
 from typing import Mapping
 from uuid import uuid4
 

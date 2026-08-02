@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help demo-ui demo-down demo-logs docs docs-serve
+.PHONY: help demo-ui demo-down demo-logs smoke-two-worker docs docs-serve
 
 help:
 	@printf '%s\n' \
@@ -9,6 +9,8 @@ help:
 	  '  make demo-ui WORKERS=3       Start the demo with 3 local workers.' \
 	  '  make demo-logs               Follow coordinator logs for the demo.' \
 	  '  make demo-down               Stop demo containers and workers.' \
+	  '  make smoke-two-worker        E2E: two workers process 4 shards and the' \
+	  '                              result must match the local CLI reference.' \
 	  '  make docs                    Build the MkDocs site into site/.' \
 	  '  make docs-serve              Serve the MkDocs site at http://localhost:8000.' \
 	  '' \
@@ -24,6 +26,9 @@ demo-down:
 
 demo-logs:
 	$(MAKE) -C coordinator demo-logs
+
+smoke-two-worker:
+	./scripts/two-worker-smoke.sh
 
 docs:
 	.venv/bin/mkdocs build

@@ -20,7 +20,6 @@ from ._validation import (
     freeze_json_mapping,
     require_exact_keys,
     require_identifier,
-    require_nonnegative_int,
     require_positive_int,
     require_sha256,
     require_string,

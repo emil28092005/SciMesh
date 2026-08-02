@@ -19,7 +19,7 @@ import csv
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Iterator, Sequence
 
 from rdkit import Chem
 from rdkit.ML.Descriptors.MoleculeDescriptors import MolecularDescriptorCalculator
@@ -229,86 +229,3 @@ def compute_descriptor_batch(
     materialized = list(rows)
     write_descriptor_rows(output_path, materialized)
     return stats.as_metrics()
-
-
-def write_descriptor_shards(
-    input_path: Path,
-    workspace: Path,
-    shard_rows: int,
-) -> list[Path]:
-    """Split the input TSV into deterministic row-bounded shards with headers."""
-    if (
-        isinstance(shard_rows, bool)
-        or not isinstance(shard_rows, int)
-        or shard_rows < 1
-    ):
-        raise ValueError("shard_rows must be a positive integer")
-    paths: list[Path] = []
-    current: Path | None = None
-    destination = None
-    writer = None
-    rows_in_shard = 0
-    try:
-        with input_path.open("r", encoding="utf-8", newline="") as source:
-            reader = csv.DictReader(source, delimiter="\t")
-            fieldnames = tuple(reader.fieldnames or ())
-            if not {"chembl_id", "canonical_smiles"}.issubset(set(fieldnames)):
-                raise ValueError(
-                    "dataset is missing required columns: chembl_id, canonical_smiles"
-                )
-            for row in reader:
-                if destination is None or rows_in_shard == shard_rows:
-                    if destination is not None:
-                        destination.close()
-                    current = workspace / f"shard-{len(paths)}.tsv"
-                    destination = current.open("w", encoding="utf-8", newline="")
-                    writer = csv.DictWriter(
-                        destination,
-                        fieldnames=list(fieldnames),
-                        delimiter="\t",
-                        lineterminator="\n",
-                    )
-                    writer.writeheader()
-                    paths.append(current)
-                    rows_in_shard = 0
-                assert writer is not None
-                writer.writerow(row)
-                rows_in_shard += 1
-    finally:
-        if destination is not None:
-            destination.close()
-    if not paths:
-        raise ValueError("dataset has no data rows")
-    return paths
-
-
-def concatenate_descriptor_shards(
-    partial_paths: Sequence[Path],
-    output_path: Path,
-) -> dict[str, int]:
-    """Merge shard partial CSVs by shard index with exactly one header.
-
-    Every partial is a full CSV with the same header. The first partial is
-    copied verbatim; each later partial contributes only its data rows, so the
-    merged file is byte-identical to the single-process reference for the same
-    input rows.
-    """
-    if not partial_paths:
-        raise ValueError("descriptor reducer requires at least one partial")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    rows_emitted = 0
-    with output_path.open("w", encoding="utf-8", newline="") as destination:
-        for index, partial in enumerate(partial_paths):
-            with partial.open("r", encoding="utf-8", newline="") as source:
-                for line_index, line in enumerate(source):
-                    if line_index == 0:
-                        if index > 0:
-                            continue
-                        if line.rstrip("\r\n") != ",".join(DESCRIPTOR_COLUMNS):
-                            raise ValueError(
-                                "partial descriptor CSV has an invalid header"
-                            )
-                    destination.write(line)
-                    if line_index > 0:
-                        rows_emitted += 1
-    return {"partial_count": len(partial_paths), "rows_emitted": rows_emitted}

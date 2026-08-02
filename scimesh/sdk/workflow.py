@@ -15,7 +15,6 @@ from ._validation import (
     require_nonnegative_int,
     require_positive_int,
     require_schema_version,
-    require_string,
 )
 from .artifacts import PortSpec
 from .execution import ExecutionProfile, NetworkPolicy, RetryPolicy

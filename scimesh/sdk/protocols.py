@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Mapping, Protocol, Sequence
+from typing import Mapping, Protocol
 
 from .artifacts import (
     ArtifactCollection,

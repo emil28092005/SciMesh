@@ -24,7 +24,7 @@ from .artifacts import (
     OutputManifest,
     Provenance,
 )
-from .identity import ComponentRef, SDK_API_VERSION, SchemaRef
+from .identity import ComponentRef, SDK_API_VERSION
 from .execution import NetworkPolicy, ProcessModel
 from .manifest import TrustMode, WorkloadManifest
 from .plans import JobRequest, TaskSpec
@@ -685,9 +685,6 @@ class CancellationFlag:
 
     def __init__(self) -> None:
         self._event = Event()
-
-    def cancel(self) -> None:
-        self._event.set()
 
     def cancelled(self) -> bool:
         return self._event.is_set()

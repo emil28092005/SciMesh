@@ -24,7 +24,6 @@ from uuid import NAMESPACE_URL, uuid5
 
 from scimesh.sdk.artifacts import (
     ArtifactCollection,
-    ArtifactRef,
     OutputManifest,
     Provenance,
 )

@@ -106,7 +106,6 @@ def test_local_sdk_executor_matches_descriptor_batch_reference(tmp_path: Path) -
     dataset = tmp_path / "molecules.tsv"
     _write_tiny_dataset(dataset)
     registry, runtime, workload, definition, _ = _registered_descriptor_batch()
-    manifest = workload.manifest
     artifact_store = LocalArtifactStore(tmp_path / "artifacts")
     request = _request_for(dataset, artifact_store, workload)
 

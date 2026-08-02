@@ -20,7 +20,6 @@ from scimesh.sdk import (
 from scimesh.workloads.graph import (
     check_pair_coverage,
     merge_edge_partials,
-    similarity_graph_sdk_definition,
 )
 from scimesh.workloads.library import default_sdk_registry, default_sdk_runtime
 from scimesh.workloads.similarity_graph import (

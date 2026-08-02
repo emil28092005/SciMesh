@@ -9,11 +9,9 @@ from .core import (
     DESCRIPTOR_NAMES,
     DescriptorRow,
     compute_descriptor_batch,
-    concatenate_descriptor_shards,
     descriptor_calculator,
     validate_descriptor_names,
     write_descriptor_rows,
-    write_descriptor_shards,
 )
 from .definition import (
     MAP_ENTRY_POINT,
@@ -31,11 +29,9 @@ __all__ = [
     "DescriptorBatchWorkload",
     "DescriptorRow",
     "compute_descriptor_batch",
-    "concatenate_descriptor_shards",
     "descriptor_batch_sdk_definition",
     "descriptor_calculator",
     "validate_descriptor_names",
     "workload_definition",
     "write_descriptor_rows",
-    "write_descriptor_shards",
 ]

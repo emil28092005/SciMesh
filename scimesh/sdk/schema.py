@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from fractions import Fraction
-from typing import Mapping, Sequence
+from typing import Mapping
 
 
 _ANNOTATIONS = {
