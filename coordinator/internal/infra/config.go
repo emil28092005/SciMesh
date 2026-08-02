@@ -78,6 +78,10 @@ type Config struct {
 	ReaperInterval time.Duration
 	// A worker silent for longer than this is marked offline by the reaper.
 	WorkerOfflineAfter time.Duration
+	// Whether the binary applies its embedded schema migrations on startup.
+	// On by default so a downloaded binary provisions its own database; set
+	// AUTO_MIGRATE=false when an operator manages migrations out of band.
+	AutoMigrate bool
 }
 
 // Load reads the environment and fails fast on anything required-but-missing
@@ -172,6 +176,14 @@ func LoadConfig() (Config, error) {
 	}
 	if cfg.DefaultMaxAttempts < 1 {
 		return Config{}, fmt.Errorf("DEFAULT_MAX_ATTEMPTS must be positive")
+	}
+	cfg.AutoMigrate = true
+	if raw := os.Getenv("AUTO_MIGRATE"); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("AUTO_MIGRATE must be true or false")
+		}
+		cfg.AutoMigrate = parsed
 	}
 
 	return cfg, nil

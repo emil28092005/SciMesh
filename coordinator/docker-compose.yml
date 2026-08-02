@@ -20,20 +20,8 @@ services:
       retries: 10
       start_period: 5s
 
-  # One-shot: applies migrations, then exits. Schema changes stay an explicit
-  # deployment step — the coordinator binary never migrates on startup.
-  migrate:
-    image: migrate/migrate:v4.17.1
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - ./migrations:/migrations:ro
-    command:
-      - -path=/migrations
-      - -database=postgres://${POSTGRES_USER:-scimesh}:${POSTGRES_PASSWORD:-scimesh}@postgres:5432/${POSTGRES_DB:-scimesh}?sslmode=disable
-      - up
-    restart: on-failure
+  # The coordinator applies its embedded schema migrations on startup
+  # (AUTO_MIGRATE, on by default), so no separate migration step is needed.
 
   coordinator:
     build:
@@ -41,9 +29,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # Start only once the schema exists, otherwise the first query fails.
-      migrate:
-        condition: service_completed_successfully
     environment:
       COORDINATOR_ADDR: ":8080"
       # Host is the service name: compose resolves it on the project network.

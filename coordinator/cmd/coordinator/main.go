@@ -66,6 +66,15 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// A downloaded binary provisions its own schema; AUTO_MIGRATE=false keeps
+	// out-of-band migration workflows (the migrate CLI, CI, managed databases).
+	if cfg.AutoMigrate {
+		if err := postgres.Migrate(ctx, cfg.DatabaseURL, log); err != nil {
+			log.Error("apply migrations", "err", err)
+			return err
+		}
+	}
+
 	blobStore, err := blob.NewFSStore(cfg.StorageDir)
 	if err != nil {
 		log.Error("init blob storage", "err", err)

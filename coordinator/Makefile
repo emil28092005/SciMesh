@@ -48,7 +48,8 @@ coordinator:
 	@printf '%s\n' \
 	  'Built bin/coordinator. Configure via environment:' \
 	  '  DATABASE_URL, COORDINATOR_ADDR, COORDINATOR_TOKEN, UI_AUTH_TOKEN,' \
-	  '  COORDINATOR_STORAGE_DIR, SCIMESH_DOCS_DIR, JWT_SECRET, USERSERVICE_URL'
+	  '  COORDINATOR_STORAGE_DIR, SCIMESH_DOCS_DIR, JWT_SECRET, USERSERVICE_URL' \
+	  '  (embedded schema migrations run on startup; AUTO_MIGRATE=false disables)'
 
 workloads-export:
 	cd .. && .venv/bin/scimesh workload export -o coordinator/$(WORKLOADS_JSON)
@@ -155,10 +156,10 @@ tidy:
 # DATABASE_URL must be set, e.g.:
 #   export DATABASE_URL='postgres://scimesh:scimesh@localhost:5432/scimesh?sslmode=disable'
 migrate-up:
-	migrate -path migrations -database "$(DATABASE_URL)" up
+	migrate -path internal/storage/postgres/migrations -database "$(DATABASE_URL)" up
 
 migrate-down:
-	migrate -path migrations -database "$(DATABASE_URL)" down 1
+	migrate -path internal/storage/postgres/migrations -database "$(DATABASE_URL)" down 1
 
 # --- docker --------------------------------------------------------------
 # `up` starts Postgres, applies migrations, then launches the coordinator.

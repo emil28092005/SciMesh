@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
+	"github.com/emil28092005/SciMesh/coordinator/internal/workloads"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
 )
 
@@ -408,7 +409,7 @@ func TestCompleteTaskReplayIsIdempotent(t *testing.T) {
 	tasks, jobs, artifacts, tx := NewTaskRepo(pool), NewJobRepo(pool), NewArtifactRepo(pool), NewTxManager(pool)
 	workers, results := NewWorkerRepo(pool), NewTaskResultRepo(pool)
 	clk := fixedClock{now: time.Now().UTC()}
-	uc := usecase.NewCompleteTask(tasks, jobs, artifacts, workers, results, tx, clk, 2)
+	uc := usecase.NewCompleteTask(tasks, jobs, artifacts, workers, results, tx, clk, 2, integrationCatalog())
 
 	claimed, err := tasks.ClaimNext(ctx, usecase.ClaimFilter{
 		Owner: "worker-1", Now: clk.now, LeaseUntil: clk.now.Add(time.Minute),
@@ -656,4 +657,47 @@ func TestExpireLeasesRequeuesElapsedTasks(t *testing.T) {
 	if counts[domain.TaskPending] != 1 {
 		t.Errorf("pending = %d, want 1 — a dead worker must not strand its task", counts[domain.TaskPending])
 	}
+}
+
+func TestMigrateProvisionsAndIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	if err := Migrate(ctx, url, nil); err != nil {
+		t.Fatalf("first migrate: %v", err)
+	}
+	if err := Migrate(ctx, url, nil); err != nil {
+		t.Fatalf("second migrate (idempotent): %v", err)
+	}
+	pool := testPool(t)
+	var count int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
+		t.Fatalf("read schema_migrations: %v", err)
+	}
+	migrations, err := listMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != len(migrations) {
+		t.Errorf("schema_migrations has %d rows, want %d", count, len(migrations))
+	}
+	var hasJobs bool
+	if err := pool.QueryRow(ctx,
+		"SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'jobs')",
+	).Scan(&hasJobs); err != nil {
+		t.Fatal(err)
+	}
+	if !hasJobs {
+		t.Error("jobs table was not created by the embedded migrations")
+	}
+}
+
+func integrationCatalog() *workloads.Catalog {
+	catalog, err := workloads.Load()
+	if err != nil {
+		panic(err)
+	}
+	return catalog
 }

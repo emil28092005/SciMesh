@@ -83,9 +83,11 @@ chmod +x coordinator
   `python -m scimesh.worker.task`, so the machine needs the `scimesh`
   package in a venv (`pip install scimesh`) and the usual environment:
   `COORDINATOR_URL`, `WORKER_AUTH_TOKEN`, `WORK_DIR`.
-- **coordinator** needs PostgreSQL with the applied migrations (the binary
-  never migrates on startup) plus `DATABASE_URL`, `COORDINATOR_STORAGE_DIR`,
-  and `JWT_SECRET`; the UI login additionally requires `USERSERVICE_URL`.
+- **coordinator** needs PostgreSQL running (`DATABASE_URL`,
+  `COORDINATOR_STORAGE_DIR`, `JWT_SECRET`); the binary applies its embedded
+  schema migrations itself on startup (`AUTO_MIGRATE=false` opts out), so no
+  separate migration step is needed. The UI login additionally requires
+  `USERSERVICE_URL`.
   `coordinator --version` / `worker-agent --version` print the build tag.
 
 Build and serve this documentation site:

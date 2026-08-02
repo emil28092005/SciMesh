@@ -996,6 +996,35 @@ features.
 
 ---
 
+### CTX-17 — Self-provisioning coordinator and setup wizard
+
+**Goal:** A downloaded coordinator binary should bring up a working platform
+with as little manual configuration as possible: it provisions its own
+schema, and a `setup` command walks the operator through the remaining
+environment (database creation, secrets, admin account).
+
+**Depends on:** the Go coordinator and the release build pipeline. Step 1
+(embedded migrations, `AUTO_MIGRATE`) is implemented; steps 2–3 below are
+the remaining work.
+
+**Acceptance criteria:**
+
+- the binary embeds the migrations and applies pending ones on startup by
+  default (`AUTO_MIGRATE=false` opts out for managed databases); applying is
+  idempotent and safe under concurrent starts;
+- `coordinator setup` (interactive, then non-interactive with flags) checks
+  database reachability, offers to create the role/database when credentials
+  allow it, applies migrations, writes a `.env` with a generated `JWT_SECRET`
+  and storage path, and verifies readiness with `/health`;
+- `coordinator --version` and the setup output agree on the release build;
+- the wizard explains what it cannot do itself: running PostgreSQL and the
+  userservice, with concrete commands (docker compose, systemd) to finish;
+- the Docker image keeps working without the separate migrate step, and the
+  release workflow publishes the binaries that support `setup`;
+- setup fails closed on non-interactive input and never logs secrets.
+
+---
+
 ## 10. Suggested assignment bundles
 
 These bundles minimize overlap. Do not run tasks from the same bundle in
@@ -1135,6 +1164,13 @@ Do not start these before CTX-12 is accepted.
 - Add shard caching and content-addressed input deduplication.
 - Add job priority and fair scheduling.
 - Add a CLI for submitting and monitoring remote jobs.
+- Implement CTX-17 steps 2–3: the interactive `coordinator setup` wizard
+  (database creation, `.env` generation, admin seeding) and, later, a fully
+  embedded userservice (`coordinator userservice` subcommand) so one binary
+  can serve the whole platform without containers.
+- Replace PostgreSQL with an embedded SQLite backend for fully self-contained
+  single-binary deployments (large storage-layer change; postgres row locks,
+  transactions, and integration tests must be re-derived).
 
 ---
 
