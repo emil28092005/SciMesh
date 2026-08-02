@@ -46,17 +46,16 @@ local workers — is embedded in a single binary; no PostgreSQL, no Docker, no
 Python setup.
 
 ```bash
-# Linux / macOS
+# Linux / macOS — installs and opens the control room automatically
 curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash
-coordinator serve --open
 
 # Windows (PowerShell)
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.ps1 | iex"
-coordinator serve --open
 ```
 
-The first start prints the admin login (also stored under `~/.scimesh`), and
-`--open` opens the UI in the browser. `coordinator serve --workers 2`
+The installer starts the platform and opens the control room in your browser
+(set `SCIMESH_AUTO_START=0` to install only). The first start prints the admin
+login (also stored under `~/.scimesh`). `coordinator serve --workers 2`
 spawns two local workers; `SCIMESH_PIP_PACKAGE` points the managed venv at
 your scimesh wheel so scientific workloads can run.
 
@@ -98,7 +97,7 @@ chmod +x coordinator
 
   ```bash
   curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash -s worker
-  worker-agent setup            # opens http://127.0.0.1:12700 in your browser
+  # the installer opens the local wizard at http://127.0.0.1:12700 automatically
   ```
 
   The wizard collects the coordinator URL and token (or worker key), runs a

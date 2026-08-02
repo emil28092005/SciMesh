@@ -56,7 +56,7 @@ and starts the worker for you:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash -s worker
-worker-agent setup          # local wizard at http://127.0.0.1:12700
+# the installer opens the local wizard at http://127.0.0.1:12700 automatically
 ```
 
 Or configure by hand:

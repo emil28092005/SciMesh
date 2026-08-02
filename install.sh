@@ -16,6 +16,10 @@ REPO="emil28092005/SciMesh"
 COMPONENT="${1:-coordinator}"
 VERSION="${SCIMESH_VERSION:-latest}"
 INSTALL_DIR="${SCIMESH_INSTALL_DIR:-$HOME/.local/bin}"
+# Auto-start the component right after install and open its UI (the control
+# room for the coordinator, the local setup wizard for the worker). Set
+# SCIMESH_AUTO_START=0 to install only.
+AUTO_START="${SCIMESH_AUTO_START:-1}"
 
 case "$COMPONENT" in
   coordinator) BINARY="coordinator" ;;
@@ -71,15 +75,33 @@ if [ -n "$INSTALLED_VERSION" ] && [ "$INSTALLED_VERSION" != "${VERSION#v}" ]; th
 fi
 
 if [ "$COMPONENT" = "coordinator" ]; then
+  if [ "$AUTO_START" = "1" ]; then
+    echo
+    echo "Starting the platform and opening the control room in your browser..."
+    echo "(stop it with Ctrl-C; it keeps your data in ~/.scimesh)"
+    echo
+    exec "$TARGET" serve --open
+  fi
   echo
   echo "Start the platform (one command, everything embedded):"
   echo "  $TARGET serve --open"
   echo
   echo "Your data lives in ~/.scimesh. The admin login is printed on first start."
 else
+  if [ "$AUTO_START" = "1" ]; then
+    echo
+    echo "Starting the local setup wizard in your browser..."
+    echo "(stop it with Ctrl-C; it keeps the configuration in ~/.scimesh-worker)"
+    echo
+    exec "$TARGET" setup
+  fi
   echo
   echo "The worker needs Python 3 with the scimesh package, then a coordinator"
-  echo "to connect to. Run it with environment variables:"
+  echo "to connect to. Point the local wizard at it:"
+  echo
+  echo "  $TARGET setup"
+  echo
+  echo "Or run it with environment variables:"
   echo
   echo "  export COORDINATOR_URL=http://COORDINATOR_HOST:8080"
   echo "  export WORKER_AUTH_TOKEN=<worker token from the coordinator>"
