@@ -25,6 +25,7 @@ func newTestServer(t *testing.T, sup Supervisor) (*Server, string) {
 	t.Helper()
 	dir := t.TempDir()
 	server := New(testLogger(), Options{
+		Port:        0, // ephemeral: tests must never collide on the default 12700
 		ConfigPath:  filepath.Join(dir, "config.json"),
 		Dir:         dir,
 		Supervisor:  sup,

@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/agent"
@@ -51,10 +50,13 @@ type Supervisor interface {
 }
 
 // PIDSupervisor is the real Supervisor: it spawns the running binary with
-// --config and manages its pid file.
+// --config and manages its pid file. Liveness comes from a Wait goroutine, so
+// it works on every platform (no signal probing, which Windows lacks).
 type PIDSupervisor struct {
 	mu      sync.Mutex
 	pidPath string
+	proc    *os.Process
+	done    chan struct{} // closed when the spawned process exits; nil when not started
 }
 
 func NewPIDSupervisor(pidPath string) *PIDSupervisor { return &PIDSupervisor{pidPath: pidPath} }
@@ -78,24 +80,27 @@ func (s *PIDSupervisor) readPid() int {
 }
 
 func (s *PIDSupervisor) Alive() bool {
-	pid := s.Pid()
-	if pid == 0 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done == nil {
 		return false
 	}
-	// Signal 0 probes liveness without sending anything.
-	return syscall.Kill(pid, 0) == nil
-}
-
-func (s *PIDSupervisor) processAlive(pid int) bool {
-	return syscall.Kill(pid, 0) == nil
+	select {
+	case <-s.done:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *PIDSupervisor) Start(configPath, logPath string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if pid := s.readPid(); pid > 0 {
-		if s.processAlive(pid) {
-			return pid, fmt.Errorf("worker is already running (pid %d)", pid)
+	if s.done != nil {
+		select {
+		case <-s.done:
+		default:
+			return s.readPid(), fmt.Errorf("worker is already running (pid %d)", s.readPid())
 		}
 	}
 	exe, err := os.Executable()
@@ -117,6 +122,9 @@ func (s *PIDSupervisor) Start(configPath, logPath string) (int, error) {
 	// The child inherits our stdout/stderr descriptors pointing at the log
 	// file, so we can close our copy; the child keeps it open.
 	_ = logFile.Close()
+	s.proc = cmd.Process
+	s.done = make(chan struct{})
+	go func() { _ = cmd.Wait(); close(s.done) }()
 	if err := os.WriteFile(s.pidPath, []byte(strconv.Itoa(cmd.Process.Pid)+"\n"), 0o600); err != nil {
 		_ = cmd.Process.Kill()
 		return 0, fmt.Errorf("write pid file: %w", err)
@@ -127,27 +135,38 @@ func (s *PIDSupervisor) Start(configPath, logPath string) (int, error) {
 func (s *PIDSupervisor) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pid := s.readPid()
-	if pid == 0 {
+	if s.done == nil {
 		return nil
 	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
+	select {
+	case <-s.done:
+		s.done = nil
+		s.proc = nil
 		_ = os.Remove(s.pidPath)
 		return nil
+	default:
 	}
-	if err := proc.Signal(os.Interrupt); err != nil {
-		_ = os.Remove(s.pidPath)
-		return nil
-	}
-	// Give the agent a moment to exit cleanly, then reap.
+	// Ask politely, then force. os.Interrupt terminates on Windows too.
+	_ = s.proc.Signal(os.Interrupt)
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if !s.processAlive(pid) {
-			break
+		select {
+		case <-s.done:
+			s.done = nil
+			s.proc = nil
+			_ = os.Remove(s.pidPath)
+			return nil
+		default:
+			time.Sleep(100 * time.Millisecond)
 		}
-		time.Sleep(100 * time.Millisecond)
 	}
+	_ = s.proc.Kill()
+	select {
+	case <-s.done:
+	case <-time.After(2 * time.Second):
+	}
+	s.done = nil
+	s.proc = nil
 	_ = os.Remove(s.pidPath)
 	return nil
 }
