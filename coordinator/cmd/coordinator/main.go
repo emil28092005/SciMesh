@@ -46,6 +46,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "token":
+			if err := runToken(args[1:]); err != nil {
+				fmt.Fprintln(os.Stderr, "token:", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 	showVersion := flag.Bool("version", false, "print the build version and exit")
