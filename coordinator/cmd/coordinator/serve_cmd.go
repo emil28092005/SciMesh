@@ -31,13 +31,14 @@ func runServe(args []string) error {
 		flags.PrintDefaults()
 	}
 	var (
-		dataDir  = flags.String("data-dir", defaultDataDir(), "data directory (default: ~/.scimesh)")
-		addr     = flags.String("addr", "127.0.0.1:8080", "listen address")
-		workers  = flags.Int("workers", 1, "number of local worker agents to spawn")
-		open     = flags.Bool("open", false, "open the UI in the browser")
-		docsDir  = flags.String("docs-dir", "", "built MkDocs site directory to serve at /ui/docs/")
-		email    = flags.String("admin-email", "admin@scimesh.local", "admin account email")
-		password = flags.String("admin-password", "", "admin password (generated on first run when empty)")
+		dataDir   = flags.String("data-dir", defaultDataDir(), "data directory (default: ~/.scimesh)")
+		addr      = flags.String("addr", "127.0.0.1:8080", "listen address")
+		workers   = flags.Int("workers", 1, "number of local worker agents to spawn")
+		open      = flags.Bool("open", false, "open the UI in the browser")
+		docsDir   = flags.String("docs-dir", "", "built MkDocs site directory to serve at /ui/docs/")
+		email     = flags.String("admin-email", "admin@scimesh.local", "admin account email")
+		password  = flags.String("admin-password", "", "admin password (generated on first run when empty)")
+		publicURL = flags.String("public-url", "", "browser/worker-facing coordinator URL (default: http://<addr>)")
 	)
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -100,6 +101,10 @@ func runServe(args []string) error {
 	defer stopAgents(agents)
 
 	// 6. The coordinator server itself.
+	coordinatorPublicURL := *publicURL
+	if coordinatorPublicURL == "" {
+		coordinatorPublicURL = "http://" + *addr
+	}
 	cfg := infra.Config{
 		Addr:                 *addr,
 		DatabaseEngine:       "sqlite",
@@ -107,6 +112,7 @@ func runServe(args []string) error {
 		Token:                workerToken,
 		JWTSecret:            jwtSecret,
 		UserserviceURL:       "http://" + usersAddr,
+		PublicCoordinatorURL: coordinatorPublicURL,
 		PublicUserserviceURL: "http://" + usersAddr,
 		LogLevel:             "info",
 		StorageDir:           filepath.Join(*dataDir, "artifacts"),
