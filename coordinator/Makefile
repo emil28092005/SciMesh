@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke agent coordinator workloads-export demo-ui demo-down demo-reset demo-logs
+.PHONY: help build run test test-integration vet lint tidy check migrate-up migrate-down up down down-clean logs ps rebuild psql smoke agent coordinator setup workloads-export demo-ui demo-down demo-reset demo-logs
 
 # `check` deliberately uses its own Compose project and host ports. This keeps
 # it from connecting to or replacing a developer's local PostgreSQL instance.
@@ -51,6 +51,12 @@ coordinator:
 	  '  COORDINATOR_STORAGE_DIR, SCIMESH_DOCS_DIR, JWT_SECRET, USERSERVICE_URL' \
 	  '  (embedded schema migrations run on startup; AUTO_MIGRATE=false disables)'
 
+# Interactive wizard: checks the database, creates it when missing (via
+# POSTGRES_ADMIN_URL or --admin-db), applies the embedded schema, generates a
+# JWT_SECRET, and writes a .env file. Non-interactive: SETUP_ARGS=--yes.
+setup: coordinator
+	./bin/coordinator setup $(SETUP_ARGS)
+
 workloads-export:
 	cd .. && .venv/bin/scimesh workload export -o coordinator/$(WORKLOADS_JSON)
 
@@ -63,6 +69,7 @@ help:
 	  '  make demo-down               Stop the demo services and workers.' \
 	  '  make demo-reset              Stop the demo and wipe its data volumes.' \
 	  '  make workloads-export        Regenerate the embedded UI workload catalog.' \
+  '  make setup                   Interactive one-shot provisioning wizard.' \
 	  '  make test / make vet         Run Go verification.' \
 	  '' \
 	  'Demo UI: http://localhost:18080/ui (login page; admin root@scimesh.local / rootpassword).'

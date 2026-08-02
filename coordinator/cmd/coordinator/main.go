@@ -24,6 +24,13 @@ import (
 var version = "dev"
 
 func main() {
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "setup" {
+		if err := runSetup(args[1:]); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	showVersion := flag.Bool("version", false, "print the build version and exit")
 	flag.Parse()
 	if *showVersion {
