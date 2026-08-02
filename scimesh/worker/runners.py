@@ -61,7 +61,9 @@ def _definitions_from_environment() -> dict[str, WorkloadDefinition]:
     """Load definitions from ``SCIMESH_WORKLOAD_ALLOWLIST`` or the built-ins.
 
     The environment-driven discovery mirrors the former worker configuration;
-    the Go agent passes the allowlist through unchanged.
+    the Go agent passes the allowlist through unchanged. Without an allowlist
+    the worker serves every enabled built-in SDK workload of the installed
+    package — the same library the coordinator embeds as its catalog.
     """
     import os
 
@@ -82,10 +84,17 @@ def _definitions_from_environment() -> dict[str, WorkloadDefinition]:
         if not definitions:
             raise ValueError("workload_allowlist discovered no workloads")
         return definitions
-    from scimesh.workloads.search import similarity_search_sdk_definition
+    from scimesh.workloads.library import default_sdk_registry
 
+    registry = default_sdk_registry()
     return {
-        "similarity-search": similarity_search_sdk_definition().definition(),
+        description.workload.name: registry.require(
+            description.workload.name,
+            description.workload.version,
+            description.package_digest,
+        )[0]
+        for description in registry.descriptions()
+        if description.enabled
     }
 
 
