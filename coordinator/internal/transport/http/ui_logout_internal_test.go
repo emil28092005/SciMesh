@@ -17,15 +17,15 @@ func render(t *testing.T, name string, data any) string {
 	return buf.String()
 }
 
-func TestDashboardLogoutOnlyInSession(t *testing.T) {
-	withSession := render(t, "dashboard.html", usecase.DashboardView{Session: &usecase.SessionView{Role: "admin"}})
+func TestJobPageLogoutOnlyInSession(t *testing.T) {
+	withSession := render(t, "job.html", usecase.JobDetailView{Session: &usecase.SessionView{Role: "admin"}})
 	if !strings.Contains(withSession, "/ui/logout") || !strings.Contains(withSession, "Log out") {
-		t.Error("dashboard must show a logout control in session mode")
+		t.Error("job page must show a logout control in session mode")
 	}
 
-	noSession := render(t, "dashboard.html", usecase.DashboardView{})
+	noSession := render(t, "job.html", usecase.JobDetailView{})
 	if strings.Contains(noSession, "/ui/logout") {
-		t.Error("dashboard must not show logout under basic auth (no session)")
+		t.Error("job page must not show logout under basic auth (no session)")
 	}
 }
 

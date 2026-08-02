@@ -91,7 +91,7 @@ func (s *Server) handleUILogin(w http.ResponseWriter, r *http.Request) {
 	// value that escapes the UI prefix — that would be an open redirect.
 	next := strings.TrimSpace(r.FormValue("next"))
 	if next == "" || !strings.HasPrefix(next, "/ui/") {
-		next = "/ui"
+		next = "/ui/admin"
 	}
 	//nolint:gosec // G710: next is validated to start with /ui/ just above
 	http.Redirect(w, r, next, http.StatusSeeOther)

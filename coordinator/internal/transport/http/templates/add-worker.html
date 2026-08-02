@@ -11,7 +11,7 @@
 </head>
 <body data-coordinator="{{.CoordinatorURL}}" data-userservice="{{.UserserviceURL}}">
   <main class="page">
-    <a class="back" href="/ui">← Back to control room</a><p class="eyebrow">Contribute compute</p><h1>Turn this computer into a worker</h1><p class="lead">Create a key, install the worker, and run one command. The worker binds to your account and pulls tasks whenever it is online.</p>
+    <a class="back" href="/ui/admin">← Back to control room</a><p class="eyebrow">Contribute compute</p><h1>Turn this computer into a worker</h1><p class="lead">Create a key, install the worker, and run one command. The worker binds to your account and pulls tasks whenever it is online.</p>
     <div class="layout">
       <section class="card">
         <h2 style="margin:0 0 4px;color:#f1f6ff">Your worker keys</h2>
@@ -29,7 +29,7 @@
         <h2>Set it up</h2>
         <ol>
           <li><strong>Create a key</strong><br>Use the form; copy the command it generates.</li>
-          <li><strong>Paste it in a terminal</strong><br>The command installs the worker, points it at this coordinator, and starts it. The machine then appears under <a href="/ui">My machines</a>.</li>
+          <li><strong>Paste it in a terminal</strong><br>The command installs the worker, points it at this coordinator, and starts it. The machine then appears under <a href="/ui/admin">Workers</a>.</li>
         </ol>
         <h2 style="margin-top:24px">Single-binary mode?</h2>
         <p>If the coordinator runs as <code>coordinator serve</code>, skip the key:

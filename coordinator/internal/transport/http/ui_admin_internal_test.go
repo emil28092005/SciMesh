@@ -11,7 +11,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
-	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
 )
 
 func adminReq(t *testing.T, role string) *http.Request {
@@ -98,16 +97,5 @@ func TestAdminUserActionRejectsBadID(t *testing.T) {
 	s.handleUIAdminUserAction(rec, req)
 	if !strings.Contains(rec.Header().Get("Location"), "error=") {
 		t.Errorf("bad id redirect = %q, want an error", rec.Header().Get("Location"))
-	}
-}
-
-func TestDashboardAdminLinkOnlyForAdmin(t *testing.T) {
-	admin := render(t, "dashboard.html", usecase.DashboardView{Session: &usecase.SessionView{Role: "admin"}})
-	if !strings.Contains(admin, "/ui/admin") {
-		t.Error("admin must see the Admin link")
-	}
-	user := render(t, "dashboard.html", usecase.DashboardView{Session: &usecase.SessionView{Role: "user"}})
-	if strings.Contains(user, "/ui/admin") {
-		t.Error("a plain user must not see the Admin link")
 	}
 }

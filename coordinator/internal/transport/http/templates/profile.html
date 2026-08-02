@@ -12,7 +12,7 @@
   <main class="page">
     <header class="top">
       <div><p class="eyebrow">Account</p><h1>Your profile</h1></div>
-      <div style="display:flex;gap:10px;align-items:center"><a href="/ui">← Dashboard</a><form method="post" action="/ui/logout" style="margin:0"><button class="btn btn-muted" type="submit">Log out</button></form></div>
+      <div style="display:flex;gap:10px;align-items:center"><a href="/ui/admin">← Dashboard</a><form method="post" action="/ui/logout" style="margin:0"><button class="btn btn-muted" type="submit">Log out</button></form></div>
     </header>
 
     {{if .Error}}<div class="err">{{.Error}}</div>{{end}}

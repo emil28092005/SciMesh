@@ -24,40 +24,6 @@ func (r *UIReadRepo) GetJob(ctx context.Context, id uuid.UUID) (*domain.Job, err
 	return job, err
 }
 
-func (r *UIReadRepo) ListJobs(ctx context.Context, owner *uuid.UUID, limit int) ([]domain.Job, error) {
-	if limit < 1 || limit > 100 {
-		return nil, domain.ErrInvalidInput
-	}
-	q := psql.Select(jobColumns...).From("jobs")
-	if owner != nil {
-		q = q.Where(sq.Eq{"owner_id": *owner})
-	}
-	sql, args, err := q.OrderBy("created_at DESC", "id DESC").Limit(uint64(limit)).ToSql()
-	if err != nil {
-		return nil, err
-	}
-	rows, err := conn(ctx, r.pool).Query(ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list jobs: %w", err)
-	}
-	defer rows.Close()
-	jobs := make([]domain.Job, 0)
-	for rows.Next() {
-		var j domain.Job
-		var status string
-		if err := rows.Scan(
-			&j.ID, &j.Workload, &j.InputURI, &j.Parameters, &status, &j.CreatedAt, &j.CompletedAt,
-			&j.InputArtifactID, &j.ResultArtifactID, &j.ErrorCode, &j.ErrorMessage, &j.ReducerStartedAt,
-			&j.OwnerID,
-		); err != nil {
-			return nil, err
-		}
-		j.Status = domain.JobStatus(status)
-		jobs = append(jobs, j)
-	}
-	return jobs, rows.Err()
-}
-
 func (r *UIReadRepo) ListTasksByJob(ctx context.Context, jobID uuid.UUID) ([]domain.Task, error) {
 	sql, args, err := psql.Select(taskColumns...).From("tasks").Where(sq.Eq{"job_id": jobID}).OrderBy("chunk_index ASC").ToSql()
 	if err != nil {
@@ -79,68 +45,18 @@ func (r *UIReadRepo) ListTasksByJob(ctx context.Context, jobID uuid.UUID) ([]dom
 	return tasks, rows.Err()
 }
 
-func (r *UIReadRepo) ListTasksByJobs(ctx context.Context, jobIDs []uuid.UUID) (map[uuid.UUID][]domain.Task, error) {
-	out := make(map[uuid.UUID][]domain.Task, len(jobIDs))
-	if len(jobIDs) == 0 {
-		return out, nil
-	}
-	sql, args, err := psql.Select(taskColumns...).From("tasks").
-		Where(sq.Eq{"job_id": jobIDs}).OrderBy("job_id ASC", "chunk_index ASC").ToSql()
-	if err != nil {
-		return nil, err
-	}
-	rows, err := conn(ctx, r.pool).Query(ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list tasks by jobs: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		task, err := scanTask(rows)
-		if err != nil {
-			return nil, err
-		}
-		out[task.JobID] = append(out[task.JobID], *task)
-	}
-	return out, rows.Err()
-}
-
 func (r *UIReadRepo) ListWorkers(ctx context.Context, limit int) ([]domain.Worker, error) {
 	if limit < 1 || limit > 100 {
 		return nil, domain.ErrInvalidInput
 	}
-	sql, args, err := psql.Select(workerColumns...).From("workers").OrderBy("last_heartbeat_at DESC", "id DESC").Limit(uint64(limit)).ToSql()
-	if err != nil {
-		return nil, err
-	}
-	rows, err := conn(ctx, r.pool).Query(ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("list workers: %w", err)
-	}
-	defer rows.Close()
-	workers := make([]domain.Worker, 0)
-	for rows.Next() {
-		worker, err := scanWorker(rows)
-		if err != nil {
-			return nil, err
-		}
-		workers = append(workers, *worker)
-	}
-	return workers, rows.Err()
-}
-
-func (r *UIReadRepo) ListWorkersByOwner(ctx context.Context, owner uuid.UUID, limit int) ([]domain.Worker, error) {
-	if limit < 1 || limit > 100 {
-		return nil, domain.ErrInvalidInput
-	}
 	sql, args, err := psql.Select(workerColumns...).From("workers").
-		Where(sq.Eq{"owner_id": owner}).
 		OrderBy("last_heartbeat_at DESC", "id DESC").Limit(uint64(limit)).ToSql()
 	if err != nil {
 		return nil, err
 	}
 	rows, err := conn(ctx, r.pool).Query(ctx, sql, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list workers by owner: %w", err)
+		return nil, fmt.Errorf("list workers: %w", err)
 	}
 	defer rows.Close()
 	workers := make([]domain.Worker, 0)

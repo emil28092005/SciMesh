@@ -143,14 +143,14 @@ tbody tr:hover{background:var(--panel-2)}
   </nav>
   <div class="side-foot">
     <div class="user-chip"><div class="avatar">{{.Role}}</div><div><b>Signed in as {{.Role}}</b><span>cluster administrator</span></div></div>
-    <a class="back-link" href="/ui">← Back to control room</a>
+    <a class="back-link" href="/ui/jobs/new">＋ New computation</a>
   </div>
 </aside>
 
 <div class="main">
   <header class="topbar">
     <div><h1 id="page-title">System</h1><p id="page-sub">Cluster state and node information</p></div>
-    <div class="env-badge"><i></i><span id="env-label">admin console</span></div>
+    <div style="display:flex;gap:10px;align-items:center"><a class="btn btn-primary" href="/ui/jobs/new">＋ New computation</a><div class="env-badge"><i></i><span id="env-label">admin console</span></div></div>
   </header>
   <div class="content">
 
@@ -198,7 +198,7 @@ tbody tr:hover{background:var(--panel-2)}
     <div class="tabs" id="job-tabs"></div>
     <div class="card">
       <table>
-        <thead><tr><th>Job</th><th>Workload</th><th>Owner</th><th>Status</th><th>Progress</th><th>Submitted</th></tr></thead>
+        <thead><tr><th>Job</th><th>Workload</th><th>Owner</th><th>Status</th><th>Progress</th><th>Submitted</th><th></th></tr></thead>
         <tbody id="job-rows"></tbody>
       </table>
       <div class="footer-row"><span id="job-range">—</span><div class="pager"><button id="pg-prev" aria-label="previous">‹</button><button id="pg-next" aria-label="next">›</button></div></div>
@@ -380,7 +380,8 @@ async function loadJobs(){
       '<td style="color:var(--text-2)">'+esc(j.owner)+'</td>'+
       '<td>'+pill(statusLabel[j.status]||j.status,statusClass[j.status]||'pill-waiting',null)+'</td>'+
       '<td><div class="bar"><span style="width:'+pct+'%"></span></div><div class="bar-label">'+j.completed+' / '+j.total+' shards'+(j.failed?' · '+j.failed+' failed':'')+'</div></td>'+
-      '<td style="color:var(--text-2);font-size:12.5px">'+fmtTime(j.created_at)+'</td>';
+      '<td style="color:var(--text-2);font-size:12.5px">'+fmtTime(j.created_at)+'</td>'+
+      '<td><a class="btn btn-ghost btn-sm" href="/ui/jobs/'+encodeURIComponent(j.id)+'">Open</a></td>';
     rows.append(tr);
   }
   const from=(v.page-1)*v.per_page+1,to=Math.min(v.page*v.per_page,v.total);

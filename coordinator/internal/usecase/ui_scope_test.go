@@ -36,32 +36,6 @@ func userCtx(id uuid.UUID, role string) context.Context {
 	return authctx.With(context.Background(), authctx.Requester{UserID: id, Role: role})
 }
 
-func TestOverviewScopesJobsByOwner(t *testing.T) {
-	dash, jobs := newDashboard()
-	alice, bob := uuid.New(), uuid.New()
-	ownedJob(t, jobs, alice)
-	ownedJob(t, jobs, bob)
-
-	// A plain user sees only their own job.
-	v, err := dash.Overview(userCtx(alice, "user"), 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(v.Jobs) != 1 {
-		t.Errorf("alice sees %d jobs, want 1", len(v.Jobs))
-	}
-
-	// An admin sees every job.
-	if v, _ := dash.Overview(userCtx(uuid.New(), "admin"), 20); len(v.Jobs) != 2 {
-		t.Errorf("admin sees %d jobs, want 2", len(v.Jobs))
-	}
-
-	// No requester (basic-auth operator) sees every job — unchanged behaviour.
-	if v, _ := dash.Overview(context.Background(), 20); len(v.Jobs) != 2 {
-		t.Errorf("operator sees %d jobs, want 2", len(v.Jobs))
-	}
-}
-
 func TestJobDetailRejectsAnotherUsersJob(t *testing.T) {
 	dash, jobs := newDashboard()
 	alice, bob := uuid.New(), uuid.New()

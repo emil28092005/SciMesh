@@ -115,8 +115,8 @@ func TestHandleUILoginSetsCookieOnSuccess(t *testing.T) {
 	rec := httptest.NewRecorder()
 	s.handleUILogin(rec, postForm("/ui/login", url.Values{"email": {"a@b.com"}, "password": {"password123"}}))
 
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui" {
-		t.Fatalf("got %d -> %q, want 303 -> /ui", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/ui/admin" {
+		t.Fatalf("got %d -> %q, want 303 -> /ui/admin", rec.Code, rec.Header().Get("Location"))
 	}
 	cookies := rec.Result().Cookies()
 	if len(cookies) == 0 || cookies[0].Name != sessionCookie || cookies[0].Value != "issued.jwt.here" {
@@ -193,8 +193,8 @@ func TestHandleUILoginRedirectsToNext(t *testing.T) {
 	for _, next := range []string{"https://evil.example", "/", "//evil.example", "/api/jobs"} {
 		rec = httptest.NewRecorder()
 		s.handleUILogin(rec, postForm("/ui/login", url.Values{"email": {"a@b.com"}, "password": {"p"}, "next": {next}}))
-		if loc := rec.Header().Get("Location"); loc != "/ui" {
-			t.Errorf("next=%q landed on %q, want /ui (no open redirect)", next, loc)
+		if loc := rec.Header().Get("Location"); loc != "/ui/admin" {
+			t.Errorf("next=%q landed on %q, want /ui/admin (no open redirect)", next, loc)
 		}
 	}
 }

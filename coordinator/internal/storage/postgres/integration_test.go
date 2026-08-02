@@ -145,20 +145,20 @@ func TestUIReadRepoListsReducerFields(t *testing.T) {
 	if claimed, err := jobs.ClaimReduction(ctx, job.ID, time.Now().UTC()); err != nil || !claimed {
 		t.Fatalf("claim reduction = (%v, %v)", claimed, err)
 	}
-	listed, err := NewUIReadRepo(pool).ListJobs(ctx, nil, 20)
+	listed, _, err := NewAdminReadRepo(pool).ListJobsPaginated(ctx, "", 20, 0)
 	if err != nil {
-		t.Fatalf("list UI jobs: %v", err)
+		t.Fatalf("list admin jobs: %v", err)
 	}
 	for _, item := range listed {
 		if item.ID != job.ID {
 			continue
 		}
 		if item.Status != domain.JobReducing || item.ReducerStartedAt == nil {
-			t.Fatalf("UI reducer projection = %+v", item)
+			t.Fatalf("admin reducer projection = %+v", item)
 		}
 		return
 	}
-	t.Fatalf("seeded job %s is missing from UI list", job.ID)
+	t.Fatalf("seeded job %s is missing from the admin list", job.ID)
 }
 
 // A job must land whole or not at all: a half-created job leaves chunks no

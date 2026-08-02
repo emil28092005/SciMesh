@@ -147,7 +147,6 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 			{"GET /ui/docs", s.handleUIDocsIndex},
 			{"GET /ui/docs/{path...}", s.handleUIDocs},
 			{"GET /ui/jobs/{job_id}", s.handleUIJob},
-			{"GET /ui/api/overview", s.handleUIOverviewJSON},
 			{"GET /ui/api/jobs/{job_id}", s.handleUIJobJSON},
 			{"POST /ui/api/jobs/{job_id}/cancel", s.handleCancelJob},
 			{"POST /ui/api/jobs/upload", s.handleUploadDataset},

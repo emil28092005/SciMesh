@@ -145,42 +145,17 @@ func TestUIRequiresDistinctCredentialAndRendersDashboard(t *testing.T) {
 
 	req = request()
 	req.SetBasicAuth("operator", uiToken)
-	resp, err = http.DefaultClient.Do(req)
+	// Do not follow the redirect: we assert it, not its target.
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err = client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("UI status: %d", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "SciMesh control room") {
-		t.Errorf("dashboard body missing title")
-	}
-}
-
-func TestUIOverviewReturnsLiveSafeProjection(t *testing.T) {
-	e := newEnv(t, healthy)
-	code, _ := e.do(t, "POST", "/jobs", `{"workload":"w","input_uri":"s3://in","chunks":[{"chunk_index":0,"input_uri":"s3://c","input_sha256":"sha"}]}`)
-	if code != http.StatusCreated {
-		t.Fatalf("create job: %d", code)
-	}
-	req, _ := http.NewRequestWithContext(context.Background(), "GET", e.ts.URL+"/ui/api/overview", nil)
-	req.SetBasicAuth("operator", uiToken)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var overview map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&overview); err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != http.StatusOK || overview["active_jobs"].(float64) != 1 || overview["online_workers"].(float64) != 1 {
-		t.Fatalf("overview = (%d, %v)", resp.StatusCode, overview)
-	}
-	if _, leaked := overview["worker_auth_token"]; leaked {
-		t.Fatal("overview must not expose authentication configuration")
+	// In basic-auth mode (no userservice) /ui lands on the job form: the admin
+	// console exists only in session mode.
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/ui/jobs/new" {
+		t.Fatalf("UI status: %d -> %s, want 303 -> /ui/jobs/new", resp.StatusCode, resp.Header.Get("Location"))
 	}
 }
 

@@ -60,7 +60,8 @@ curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.s
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.ps1 | iex"
 ```
 
-Set `SCIMESH_AUTO_START=0` to install without starting anything. A standalone
+Set `SCIMESH_AUTO_START=0` to install without starting anything. The old demo
+control room was removed: `/ui` is the admin console. A standalone
 worker is installed the same way (`bash -s worker`, or
 `SCIMESH_COMPONENT=worker` on Windows); its installer opens the local setup
 wizard (`worker-agent setup`) in the browser automatically.
@@ -73,12 +74,12 @@ PostgreSQL, no Docker, no environment variables. The scientific runtime is a
 managed venv (`~/.scimesh/venv`); point `SCIMESH_PIP_PACKAGE` at your scimesh
 wheel to install it automatically.
 
-The coordinator serves two operator surfaces: the **control room** (jobs,
-workloads, docs) and the **admin console** at `/ui/admin` — cluster health
+The coordinator's UI is the **admin console** at `/ui/admin` — cluster health
 and storage, paginated job table, worker fleet with trust controls, users and
-worker keys, workload enable/disable, metrics and the worker token
-(`serve --open` lands on the admin console; login returns you to the page you
-asked for). The **worker** binary (`worker-agent`) carries its own local setup
+worker keys, workload enable/disable, metrics and the worker token. The job
+form (`/ui/jobs/new`), job detail pages and the workload library complete the
+operator surface; `/ui` redirects to the console, `serve --open` lands on it,
+and login returns you to the page you asked for. The **worker** binary (`worker-agent`) carries its own local setup
 wizard for machines that run only a worker: `worker-agent setup` opens a
 browser wizard at `127.0.0.1` that collects the coordinator URL and
 credential, runs a preflight check, saves `~/.scimesh-worker/config.json` and

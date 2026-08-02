@@ -217,29 +217,17 @@ func (s *Server) renderUI(w http.ResponseWriter, name string, data any) {
 	}
 }
 
+// handleUIHome lands the operator on the real UI. In session mode that is the
+// admin console; under basic auth (no userservice, no roles) it is the job
+// form, since the console does not exist there. The old demo control room is
+// gone; /ui is a plain redirect so stale bookmarks still arrive somewhere
+// useful.
 func (s *Server) handleUIHome(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.reqCtx(r)
-	defer cancel()
-	view, err := s.uc.Dashboard.Overview(ctx, 20)
-	if err != nil {
-		s.writeError(w, r, err)
-		return
+	target := "/ui/jobs/new"
+	if s.uiSessionMode() {
+		target = "/ui/admin"
 	}
-	s.renderUI(w, "dashboard.html", view)
-}
-
-// handleUIOverviewJSON is the bounded polling projection used by the operator
-// dashboard. It intentionally returns only the safe UI read model, never
-// worker tokens, storage keys, or database entities.
-func (s *Server) handleUIOverviewJSON(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := s.reqCtx(r)
-	defer cancel()
-	view, err := s.uc.Dashboard.Overview(ctx, 20)
-	if err != nil {
-		s.writeError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, view)
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (s *Server) handleUINewJob(w http.ResponseWriter, r *http.Request) {

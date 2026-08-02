@@ -31,12 +31,12 @@ The two halves of the project:
 - **A distributed worker** that executes the same SDK workload handlers on
   tasks claimed from the coordinator, with digest-pinned `TaskSpec`s,
   resource reservation, and allowlist-driven workload discovery.
-- **An operator UI** served by the coordinator: the control room, a workload
-  library page, a workload-agnostic "new computation" form whose controls come
-  from each workload's own `UIElement` declarations, an **admin console**
+- **An operator UI** served by the coordinator: the **admin console**
   (`/ui/admin`) for cluster operators — system/storage/health, jobs,
   worker trust, users and worker keys, workload enable/disable, metrics and
-  the worker token — and this documentation site at `/ui/docs/`.
+  the worker token — plus a workload-agnostic "new computation" form whose
+  controls come from each workload's own `UIElement` declarations, job detail
+  pages, a workload library page, and this documentation site at `/ui/docs/`.
 
 ## Quick start
 
@@ -46,14 +46,14 @@ local workers — is embedded in a single binary; no PostgreSQL, no Docker, no
 Python setup.
 
 ```bash
-# Linux / macOS — installs and opens the control room automatically
+# Linux / macOS — installs and opens the admin console automatically
 curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.sh | bash
 
 # Windows (PowerShell)
 powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.ps1 | iex"
 ```
 
-The installer starts the platform and opens the control room in your browser
+The installer starts the platform and opens the admin console in your browser
 (set `SCIMESH_AUTO_START=0` to install only). The first start prints the admin
 login (also stored under `~/.scimesh`). `coordinator serve --workers 2`
 spawns two local workers; `SCIMESH_PIP_PACKAGE` points the managed venv at

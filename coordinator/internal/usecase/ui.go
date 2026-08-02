@@ -18,15 +18,8 @@ import (
 // It intentionally exposes no storage paths or credentials.
 type UIReadRepository interface {
 	GetJob(ctx context.Context, jobID uuid.UUID) (*domain.Job, error)
-	// ListJobs returns the most recent jobs. A non-nil owner restricts the list
-	// to that user's jobs; nil returns all (operator/admin view).
-	ListJobs(ctx context.Context, owner *uuid.UUID, limit int) ([]domain.Job, error)
 	ListTasksByJob(ctx context.Context, jobID uuid.UUID) ([]domain.Task, error)
-	ListTasksByJobs(ctx context.Context, jobIDs []uuid.UUID) (map[uuid.UUID][]domain.Task, error)
 	ListWorkers(ctx context.Context, limit int) ([]domain.Worker, error)
-	// ListWorkersByOwner returns the most recent workers registered by one user,
-	// for the "my machines" section of the dashboard.
-	ListWorkersByOwner(ctx context.Context, owner uuid.UUID, limit int) ([]domain.Worker, error)
 	ListArtifactsByJob(ctx context.Context, jobID uuid.UUID) ([]domain.Artifact, error)
 }
 
@@ -88,18 +81,13 @@ type WorkerCard struct {
 	LastHeartbeatAt time.Time `json:"last_heartbeat_at"`
 }
 
-type DashboardView struct {
-	Jobs    []JobCard    `json:"jobs"`
-	Workers []WorkerCard `json:"workers"`
-	// MyWorkers is the signed-in user's own registered workers. Empty for an
-	// admin or a basic-auth operator, who instead see the whole fleet in Workers.
-	MyWorkers     []WorkerCard `json:"my_workers"`
-	ActiveJobs    int          `json:"active_jobs"`
-	FinishedJobs  int          `json:"finished_jobs"`
-	OnlineWorkers int          `json:"online_workers"`
-	// Session is the signed-in user, when the UI runs in session mode. nil under
-	// basic auth. Template-only, never serialised to the polling JSON.
-	Session *SessionView `json:"-"`
+type JobDetailView struct {
+	JobCard
+	Tasks                []TaskCard      `json:"tasks"`
+	Artifacts            []ArtifactCard  `json:"artifacts"`
+	Parameters           []ParameterCard `json:"parameters"`
+	FinalResultAvailable bool            `json:"final_result_available"`
+	Session              *SessionView    `json:"-"`
 }
 
 // SessionView is the minimal identity the UI header needs to show who is signed
@@ -119,15 +107,6 @@ func sessionViewFrom(ctx context.Context) *SessionView {
 	return &SessionView{Role: r.Role, Verified: r.Verified}
 }
 
-type JobDetailView struct {
-	JobCard
-	Tasks                []TaskCard      `json:"tasks"`
-	Artifacts            []ArtifactCard  `json:"artifacts"`
-	Parameters           []ParameterCard `json:"parameters"`
-	FinalResultAvailable bool            `json:"final_result_available"`
-	Session              *SessionView    `json:"-"`
-}
-
 type Dashboard struct {
 	read    UIReadRepository
 	catalog *workloads.Catalog
@@ -135,66 +114,6 @@ type Dashboard struct {
 
 func NewDashboard(read UIReadRepository, catalog *workloads.Catalog) *Dashboard {
 	return &Dashboard{read: read, catalog: catalog}
-}
-
-func (d *Dashboard) Overview(ctx context.Context, limit int) (DashboardView, error) {
-	jobs, err := d.read.ListJobs(ctx, uiOwnerFilter(ctx), limit)
-	if err != nil {
-		return DashboardView{}, err
-	}
-	workers, err := d.read.ListWorkers(ctx, limit)
-	if err != nil {
-		return DashboardView{}, err
-	}
-	out := DashboardView{Jobs: make([]JobCard, 0, len(jobs)), Workers: make([]WorkerCard, 0, len(workers))}
-	jobIDs := make([]uuid.UUID, 0, len(jobs))
-	for _, job := range jobs {
-		jobIDs = append(jobIDs, job.ID)
-	}
-	tasksByJob, err := d.read.ListTasksByJobs(ctx, jobIDs)
-	if err != nil {
-		return DashboardView{}, err
-	}
-	for _, job := range jobs {
-		card := jobCard(job, tasksByJob[job.ID])
-		out.Jobs = append(out.Jobs, card)
-		switch card.Status {
-		case string(domain.JobCompleted), string(domain.JobFailed), string(domain.JobCancelled):
-			out.FinishedJobs++
-		default:
-			out.ActiveJobs++
-		}
-	}
-	for _, worker := range workers {
-		out.Workers = append(out.Workers, workerCard(worker))
-		if worker.Status == domain.WorkerOnline || worker.Status == domain.WorkerBusy {
-			out.OnlineWorkers++
-		}
-	}
-	// A plain user also gets a dedicated "my machines" list scoped to their own
-	// registrations; an admin/operator sees only the fleet above.
-	if owner := uiOwnerFilter(ctx); owner != nil {
-		mine, err := d.read.ListWorkersByOwner(ctx, *owner, limit)
-		if err != nil {
-			return DashboardView{}, err
-		}
-		out.MyWorkers = make([]WorkerCard, 0, len(mine))
-		for _, worker := range mine {
-			out.MyWorkers = append(out.MyWorkers, workerCard(worker))
-		}
-	}
-	out.Session = sessionViewFrom(ctx)
-	return out, nil
-}
-
-func workerCard(w domain.Worker) WorkerCard {
-	return WorkerCard{
-		ID:              w.ID.String(),
-		Name:            w.Name,
-		Status:          string(w.Status),
-		Capabilities:    w.Capabilities,
-		LastHeartbeatAt: w.LastHeartbeatAt,
-	}
 }
 
 func (d *Dashboard) JobDetail(ctx context.Context, jobID uuid.UUID) (JobDetailView, error) {
