@@ -48,6 +48,12 @@ type Client struct {
 }
 
 func NewClient(baseURL string, tokens TokenProvider, timeout time.Duration) *Client {
+	// Payload transfers get a more generous budget than control calls: a large
+	// shard over a slow link easily outlives the API timeout.
+	transferTimeout := timeout * 4
+	if transferTimeout < 2*time.Minute {
+		transferTimeout = 2 * time.Minute
+	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		tokens:  tokens,
@@ -57,7 +63,7 @@ func NewClient(baseURL string, tokens TokenProvider, timeout time.Duration) *Cli
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		dlClient: &http.Client{
-			Timeout: timeout,
+			Timeout: transferTimeout,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {
 					return fmt.Errorf("too many redirects")

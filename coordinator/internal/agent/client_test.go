@@ -223,3 +223,17 @@ func sha256Of(t *testing.T, value string) string {
 	digest := sha256.Sum256([]byte(value))
 	return fmt.Sprintf("%x", digest)
 }
+
+func TestNewClientTransferTimeoutExceedsAPITimeout(t *testing.T) {
+	c := NewClient("http://coord:8080", &StaticToken{token: "t"}, 30*time.Second)
+	if c.apiClient.Timeout != 30*time.Second {
+		t.Errorf("api timeout = %v, want 30s", c.apiClient.Timeout)
+	}
+	if c.dlClient.Timeout < 2*time.Minute {
+		t.Errorf("transfer timeout = %v, want at least 2m", c.dlClient.Timeout)
+	}
+	short := NewClient("http://coord:8080", &StaticToken{token: "t"}, 3*time.Minute)
+	if short.dlClient.Timeout != 12*time.Minute {
+		t.Errorf("transfer timeout = %v, want 4x the api timeout", short.dlClient.Timeout)
+	}
+}

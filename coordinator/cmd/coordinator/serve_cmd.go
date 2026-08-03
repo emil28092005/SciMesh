@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,18 +97,16 @@ func runServe(args []string) error {
 	defer func() { _ = closeUsers() }()
 
 	// 5. Local worker agents before the server, so they can claim immediately.
-	coordinatorURL := "http://" + *addr
-	agents, err := spawnAgents(ctx, log, *dataDir, *workers, coordinatorURL, workerToken, venvPython)
+	// They always dial the loopback address: an --addr of 0.0.0.0 is not a
+	// connectable target from the same host.
+	agentURL, resolvedPublic := serveURLs(*addr, *publicURL)
+	agents, err := spawnAgents(ctx, log, *dataDir, *workers, agentURL, workerToken, venvPython)
 	if err != nil {
 		return err
 	}
 	defer stopAgents(agents)
 
 	// 6. The coordinator server itself.
-	coordinatorPublicURL := *publicURL
-	if coordinatorPublicURL == "" {
-		coordinatorPublicURL = "http://" + *addr
-	}
 	cfg := infra.Config{
 		Addr:                 *addr,
 		DatabaseEngine:       "sqlite",
@@ -115,8 +114,10 @@ func runServe(args []string) error {
 		Token:                workerToken,
 		JWTSecret:            jwtSecret,
 		UserserviceURL:       "http://" + usersAddr,
-		PublicCoordinatorURL: coordinatorPublicURL,
-		PublicUserserviceURL: "http://" + usersAddr,
+		PublicCoordinatorURL: resolvedPublic,
+		// The exchange is fronted by the coordinator's own proxy, so the UI
+		// falls back to the coordinator origin for USERSERVICE_URL.
+		PublicUserserviceURL: "",
 		LogLevel:             "info",
 		StorageDir:           filepath.Join(*dataDir, "artifacts"),
 		DocsDir:              *docsDir,
@@ -132,12 +133,13 @@ func runServe(args []string) error {
 		WorkerOfflineAfter:   1 * time.Minute,
 		AutoMigrate:          true,
 	}
+	browserURL, _ := serveURLs(*addr, *publicURL)
 	if *open {
-		openBrowser("http://" + *addr + "/ui/admin")
+		openBrowser(browserURL + "/ui/admin")
 	}
 
 	// Print the login once the server is about to start.
-	fmt.Printf("\nSciMesh is starting at http://%s/ui\n", *addr)
+	fmt.Printf("\nSciMesh is starting at %s/ui\n", browserURL)
 	fmt.Printf("  admin login: %s / %s\n", *email, *password)
 	if runtimeStatus(venvPython) {
 		fmt.Printf("  scientific runtime: ready (%s)\n", venvPython)
@@ -336,4 +338,41 @@ func openBrowser(target string) {
 	}
 	// #nosec G204 -- target is the local UI URL the operator asked to open.
 	_ = exec.CommandContext(context.Background(), command, target).Start()
+}
+
+// serveURLs derives the two addresses of a serve instance from the listen
+// address and the optional --public-url flag:
+//
+//   - the agent URL is always the loopback form of the port, because spawned
+//     local workers share the host and 0.0.0.0 is not connectable from it;
+//   - the public URL is what browsers and remote workers are told. An explicit
+//     --public-url wins; a listen host that is a real address is used as-is;
+//     a wildcard host (0.0.0.0, ::, or empty) yields an empty public URL, so
+//     the UI falls back to the browser's own origin (the coordinator's LAN
+//     address as the browser sees it).
+func serveURLs(addr, publicURL string) (agentURL, resolvedPublic string) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		// No port in the listen address: assume the default and treat the
+		// whole string as a host (e.g. a bare wildcard).
+		host, port = addr, "8080"
+	}
+	agentURL = "http://127.0.0.1:" + port
+	if publicURL != "" {
+		return agentURL, publicURL
+	}
+	host = strings.Trim(host, "[]")
+	switch host {
+	case "", "0.0.0.0", "::":
+		return agentURL, ""
+	default:
+		return agentURL, "http://" + addr
+	}
+}
+
+// browserHost normalises the URL used to open the UI in the browser: the
+// loopback address is what the browser on the same host must dial, and a
+// wildcard host cannot be dialled at all.
+func browserHost(agentURL string) string {
+	return agentURL
 }
