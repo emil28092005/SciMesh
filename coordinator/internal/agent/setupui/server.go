@@ -377,6 +377,7 @@ type saveConfigRequest struct {
 	WorkerName     string   `json:"worker_name"`
 	CPUCount       int      `json:"cpu_count"`
 	MemoryMB       int      `json:"memory_mb"`
+	Concurrency    int      `json:"concurrency"`
 	TaskRunner     []string `json:"task_runner"`
 }
 
@@ -395,6 +396,7 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		WorkerName:     strings.TrimSpace(req.WorkerName),
 		CPUCount:       req.CPUCount,
 		MemoryMB:       req.MemoryMB,
+		Concurrency:    req.Concurrency,
 		TaskRunner:     req.TaskRunner,
 	}
 	if file.CoordinatorURL == "" {
@@ -417,6 +419,9 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if file.CPUCount < 1 {
 		file.CPUCount = 1
+	}
+	if file.Concurrency < 1 {
+		file.Concurrency = 1
 	}
 	// The wizard UI bakes the venv python into the runner after an install;
 	// an API-driven or scripted flow may not, so the server guarantees it:

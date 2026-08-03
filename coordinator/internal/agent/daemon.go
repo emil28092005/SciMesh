@@ -37,15 +37,52 @@ func NewDaemon(config *Config, client *Client, runner *TaskRunner, log *slog.Log
 	return &Daemon{config: config, client: client, runner: runner, log: log}
 }
 
-// RunForever loops until interrupted, idle-exit, or max tasks.
+// RunForever registers once, then runs the claim→execute→upload loop
+// concurrently under one worker id. With Concurrency > 1, several shards are
+// processed in parallel on this machine, using the coordinator's own task
+// pipeline as the parallel unit.
 func (d *Daemon) RunForever() error {
+	if !d.registered {
+		if err := d.register(); err != nil {
+			return err
+		}
+	}
+	workers := d.config.Concurrency
+	if workers < 1 {
+		workers = 1
+	}
+	if workers == 1 {
+		return d.loop()
+	}
+	d.log.Info("agent running concurrently", "loops", workers)
+	var wg sync.WaitGroup
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(loop int) {
+			defer wg.Done()
+			if err := d.loop(); err != nil {
+				errs <- err
+				return
+			}
+			errs <- nil
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// loop is one claim→execute→upload cycle until interrupted, idle-exit, or
+// the shared max-tasks budget is consumed.
+func (d *Daemon) loop() error {
 	failures := 0
 	for {
-		if !d.registered {
-			if err := d.register(); err != nil {
-				return err
-			}
-		}
 		d.cleanupExpiredDirectories()
 		outcome, err := d.runOnce()
 		if err != nil {
@@ -63,8 +100,11 @@ func (d *Daemon) RunForever() error {
 		}
 		failures = 0
 		if outcome.Claimed && outcome.Completed {
+			d.mu.Lock()
 			d.completed++
-			if d.config.MaxTasks > 0 && d.completed >= d.config.MaxTasks {
+			done := d.config.MaxTasks > 0 && d.completed >= d.config.MaxTasks
+			d.mu.Unlock()
+			if done {
 				d.log.Info("max tasks reached")
 				return nil
 			}

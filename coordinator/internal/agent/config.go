@@ -32,6 +32,10 @@ type Config struct {
 	TaskRunner     []string // command + args; defaults to python -m scimesh.worker.task
 	MaxTasks       int      // 0 = unlimited
 	ExitWhenIdle   bool
+	// Concurrency is how many claim→execute→upload loops run in parallel
+	// under one worker id: N shards processed concurrently on one machine,
+	// using the coordinator's own task pipeline as the parallel unit.
+	Concurrency int
 }
 
 func envList(name string) ([]string, error) {
@@ -145,7 +149,20 @@ func LoadConfig() (*Config, error) {
 		TaskRunner:     runner,
 		MaxTasks:       maxTasks,
 		ExitWhenIdle:   os.Getenv("EXIT_WHEN_IDLE") == "1",
+		Concurrency:    envInt("WORKER_CONCURRENCY", 1),
 	}, nil
+}
+
+func envInt(name string, fallback int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 1 {
+		return fallback
+	}
+	return parsed
 }
 
 func durationEnv(name string, fallback time.Duration) (time.Duration, error) {

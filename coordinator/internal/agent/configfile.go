@@ -21,6 +21,7 @@ type ConfigFile struct {
 	WorkerName     string   `json:"worker_name,omitempty"`
 	CPUCount       int      `json:"cpu_count"`
 	MemoryMB       int      `json:"memory_mb"`
+	Concurrency    int      `json:"concurrency,omitempty"`
 	TaskRunner     []string `json:"task_runner,omitempty"`
 }
 
@@ -102,6 +103,10 @@ func (f *ConfigFile) Config() (*Config, error) {
 	config.MemoryMB = f.MemoryMB
 	if config.MemoryMB < 0 {
 		config.MemoryMB = 0
+	}
+	config.Concurrency = f.Concurrency
+	if config.Concurrency < 1 {
+		config.Concurrency = 1
 	}
 	if len(f.TaskRunner) > 0 {
 		config.TaskRunner = f.TaskRunner

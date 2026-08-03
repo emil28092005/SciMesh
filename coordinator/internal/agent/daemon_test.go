@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -55,6 +56,7 @@ type fakeCoordinator struct {
 	uploadSize int64
 	inputBytes []byte
 	conflict   bool // 409 on heartbeat/upload/result
+	mu         sync.Mutex
 }
 
 func newFakeCoordinator(t *testing.T, task map[string]any) *fakeCoordinator {
@@ -64,6 +66,8 @@ func newFakeCoordinator(t *testing.T, task map[string]any) *fakeCoordinator {
 	fake.uploadSize = int64(len(fake.inputBytes))
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/workers/register":
 			writeJSON(w, http.StatusCreated, map[string]any{
@@ -292,5 +296,80 @@ func TestDaemonIdleClaimIsNotCompleted(t *testing.T) {
 	}
 	if outcome.Claimed || outcome.Completed {
 		t.Fatalf("outcome = %+v", outcome)
+	}
+}
+
+func TestDaemonConcurrencyProcessesTasksInParallel(t *testing.T) {
+	t.Parallel()
+	marker := filepath.Join(t.TempDir(), "marker")
+	script := filepath.Join(t.TempDir(), "fake-runner.sh")
+	content := `#!/bin/sh
+out=""
+task_dir=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output) out="$2"; shift 2;;
+    --task-dir) task_dir="$2"; shift 2;;
+    *) shift;;
+  esac
+done
+echo start >> ` + marker + `
+sleep 1
+echo end >> ` + marker + `
+printf 'id,score\n1,1\n' > "$task_dir/result.csv"
+printf '{"artifact_path":"%s/result.csv","content_type":"text/csv","metrics":{"rows":1}}' "$task_dir" > "$out"
+exit 0
+`
+	if err := os.WriteFile(script, []byte(content), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeCoordinator(t, validClaimedTaskPayload())
+	defer fake.close()
+	config := &Config{
+		CoordinatorURL: fake.server.URL,
+		WorkerName:     "concurrent-worker",
+		WorkerID:       "22222222-2222-4222-8222-222222222222",
+		WorkDir:        t.TempDir(),
+		CPUCount:       1,
+		PollInterval:   time.Millisecond,
+		RequestTimeout: 5 * time.Second,
+		Heartbeat:      15 * time.Second,
+		Capabilities:   []string{"similarity-search"},
+		TaskRunner:     []string{script},
+		MaxTasks:       3,
+		Concurrency:    3,
+	}
+	client := NewClient(fake.server.URL, &StaticToken{token: "test-token"}, 5*time.Second)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	daemon := NewDaemon(config, client, NewTaskRunner(config.TaskRunner), logger)
+	if err := daemon.RunForever(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	raw, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatalf("marker: %v", err)
+	}
+	starts := strings.Count(string(raw), "start\n")
+	ends := strings.Count(string(raw), "end\n")
+	if starts < 3 || ends < 3 {
+		t.Fatalf("marker: %d starts / %d ends, want at least 3/3", starts, ends)
+	}
+	// With three loops sleeping 1s each, the marker proves all three ran
+	// concurrently (three starts before the first end completes a 1s sleep).
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	concurrent := 0
+	running := 0
+	for _, line := range lines {
+		if line == "start" {
+			running++
+			if running > concurrent {
+				concurrent = running
+			}
+		} else {
+			running--
+		}
+	}
+	if concurrent < 3 {
+		t.Errorf("max concurrent executions = %d, want 3", concurrent)
 	}
 }
