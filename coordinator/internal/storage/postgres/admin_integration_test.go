@@ -5,6 +5,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -13,7 +14,21 @@ import (
 	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 )
 
+// ensureMigrated applies the embedded schema first: the admin tests run
+// before the dedicated migration test (file order) and need real tables.
+func ensureMigrated(t *testing.T) {
+	t.Helper()
+	url := os.Getenv("TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	if err := Migrate(context.Background(), url, nil); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+}
+
 func TestAdminWorkerSetTrust(t *testing.T) {
+	ensureMigrated(t)
 	pool := testPool(t)
 	ctx := context.Background()
 	repo := NewWorkerRepo(pool)
@@ -43,6 +58,7 @@ func TestAdminWorkerSetTrust(t *testing.T) {
 }
 
 func TestAdminListJobsPaginatedAndCounts(t *testing.T) {
+	ensureMigrated(t)
 	pool := testPool(t)
 	ctx := context.Background()
 	jobRepo := NewJobRepo(pool)
@@ -98,6 +114,7 @@ func TestAdminListJobsPaginatedAndCounts(t *testing.T) {
 }
 
 func TestAdminTaskCountsByJobs(t *testing.T) {
+	ensureMigrated(t)
 	pool := testPool(t)
 	ctx := context.Background()
 	job, tasks := seedJob(t, pool, 3)
@@ -123,6 +140,7 @@ func TestAdminTaskCountsByJobs(t *testing.T) {
 }
 
 func TestAdminJobCountsByDayAndWorkload(t *testing.T) {
+	ensureMigrated(t)
 	pool := testPool(t)
 	ctx := context.Background()
 	repo := NewAdminReadRepo(pool)
@@ -155,6 +173,7 @@ func TestAdminJobCountsByDayAndWorkload(t *testing.T) {
 }
 
 func TestAdminTaskStatsAndStorage(t *testing.T) {
+	ensureMigrated(t)
 	pool := testPool(t)
 	ctx := context.Background()
 	repo := NewAdminReadRepo(pool)
@@ -204,6 +223,7 @@ func TestAdminTaskStatsAndStorage(t *testing.T) {
 }
 
 func TestWorkloadSettingsRepoRoundTrip(t *testing.T) {
+	ensureMigrated(t)
 	pool := testPool(t)
 	ctx := context.Background()
 	repo := NewWorkloadSettingsRepo(pool)
