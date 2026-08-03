@@ -498,14 +498,6 @@ time=6 level=WARN msg="agent cycle failed" error="boom"
 	}
 }
 
-func writeVenvStub(t *testing.T, server *Server, version string) string {
-	t.Helper()
-	venvPython := filepath.Join(server.dir, "venv", "bin", "python")
-	_ = os.MkdirAll(filepath.Dir(venvPython), 0o755)
-	_ = os.WriteFile(venvPython, []byte("#!/bin/sh\nif [ \"$1\" = \"-c\" ]; then echo "+version+"; exit 0; fi\nexit 0\n"), 0o755)
-	return venvPython
-}
-
 func testCheckScimeshVersion(t *testing.T, installed, binary string, wantOK bool, wantDetail string) {
 	t.Helper()
 	old := agent.Version
