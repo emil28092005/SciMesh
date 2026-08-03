@@ -108,6 +108,10 @@ func (s *Server) handleUILogin(w http.ResponseWriter, r *http.Request) {
 // user to the login page. The new account is a plain user until an admin
 // promotes or verifies it.
 func (s *Server) handleUIRegister(w http.ResponseWriter, r *http.Request) {
+	if s.disableRegistration {
+		http.Redirect(w, r, "/ui/register?error=registration+disabled", http.StatusSeeOther)
+		return
+	}
 	email, password := r.FormValue("email"), r.FormValue("password")
 
 	status, _, err := s.callUserservice(r.Context(), "/register", email, password)

@@ -479,3 +479,12 @@ func TestAdminListsUsersAndKeys(t *testing.T) {
 		t.Errorf("admin revoke unknown key: got %d, want 404", rec.Code)
 	}
 }
+
+func TestRegistrationDisabledEnv(t *testing.T) {
+	t.Setenv("USERSERVICE_DISABLE_REGISTRATION", "1")
+	h := newTestServer()
+	rec := do(t, h, http.MethodPost, "/register", "", map[string]string{"email": "blocked@x.io", "password": "pw"})
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("register when disabled: got %d, want 403", rec.Code)
+	}
+}

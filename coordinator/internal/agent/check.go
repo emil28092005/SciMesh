@@ -42,7 +42,7 @@ func checkHTTP(ctx context.Context, url string, timeout time.Duration) (CheckIte
 	if err != nil {
 		return CheckItem{Name: "coordinator", OK: false, Detail: "invalid URL"}, ""
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Timeout: timeout, Transport: tlsTransport(nil)}).Do(req)
 	if err != nil {
 		detail := err.Error()
 		if strings.Contains(detail, "connection refused") {
@@ -148,7 +148,7 @@ func CheckAuth(ctx context.Context, url, token, workerKey, userserviceURL string
 		item.Detail = "no credential configured — will be checked at registration"
 		return item
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second, Transport: tlsTransport(nil)}
 	if workerKey != "" && userserviceURL != "" {
 		payload, _ := json.Marshal(map[string]string{"key": workerKey})
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(userserviceURL, "/")+"/worker-tokens/exchange", strings.NewReader(string(payload)))

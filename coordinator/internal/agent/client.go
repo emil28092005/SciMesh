@@ -60,10 +60,12 @@ func NewClient(baseURL string, tokens TokenProvider, timeout time.Duration) *Cli
 		timeout: timeout,
 		apiClient: &http.Client{
 			Timeout:       timeout,
+			Transport:     tlsTransport(nil),
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 		dlClient: &http.Client{
-			Timeout: transferTimeout,
+			Timeout:   transferTimeout,
+			Transport: tlsTransport(nil),
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				if len(via) >= 10 {
 					return fmt.Errorf("too many redirects")

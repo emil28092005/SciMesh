@@ -6,10 +6,16 @@ import (
 	"github.com/emil28092005/SciMesh/coordinator/internal/agent"
 
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net"
 	"os"
 	"os/exec"
@@ -43,6 +49,10 @@ func runServe(args []string) error {
 		email     = flags.String("admin-email", "admin@scimesh.local", "admin account email")
 		password  = flags.String("admin-password", "", "admin password (generated on first run when empty)")
 		publicURL = flags.String("public-url", "", "browser/worker-facing coordinator URL (default: http://<addr>)")
+		tlsCert   = flags.String("tls-cert", "", "TLS certificate file (enables HTTPS together with --tls-key)")
+		tlsKey    = flags.String("tls-key", "", "TLS private key file")
+		tlsGen    = flags.Bool("tls-autogen", false, "generate a self-signed certificate in the data dir and serve HTTPS")
+		noReg     = flags.Bool("disable-registration", false, "forbid new UI accounts")
 	)
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -107,10 +117,33 @@ func runServe(args []string) error {
 	defer stopAgents(agents)
 
 	// 6. The coordinator server itself.
+	// TLS: explicit cert/key win; --tls-autogen creates a self-signed pair in
+	// the data dir on first use (fingerprint printed for pinning).
+	tlsCertFile, tlsKeyFile := *tlsCert, *tlsKey
+	if tlsCertFile == "" && tlsKeyFile == "" && *tlsGen {
+		tlsCertFile = filepath.Join(*dataDir, "tls.crt")
+		tlsKeyFile = filepath.Join(*dataDir, "tls.key")
+		if _, err := os.Stat(tlsCertFile); err != nil {
+			fingerprint, err := generateSelfSigned(tlsCertFile, tlsKeyFile, *dataDir, *addr)
+			if err != nil {
+				return fmt.Errorf("generate TLS certificate: %w", err)
+			}
+			log.Info("generated a self-signed TLS certificate", "cert", tlsCertFile, "fingerprint", fingerprint)
+			fmt.Printf("TLS: self-signed certificate generated (SHA-256 fingerprint %s).\n", fingerprint)
+			fmt.Printf("Trust it on workers with SCIMESH_CA_CERT=%s (or SCIMESH_INSECURE_SKIP_VERIFY=1).\n", tlsCertFile)
+		}
+	}
+	if (tlsCertFile == "") != (tlsKeyFile == "") {
+		return fmt.Errorf("--tls-cert and --tls-key must be provided together")
+	}
+
 	cfg := infra.Config{
 		Addr:                 *addr,
 		DatabaseEngine:       "sqlite",
 		DBPath:               filepath.Join(*dataDir, "scimesh.db"),
+		TLSCertFile:          tlsCertFile,
+		TLSKeyFile:           tlsKeyFile,
+		DisableRegistration:  *noReg || os.Getenv("SCIMESH_DISABLE_REGISTRATION") == "1",
 		Token:                workerToken,
 		JWTSecret:            jwtSecret,
 		UserserviceURL:       "http://" + usersAddr,
@@ -368,4 +401,73 @@ func serveURLs(addr, publicURL string) (agentURL, resolvedPublic string) {
 	default:
 		return agentURL, "http://" + addr
 	}
+}
+
+// generateSelfSigned writes a self-signed certificate for the listen host and
+// the machine's LAN addresses, so HTTPS works without a CA on a trusted
+// network. The returned value is the certificate's SHA-256 fingerprint.
+func generateSelfSigned(certPath, keyPath, dataDir, addr string) (string, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	host = strings.Trim(host, "[]")
+	ips := []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}
+	if parsed := net.ParseIP(host); parsed != nil && !parsed.IsUnspecified() {
+		ips = append(ips, parsed)
+	} else if host == "" || parsed != nil {
+		// Wildcard listen addresses: add every local interface address.
+		if addrs, err := net.InterfaceAddrs(); err == nil {
+			for _, a := range addrs {
+				if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+					ips = append(ips, ipnet.IP)
+				}
+			}
+		}
+	}
+	names := []string{"localhost", host}
+	if host != "" && host != "localhost" {
+		names = append(names, host)
+	}
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", err
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return "", err
+	}
+	template := x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "SciMesh coordinator"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().AddDate(1, 0, 0),
+		KeyUsage:     x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:     names,
+		IPAddresses:  ips,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dataDir, 0o750); err != nil {
+		return "", err
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	// The certificate is shared with workers via SCIMESH_CA_CERT, so it must
+	// stay readable; the key stays private.
+	if err := os.WriteFile(certPath, certPEM, 0o644); err != nil { //nolint:gosec // G306: cert is public by design
+		return "", err
+	}
+	if err := os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(der)
+	var parts []string
+	for _, b := range sum[:] {
+		parts = append(parts, fmt.Sprintf("%02x", b))
+	}
+	return strings.Join(parts, ":"), nil
 }

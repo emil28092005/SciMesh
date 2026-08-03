@@ -75,7 +75,7 @@ func (p *WorkerKeyToken) exchangeLocked() error {
 		return err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: p.timeout}
+	client := &http.Client{Timeout: p.timeout, Transport: tlsTransport(nil)}
 	response, err := client.Do(request)
 	if err != nil {
 		return fmt.Errorf("worker key exchange request failed")

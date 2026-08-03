@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/google/uuid"
 
@@ -38,6 +39,12 @@ func (h *Handlers) handleHealth(w http.ResponseWriter, _ *http.Request) {
 // handleRegister creates an account. It returns 201 with the public user view,
 // 409 if the email is taken, or 400 on a malformed body / weak password.
 func (h *Handlers) handleRegister(w http.ResponseWriter, r *http.Request) {
+	// Standalone deployments can close self-service registration while keeping
+	// the bootstrap admin and existing accounts (USERSERVICE_DISABLE_REGISTRATION=1).
+	if os.Getenv("USERSERVICE_DISABLE_REGISTRATION") == "1" {
+		writeJSON(w, http.StatusForbidden, errorResponse{Error: "registration disabled", RequestID: requestIDFrom(r.Context())})
+		return
+	}
 	var req registerRequest
 	if !decodeJSON(w, r, &req) {
 		return

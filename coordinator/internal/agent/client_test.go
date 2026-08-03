@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"net/http"
@@ -235,5 +237,60 @@ func TestNewClientTransferTimeoutExceedsAPITimeout(t *testing.T) {
 	short := NewClient("http://coord:8080", &StaticToken{token: "t"}, 3*time.Minute)
 	if short.dlClient.Timeout != 12*time.Minute {
 		t.Errorf("transfer timeout = %v, want 4x the api timeout", short.dlClient.Timeout)
+	}
+}
+
+func TestTLSClientHonoursSkipVerify(t *testing.T) {
+	t.Setenv("SCIMESH_INSECURE_SKIP_VERIFY", "1")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer server.Close()
+	client := tlsClient(5 * time.Second)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL+"/health", nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("TLS server must be reachable with skip-verify: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
+	}
+}
+
+func TestTLSClientFailsWithoutTrust(t *testing.T) {
+	t.Setenv("SCIMESH_INSECURE_SKIP_VERIFY", "")
+	t.Setenv("SCIMESH_CA_CERT", "")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer server.Close()
+	client := tlsClient(5 * time.Second)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL+"/health", nil)
+	if resp, err := client.Do(req); err == nil {
+		_ = resp.Body.Close()
+		t.Error("untrusted TLS server must fail verification")
+	}
+}
+
+func TestTLSClientTrustsCAPool(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+	ca := server.Certificate()
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SCIMESH_CA_CERT", path)
+	t.Setenv("SCIMESH_INSECURE_SKIP_VERIFY", "")
+	client := tlsClient(5 * time.Second)
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL+"/health", nil)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("CA-trusted TLS server must verify: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d", resp.StatusCode)
 	}
 }

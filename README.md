@@ -63,6 +63,14 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/emi
 Set `SCIMESH_AUTO_START=0` to install without starting anything. The old demo
 control room was removed: `/ui` is the admin console.
 
+**HTTPS (TLS):** serve can encrypt everything with a self-signed certificate —
+`coordinator serve --tls-autogen` generates one into the data directory and
+prints its fingerprint; workers trust it via `SCIMESH_CA_CERT=<path>` (or the
+explicit opt-in `SCIMESH_INSECURE_SKIP_VERIFY=1`). Custom certificates go
+through `--tls-cert`/`--tls-key` (or `SCIMESH_TLS_CERT`/`SCIMESH_TLS_KEY`).
+Without TLS, traffic on the LAN is plaintext. New UI accounts can be closed
+with `--disable-registration` (or `SCIMESH_DISABLE_REGISTRATION=1`).
+
 To remove a component, run the matching uninstaller (data is kept unless you
 pass `--purge`):
 

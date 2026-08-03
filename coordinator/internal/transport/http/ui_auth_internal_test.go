@@ -226,3 +226,18 @@ func TestLoginFormRendersNext(t *testing.T) {
 		t.Error("login form must not render next when absent")
 	}
 }
+
+func TestRegistrationDisabledRejectsNewAccounts(t *testing.T) {
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("userservice must not be called when registration is disabled")
+	}))
+	defer stub.Close()
+	s := newLoginServer(stub)
+	s.disableRegistration = true
+
+	rec := httptest.NewRecorder()
+	s.handleUIRegister(rec, postForm("/ui/register", url.Values{"email": {"a@b.io"}, "password": {"pw"}}))
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "registration+disabled") {
+		t.Errorf("got %d -> %q, want 303 to the registration-disabled error", rec.Code, rec.Header().Get("Location"))
+	}
+}

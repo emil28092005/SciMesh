@@ -55,6 +55,14 @@ type Config struct {
 	// Directory of the built MkDocs site (site/) served at /ui/docs/. Empty
 	// disables the docs route; the UI shows a hint page instead.
 	DocsDir string
+	// TLSCertFile and TLSKeyFile enable HTTPS when both are set. Self-signed
+	// certificates are fine for a trusted LAN; workers then need
+	// SCIMESH_CA_CERT or SCIMESH_INSECURE_SKIP_VERIFY to connect.
+	TLSCertFile string
+	TLSKeyFile  string
+	// DisableRegistration forbids new UI accounts; the bootstrap admin still
+	// works. Existing accounts and worker keys are unaffected.
+	DisableRegistration bool
 	// Upper bound on an uploaded dataset or artifact body, in bytes.
 	MaxUploadBytes int64
 
@@ -123,6 +131,9 @@ func LoadConfig() (Config, error) {
 		LogFile:              os.Getenv("LOG_FILE"),
 		StorageDir:           getEnv("COORDINATOR_STORAGE_DIR", "./data"),
 		DocsDir:              os.Getenv("SCIMESH_DOCS_DIR"),
+		TLSCertFile:          os.Getenv("SCIMESH_TLS_CERT"),
+		TLSKeyFile:           os.Getenv("SCIMESH_TLS_KEY"),
+		DisableRegistration:  os.Getenv("SCIMESH_DISABLE_REGISTRATION") == "1",
 		MaxUploadBytes:       1 << 30, // 1 GiB
 		DBMaxConns:           10,
 		DBConnectTimeout:     30 * time.Second,

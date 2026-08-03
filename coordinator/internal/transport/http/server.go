@@ -51,6 +51,8 @@ type Server struct {
 	// userserviceURL is the base URL the UI proxies login/registration to. Empty
 	// keeps the static basic-auth UI.
 	userserviceURL string
+	// disableRegistration forbids new accounts; login keeps working.
+	disableRegistration bool
 	// publicCoordinatorURL / publicUserserviceURL are the browser-facing URLs
 	// rendered into the worker-enrollment command. Either may be empty; the
 	// template falls back (own origin / userserviceURL respectively).
@@ -70,6 +72,19 @@ type Server struct {
 func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval time.Duration,
 	maxUploadBytes int64, jwtSecret, userserviceURL string, m *metrics.Metrics, ready func(context.Context) error,
 	publicURLs ...string) *Server {
+	return NewServerWithOptions(uc, log, requestTimeout, heartbeatInterval, maxUploadBytes, jwtSecret, userserviceURL, m, ready, ServerOptions{}, publicURLs...)
+}
+
+// ServerOptions configures non-positional behaviour of the operator UI.
+type ServerOptions struct {
+	DisableRegistration bool
+}
+
+// NewServerWithOptions is NewServer plus explicit options; the option-less
+// variant exists so existing call sites and tests need no change.
+func NewServerWithOptions(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval time.Duration,
+	maxUploadBytes int64, jwtSecret, userserviceURL string, m *metrics.Metrics, ready func(context.Context) error,
+	opts ServerOptions, publicURLs ...string) *Server {
 	if m == nil {
 		m = metrics.New()
 	}
@@ -88,6 +103,7 @@ func NewServer(uc UseCases, log *slog.Logger, requestTimeout, heartbeatInterval 
 	}
 	return &Server{
 		uc:                   uc,
+		disableRegistration:  opts.DisableRegistration,
 		log:                  log,
 		requestTimeout:       requestTimeout,
 		heartbeatInterval:    heartbeatInterval,
