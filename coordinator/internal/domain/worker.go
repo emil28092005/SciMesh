@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,6 +51,10 @@ type Worker struct {
 // overrides it for a volunteer registered through the userservice.
 func NewWorker(name string, capabilities []string, now time.Time) (*Worker, error) {
 	if len(capabilities) == 0 {
+		return nil, ErrInvalidInput
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
 		return nil, ErrInvalidInput
 	}
 	return &Worker{

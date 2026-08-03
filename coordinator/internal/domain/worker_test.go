@@ -29,3 +29,11 @@ func TestNewWorkerRejectsNoCapabilities(t *testing.T) {
 		t.Errorf("empty slice: err = %v, want ErrInvalidInput", err)
 	}
 }
+
+func TestNewWorkerRejectsBlankName(t *testing.T) {
+	for _, name := range []string{"", "   ", "\t\n"} {
+		if _, err := NewWorker(name, []string{"similarity-search"}, testNow); !errors.Is(err, ErrInvalidInput) {
+			t.Errorf("name %q: got %v, want ErrInvalidInput", name, err)
+		}
+	}
+}

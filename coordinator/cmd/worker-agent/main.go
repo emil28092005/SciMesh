@@ -58,7 +58,17 @@ func main() {
 			fmt.Println("check: no coordinator URL (pass --coordinator-url or set COORDINATOR_URL)")
 			os.Exit(1)
 		}
-		report := agent.RunCheck(ctx, url, "")
+		// Probe the managed venv when the wizard has installed it: workloads
+		// run with that interpreter, so checking the bare system python3
+		// would report a false negative.
+		checkPython, checkToken, checkKey, checkUsers := "", "", "", ""
+		if configPath := checkConfigPath(); configPath != "" {
+			checkPython = agent.VenvPython(configPath)
+			if config, err := agent.LoadConfigFile(configPath); err == nil {
+				checkToken, checkKey, checkUsers = config.Token, config.WorkerKey, config.UserserviceURL
+			}
+		}
+		report := agent.RunCheck(ctx, url, checkPython, checkToken, checkKey, checkUsers)
 		printCheck(report)
 		if !report.Coordinator.OK || !report.Python.OK || !report.Scimesh.OK {
 			os.Exit(1)
@@ -85,6 +95,15 @@ func main() {
 		logger.Error("agent stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+// checkConfigPath resolves where the wizard's config would be, honouring
+// SCIMESH_WORKER_CONFIG like the rest of the agent.
+func checkConfigPath() string {
+	if env := os.Getenv("SCIMESH_WORKER_CONFIG"); env != "" {
+		return env
+	}
+	return agent.DefaultConfigPath()
 }
 
 // loadConfig prefers a --config file; environment variables override the file

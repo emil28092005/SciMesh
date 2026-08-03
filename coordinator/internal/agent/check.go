@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	guuid "github.com/google/uuid"
 )
 
 // CheckItem is one line of the preflight report the setup wizard shows.
@@ -105,8 +107,13 @@ func CheckEnvironmentWithPython(ctx context.Context, python string) CheckReport 
 // is the body behind `worker-agent --check` and the wizard's test step. A
 // non-empty python overrides the interpreter probed for the scimesh package
 // (the managed venv after a runtime install).
-func RunCheck(ctx context.Context, coordinatorURL, python string) CheckReport {
+// RunCheck combines the coordinator probe, a credential probe and the local
+// environment probe; it is the body behind `worker-agent --check` and the
+// wizard's test step. A non-empty python overrides the interpreter probed for
+// the scimesh package (the managed venv after a runtime install).
+func RunCheck(ctx context.Context, coordinatorURL, python, token, workerKey, userserviceURL string) CheckReport {
 	report := CheckCoordinator(ctx, coordinatorURL, 15*time.Second)
+	report.Auth = CheckAuth(ctx, coordinatorURL, token, workerKey, userserviceURL)
 	var env CheckReport
 	if python != "" {
 		env = CheckEnvironmentWithPython(ctx, python)
@@ -124,3 +131,83 @@ var Version = "dev"
 
 // Platform is the host platform string shown on the wizard.
 func Platform() string { return runtime.GOOS + "/" + runtime.GOARCH }
+
+// CheckAuth verifies the configured credential against the coordinator
+// without mutating anything: with a worker key it first exchanges it at the
+// userservice for a short-lived JWT, then it probes /tasks/claim with a
+// throwaway worker id and no capabilities. A 401 anywhere means the
+// credential was rejected; any other status proves it was accepted.
+func CheckAuth(ctx context.Context, url, token, workerKey, userserviceURL string) CheckItem {
+	item := CheckItem{Name: "auth"}
+	if token == "" && workerKey == "" {
+		item.OK = true
+		item.Detail = "no credential configured — will be checked at registration"
+		return item
+	}
+	client := &http.Client{Timeout: 30 * time.Second}
+	if workerKey != "" && userserviceURL != "" {
+		payload, _ := json.Marshal(map[string]string{"key": workerKey})
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(userserviceURL, "/")+"/worker-tokens/exchange", strings.NewReader(string(payload)))
+		if err != nil {
+			item.OK = false
+			item.Detail = "invalid userservice URL"
+			return item
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			item.OK = false
+			item.Detail = "userservice unreachable: " + err.Error()
+			return item
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode == http.StatusUnauthorized {
+			item.OK = false
+			item.Detail = "worker key rejected by the userservice"
+			return item
+		}
+		if resp.StatusCode != http.StatusOK {
+			item.OK = false
+			item.Detail = fmt.Sprintf("userservice exchange: HTTP %d", resp.StatusCode)
+			return item
+		}
+		var exchanged struct {
+			Token string `json:"token"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&exchanged); err != nil || exchanged.Token == "" {
+			item.OK = false
+			item.Detail = "userservice exchange returned no token"
+			return item
+		}
+		token = exchanged.Token
+	}
+	if token == "" {
+		item.OK = false
+		item.Detail = "no usable credential after the key exchange"
+		return item
+	}
+	payload, _ := json.Marshal(map[string]any{"worker_id": guuid.NewString(), "capabilities": []string{}})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(url, "/")+"/tasks/claim", strings.NewReader(string(payload)))
+	if err != nil {
+		item.OK = false
+		item.Detail = "invalid coordinator URL"
+		return item
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	if err != nil {
+		item.OK = false
+		item.Detail = "coordinator unreachable: " + err.Error()
+		return item
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusUnauthorized {
+		item.OK = false
+		item.Detail = "token rejected by the coordinator"
+		return item
+	}
+	item.OK = true
+	item.Detail = "credential accepted"
+	return item
+}

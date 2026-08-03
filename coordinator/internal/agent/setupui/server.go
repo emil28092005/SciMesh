@@ -414,7 +414,7 @@ func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
 	// After the runtime installer created the venv, probe that interpreter:
 	// checking the bare system python3 would keep reporting scimesh as
 	// missing even though the worker would run with the venv.
-	report := agent.RunCheck(r.Context(), url, s.venvPython())
+	report := agent.RunCheck(r.Context(), url, s.venvPython(), req.Token, req.WorkerKey, req.UserserviceURL)
 	writeJSON(w, http.StatusOK, report)
 }
 

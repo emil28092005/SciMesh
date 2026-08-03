@@ -132,3 +132,20 @@ func SaveConfigFile(path string, file ConfigFile) error {
 	}
 	return nil
 }
+
+// VenvPython returns the managed venv python next to the given config file,
+// or "" when the runtime installer has not created one yet. Mirrors the
+// wizard's probe so `worker-agent --check` and the preflight agree on what
+// interpreter will actually execute workloads.
+func VenvPython(configPath string) string {
+	dir := filepath.Dir(configPath)
+	for _, candidate := range []string{
+		filepath.Join(dir, "venv", "bin", "python"),
+		filepath.Join(dir, "venv", "Scripts", "python.exe"),
+	} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return ""
+}
