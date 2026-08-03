@@ -60,6 +60,33 @@ TARGET="$INSTALL_DIR/$BINARY"
 URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY}-${OS}-${ARCH}"
 echo "Downloading $URL"
 curl -fsSL -o "$TARGET.tmp" "$URL"
+
+# Verify the SHA-256 checksum from the release before installing. This guards
+# against corrupted downloads and stale CDN caches; it does not protect
+# against an active MITM on the same channel (the checksum file travels it
+# too). Set SCIMESH_SKIP_VERIFY=1 to bypass.
+if [ "${SCIMESH_SKIP_VERIFY:-0}" != "1" ]; then
+  if SUMFILE=$(mktemp) && curl -fsSL -o "$SUMFILE" "https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.txt"; then
+    EXPECTED=$(awk '$2 == "'"$(basename "$URL")"'" {print $1}' "$SUMFILE" 2>/dev/null | head -1)
+    rm -f "$SUMFILE"
+    if [ -n "$EXPECTED" ]; then
+      ACTUAL=$(sha256sum "$TARGET.tmp" | awk '{print $1}')
+      if [ "$ACTUAL" != "$EXPECTED" ]; then
+        rm -f "$TARGET.tmp"
+        echo "ERROR: checksum mismatch for $BINARY (got $ACTUAL, want $EXPECTED)" >&2
+        echo "The download may be corrupted or served by a stale cache. Retry later, or" >&2
+        echo "pin the version with SCIMESH_VERSION=${VERSION} and re-run." >&2
+        exit 1
+      fi
+      echo "Checksum verified ($(echo "$EXPECTED" | cut -c1-12)…)"
+    else
+      echo "WARNING: no checksum entry for $(basename "$URL"); skipping verification"
+    fi
+  else
+    echo "WARNING: could not fetch SHA256SUMS.txt; skipping verification"
+  fi
+fi
+
 chmod +x "$TARGET.tmp"
 mv "$TARGET.tmp" "$TARGET"
 

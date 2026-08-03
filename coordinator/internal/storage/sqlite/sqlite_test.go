@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -345,5 +346,21 @@ func TestCancelByJobInvalidatesTasks(t *testing.T) {
 	}
 	if got.Status != domain.TaskCancelled || got.LeaseOwner != nil {
 		t.Errorf("cancelled task = %+v", got)
+	}
+}
+
+func TestOpenRestrictsDatabasePermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "locked.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.Close()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("db perms = %o, want 600", perm)
 	}
 }

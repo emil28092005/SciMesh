@@ -135,7 +135,7 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 	// Worker-key exchange is fronted by the coordinator when the userservice
 	// is embedded (serve mode): the key itself is the credential.
 	if s.userserviceURL != "" {
-		mux.HandleFunc("POST /worker-tokens/exchange", s.handleWorkerTokenExchangeProxy)
+		mux.Handle("POST /worker-tokens/exchange", rateLimited(newIPLimiter(exchangeRatePerMinute, exchangeBurst), http.HandlerFunc(s.handleWorkerTokenExchangeProxy)))
 	}
 
 	hasBasicAuth := len(uiToken) > 0 && uiToken[0] != ""
@@ -163,7 +163,7 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 		if s.uiSessionMode() {
 			// Public auth pages — reachable without a session so a user can log in.
 			ui.HandleFunc("GET /ui/login", s.handleUILoginForm)
-			ui.HandleFunc("POST /ui/login", s.handleUILogin)
+			ui.Handle("POST /ui/login", rateLimited(newIPLimiter(loginRatePerMinute, loginBurst), http.HandlerFunc(s.handleUILogin)))
 			ui.HandleFunc("GET /ui/logout-form", s.handleUILogoutForm)
 			ui.HandleFunc("GET /ui/register", s.handleUIRegisterForm)
 			ui.HandleFunc("POST /ui/register", s.handleUIRegister)

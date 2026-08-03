@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -37,7 +38,27 @@ func Open(path string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite database: %w", err)
 	}
+	if err := lockDownDatabase(path); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("lock down sqlite database: %w", err)
+	}
 	return db, nil
+}
+
+// lockDownDatabase restricts the database files to the owner: sqlite creates
+// them with the process umask (0644), which would let any local user read job
+// metadata and password hashes. WAL/SHM siblings inherit the main file's mode,
+// so existing ones are corrected too. Best-effort: failures only warn callers
+// via the returned error, never corrupt state.
+func lockDownDatabase(path string) error {
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			if err := os.Chmod(candidate, 0o600); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // querier is satisfied by both *sql.DB and *sql.Tx, letting every repository

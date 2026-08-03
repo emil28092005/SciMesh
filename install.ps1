@@ -57,6 +57,31 @@ $Target = Join-Path $InstallDir "$Binary.exe"
 
 Write-Host "Downloading $Url"
 Invoke-WebRequest -Uri $Url -OutFile "$Target.tmp"
+
+# Verify the SHA-256 checksum from the release before installing (see
+# install.sh for the caveats). $env:SCIMESH_SKIP_VERIFY -eq "1" bypasses.
+if ($env:SCIMESH_SKIP_VERIFY -ne "1") {
+    try {
+        $SumUrl = "https://github.com/$Repo/releases/download/$Version/SHA256SUMS.txt"
+        $Sums = (Invoke-WebRequest -Uri $SumUrl).Content
+        $BinaryName = Split-Path $Url -Leaf
+        $Line = ($Sums -split "`n") | Where-Object { $_.Trim().EndsWith("  " + $BinaryName) } | Select-Object -First 1
+        if ($Line) {
+            $Expected = ($Line -split "\s+")[0]
+            $Actual = (Get-FileHash -Algorithm SHA256 -Path "$Target.tmp").Hash.ToLower()
+            if ($Actual -ne $Expected.ToLower()) {
+                Remove-Item -Force "$Target.tmp"
+                throw "checksum mismatch for $Binary (got $Actual, want $Expected)"
+            }
+            Write-Host "Checksum verified ($($Expected.Substring(0,12))...)"
+        } else {
+            Write-Host "WARNING: no checksum entry for $Binary; skipping verification"
+        }
+    } catch {
+        Write-Host "WARNING: could not verify checksum ($($_.Exception.Message)); continuing"
+    }
+}
+
 Move-Item -Force "$Target.tmp" $Target
 
 Write-Host ""

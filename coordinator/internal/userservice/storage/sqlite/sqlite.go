@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -290,6 +291,17 @@ func indexOf(haystack, needle string) int {
 }
 
 // Open opens (and creates when missing) the userservice database file.
+func lockDownDatabase(path string) error {
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			if err := os.Chmod(candidate, 0o600); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func Open(path string) (*sql.DB, error) {
 	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=synchronous(NORMAL)", path)
 	db, err := sql.Open("sqlite", dsn)
@@ -299,6 +311,10 @@ func Open(path string) (*sql.DB, error) {
 	if err := db.PingContext(context.Background()); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping userservice database: %w", err)
+	}
+	if err := lockDownDatabase(path); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("lock down userservice database: %w", err)
 	}
 	return db, nil
 }
