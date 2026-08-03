@@ -173,6 +173,7 @@ func runWithConfig(cfg infra.Config) error {
 		GetJobResult:     usecase.NewGetJobResult(jobRepo, usecase.NewDownloadArtifact(artifactRepo, blobStore)),
 		GetTaskInput:     usecase.NewGetTaskInput(taskRepo, artifactRepo, blobStore),
 		Dashboard:        usecase.NewDashboard(uiReadRepo, catalog),
+		PruneArtifacts:   usecase.NewPruneArtifacts(jobRepo, uiReadRepo, blobStore, clk),
 		PreviewArtifact:  usecase.NewPreviewArtifact(uiReadRepo, blobStore),
 		Admin: usecase.NewAdmin(deps.adminReadRepo, uiReadRepo, workerRepo, deps.settingsRepo, catalog,
 			usecase.AdminNodeInfo{

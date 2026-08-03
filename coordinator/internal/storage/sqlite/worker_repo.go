@@ -107,3 +107,19 @@ func (r *WorkerRepo) SetTrust(ctx context.Context, id uuid.UUID, trust domain.Wo
 	}
 	return nil
 }
+
+// Delete removes a worker from the registry.
+func (r *WorkerRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	res, err := conn(ctx, r.db).ExecContext(ctx, "DELETE FROM workers WHERE id = ?", id.String())
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return domain.ErrWorkerNotFound
+	}
+	return nil
+}

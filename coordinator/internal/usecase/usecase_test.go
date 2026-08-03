@@ -980,3 +980,40 @@ func TestSubmitDatasetRejectsDisabledWorkload(t *testing.T) {
 		t.Fatalf("submit after re-enable: %v", err)
 	}
 }
+
+func TestPruneArtifactsRemovesOldFinishedJobs(t *testing.T) {
+	h := newHarness()
+	old := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	job := &domain.Job{ID: uuid.New(), Workload: "similarity-search", Status: domain.JobCompleted, CreatedAt: old, CompletedAt: &old}
+	if err := h.jobs.Insert(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	art, err := domain.NewArtifact(job.ID, nil, domain.ArtifactFinalResult, "r.csv", "text/csv", old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	art.SetContent("sha", 42)
+	if err := h.arts.Insert(context.Background(), art); err != nil {
+		t.Fatal(err)
+	}
+	// An active job must survive the prune.
+	active := &domain.Job{ID: uuid.New(), Workload: "similarity-search", Status: domain.JobRunning, CreatedAt: old}
+	if err := h.jobs.Insert(context.Background(), active); err != nil {
+		t.Fatal(err)
+	}
+
+	prune := usecase.NewPruneArtifacts(h.jobs, memstore.NewUIReadRepo(h.jobs, h.tasks, h.work, h.arts), h.blobs, h.clk)
+	result, err := prune.Execute(context.Background(), 7*24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Jobs != 1 || result.Artifacts != 1 || result.FreedBytes != 42 {
+		t.Errorf("prune = %+v, want 1 job / 1 artifact / 42 bytes", result)
+	}
+	if _, err := h.jobs.Get(context.Background(), job.ID); err == nil {
+		t.Error("finished job must be gone")
+	}
+	if _, err := h.jobs.Get(context.Background(), active.ID); err != nil {
+		t.Error("active job must survive the prune")
+	}
+}

@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -165,4 +166,31 @@ func nullableUUID(id *uuid.UUID) any {
 		return nil
 	}
 	return id.String()
+}
+
+// ListCompletedBefore returns jobs whose completion timestamp is older than
+// the cutoff (completed and failed both count as finished).
+func (r *JobRepo) ListCompletedBefore(ctx context.Context, cutoff time.Time) ([]domain.Job, error) {
+	rows, err := conn(ctx, r.db).QueryContext(ctx,
+		"SELECT "+jobColumns+" FROM jobs WHERE completed_at IS NOT NULL AND completed_at < ? ORDER BY completed_at ASC",
+		encodeTime(cutoff))
+	if err != nil {
+		return nil, fmt.Errorf("list completed jobs: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var jobs []domain.Job
+	for rows.Next() {
+		job, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, *job)
+	}
+	return jobs, rows.Err()
+}
+
+// Delete removes the job row; tasks, artifacts and task_results cascade.
+func (r *JobRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	_, err := conn(ctx, r.db).ExecContext(ctx, "DELETE FROM jobs WHERE id = ?", id.String())
+	return err
 }

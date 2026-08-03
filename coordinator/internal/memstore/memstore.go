@@ -461,3 +461,32 @@ func (r *TaskResultRepo) CountAgreeing(_ context.Context, taskID uuid.UUID, sha2
 	}
 	return n, nil
 }
+
+func (r *JobRepo) ListCompletedBefore(ctx context.Context, cutoff time.Time) ([]domain.Job, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []domain.Job
+	for _, j := range r.jobs {
+		if j.CompletedAt != nil && j.CompletedAt.Before(cutoff) {
+			out = append(out, *j)
+		}
+	}
+	return out, nil
+}
+
+func (r *JobRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.jobs, id)
+	return nil
+}
+
+func (r *WorkerRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.workers[id]; !ok {
+		return domain.ErrWorkerNotFound
+	}
+	delete(r.workers, id)
+	return nil
+}

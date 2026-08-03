@@ -210,7 +210,7 @@ tbody tr:hover{background:var(--panel-2)}
     <div class="section-note">Workers register themselves. Trust decides whether a machine's results are accepted directly or need quorum.</div>
     <div class="card">
       <table>
-        <thead><tr><th>Worker</th><th>Status</th><th>Capabilities</th><th>Trust</th><th>Owner</th><th>Last signal</th></tr></thead>
+        <thead><tr><th>Worker</th><th>Status</th><th>Capabilities</th><th>Trust</th><th>Owner</th><th>Last signal</th><th></th></tr></thead>
         <tbody id="worker-rows"></tbody>
       </table>
     </div>
@@ -284,6 +284,12 @@ tbody tr:hover{background:var(--panel-2)}
   <!-- ═══ SETTINGS ═══ -->
   <section class="page" id="page-settings">
     <div class="warn-strip" style="display:flex;gap:10px;align-items:flex-start;background:var(--amber-soft);border:1px solid #e5b64f33;border-radius:10px;padding:12px 14px;font-size:12.5px;color:#eecf8d"><span>The cluster token below authenticates <b>any</b> worker. Reveal it only on a trusted machine.</span></div>
+    <div class="section-title" style="color:var(--red)">Danger zone</div>
+    <div class="card" style="border-color:#f2647c33">
+      <dl class="kv">
+        <dt>Prune artifacts</dt><dd style="display:flex;justify-content:space-between;align-items:center;gap:14px"><span style="color:var(--text-2);font-size:12.5px">Delete finished jobs older than a cutoff and all their artifacts (blob files included).</span><span style="display:flex;gap:8px;align-items:center"><input id="prune-days" type="number" min="1" max="3650" value="30" style="width:80px"><button class="btn btn-danger btn-sm" id="prune">Prune…</button></span></dd>
+      </dl>
+    </div>
     <div class="section-title">Cluster</div>
     <div class="card">
       <dl class="kv">
@@ -440,9 +446,15 @@ async function loadWorkers(){
       '<td>'+(w.capabilities||[]).map(c=>'<span class="cap">'+esc(c)+'</span>').join('')+'</td>'+
       '<td>'+trustSel+'</td>'+
       '<td style="color:var(--text-2)">'+esc(w.owner)+'</td>'+
-      '<td style="color:var(--text-2);font-size:12.5px">'+fmtTime(w.last_heartbeat_at)+'</td>';
+      '<td style="color:var(--text-2);font-size:12.5px">'+fmtTime(w.last_heartbeat_at)+'</td>'+
+      '<td>'+(w.status==='offline'?'<button class="btn btn-danger btn-sm worker-remove" data-id="'+w.id+'" data-name="'+esc(w.name)+'">Remove</button>':'')+'</td>';
     rows.append(tr);
   }
+  document.querySelectorAll('.worker-remove').forEach(btn=>btn.addEventListener('click',async()=>{
+    if(!confirm('Remove the offline worker "'+btn.dataset.name+'" from the registry? This cannot be undone.'))return;
+    await fetch('/ui/admin/api/workers/'+btn.dataset.id+'/remove',{method:'POST'});
+    loadWorkers();
+  }));
   document.querySelectorAll('.trust-sel').forEach(sel=>sel.addEventListener('change',async()=>{
     await fetch('/ui/admin/api/workers/'+sel.dataset.id+'/trust',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({trusted:sel.value==='trusted'})});
     loadWorkers();
@@ -530,6 +542,17 @@ document.getElementById('reveal').addEventListener('click',async e=>{
   }else{tok.textContent='••••••••••••••••••••••••';e.target.textContent='Reveal'}
 });
 document.querySelectorAll('.toggle').forEach(t=>t.addEventListener('click',()=>t.classList.toggle('on')));
+document.getElementById('prune').addEventListener('click',async()=>{
+  const days=parseInt(document.getElementById('prune-days').value||'30',10);
+  if(!confirm('Delete finished jobs older than '+days+' days with all their artifacts? This cannot be undone.'))return;
+  const btn=document.getElementById('prune');btn.disabled=true;btn.textContent='Pruning…';
+  const r=await fetch('/ui/admin/api/prune',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({older_than_days:days})});
+  btn.disabled=false;btn.textContent='Prune…';
+  if(!r.ok){alert('Prune failed.');return}
+  const v=await r.json();
+  alert('Removed '+v.jobs+' jobs and '+v.artifacts+' artifacts, freed '+fmtBytes(v.freed_bytes)+'.');
+  if(current.page==='settings')loadSettings();
+});
 </script>
 </body>
 </html>

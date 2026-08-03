@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -152,4 +153,47 @@ func (r *JobRepo) UpdateStatus(ctx context.Context, id uuid.UUID,
 		return domain.ErrJobNotFound
 	}
 	return nil
+}
+
+// ListCompletedBefore returns jobs whose completion timestamp is older than
+// the cutoff (completed and failed both count as finished).
+func (r *JobRepo) ListCompletedBefore(ctx context.Context, cutoff time.Time) ([]domain.Job, error) {
+	sql, args, err := psql.Select(jobColumns...).From("jobs").
+		Where(sq.NotEq{"completed_at": nil}).
+		Where(sq.Lt{"completed_at": cutoff}).
+		OrderBy("completed_at ASC").
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := conn(ctx, r.pool).Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list completed jobs: %w", err)
+	}
+	defer rows.Close()
+	var jobs []domain.Job
+	for rows.Next() {
+		var j domain.Job
+		var status string
+		if err := rows.Scan(
+			&j.ID, &j.Workload, &j.InputURI, &j.Parameters, &status, &j.CreatedAt, &j.CompletedAt,
+			&j.InputArtifactID, &j.ResultArtifactID, &j.ErrorCode, &j.ErrorMessage, &j.ReducerStartedAt,
+			&j.OwnerID,
+		); err != nil {
+			return nil, err
+		}
+		j.Status = domain.JobStatus(status)
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
+// Delete removes the job row; tasks, artifacts and task_results cascade.
+func (r *JobRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	sql, args, err := psql.Delete("jobs").Where(sq.Eq{"id": id}).ToSql()
+	if err != nil {
+		return err
+	}
+	_, err = conn(ctx, r.pool).Exec(ctx, sql, args...)
+	return err
 }

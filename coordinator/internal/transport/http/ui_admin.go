@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -389,4 +390,44 @@ func (s *Server) adminOwnerEmails(r *http.Request) map[uuid.UUID]string {
 		out[id] = user.Email
 	}
 	return out
+}
+
+// handleUIAdminPruneJSON deletes finished jobs older than the requested
+// number of days (with all their artifacts) and reports what was freed.
+func (s *Server) handleUIAdminPruneJSON(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		OlderThanDays int `json:"older_than_days"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	if body.OlderThanDays < 1 || body.OlderThanDays > 3650 {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	result, err := s.uc.PruneArtifacts.Execute(ctx, time.Duration(body.OlderThanDays)*24*time.Hour)
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleUIAdminRemoveWorkerJSON deletes an offline worker.
+func (s *Server) handleUIAdminRemoveWorkerJSON(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	ctx, cancel := s.reqCtx(r)
+	defer cancel()
+	if err := s.uc.Admin.RemoveWorker(ctx, id); err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

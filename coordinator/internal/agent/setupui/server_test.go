@@ -479,3 +479,21 @@ func TestTestProbesTheVenvPythonAfterInstall(t *testing.T) {
 		t.Errorf("scimesh check = %+v, want the venv interpreter reporting 9.9.9-test", report.Scimesh)
 	}
 }
+
+func TestParseWorkerStats(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "worker.log")
+	content := `time=1 level=INFO msg=registered worker_id=w1
+time=2 level=INFO msg="task claimed" task_id=t1 attempt=0
+time=3 level=INFO msg="task completed" task_id=t1 elapsed_seconds=2
+time=4 level=INFO msg="task claimed" task_id=t2 attempt=0
+time=5 level=WARN msg="task failed" task_id=t2 error_code=X retryable=true
+time=6 level=WARN msg="agent cycle failed" error="boom"
+`
+	if err := os.WriteFile(logPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stats := parseWorkerStats(logPath)
+	if !stats.Registered || stats.Claimed != 2 || stats.Completed != 1 || stats.Failed != 1 {
+		t.Errorf("stats = %+v, want registered claimed=2 completed=1 failed=1", stats)
+	}
+}

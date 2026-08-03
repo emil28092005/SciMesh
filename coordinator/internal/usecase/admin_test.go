@@ -336,3 +336,30 @@ func TestAdminRevealToken(t *testing.T) {
 		t.Errorf("token = %q", got)
 	}
 }
+
+type removableWorkerRepo struct {
+	WorkerRepository
+	deleted uuid.UUID
+}
+
+func (f *removableWorkerRepo) Get(ctx context.Context, id uuid.UUID) (*domain.Worker, error) {
+	return &domain.Worker{ID: id, Status: domain.WorkerOffline}, nil
+}
+
+func (f *removableWorkerRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	f.deleted = id
+	return nil
+}
+
+func TestAdminRemoveWorker(t *testing.T) {
+	a := adminFixture()
+	repo := &removableWorkerRepo{}
+	a.workers = repo
+	id := uuid.New()
+	if err := a.RemoveWorker(context.Background(), id); err != nil {
+		t.Fatal(err)
+	}
+	if repo.deleted != id {
+		t.Error("offline worker must be deleted")
+	}
+}

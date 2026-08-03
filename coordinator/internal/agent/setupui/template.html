@@ -174,6 +174,12 @@ code{font-family:var(--mono);font-size:.86em}
         <div><h1 id="st-title">Worker is working</h1><div class="sub" id="st-sub">—</div></div>
         <button class="btn btn-danger" id="st-stop" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>Stop</button>
       </div>
+      <div class="stat-row">
+        <div class="stat"><b id="st-claimed">—</b><span>claimed</span></div>
+        <div class="stat"><b id="st-completed">—</b><span>completed</span></div>
+        <div class="stat bad"><b id="st-failed">—</b><span>failed</span></div>
+        <div class="stat"><b id="st-registered">—</b><span>registered</span></div>
+      </div>
       <div class="meta-line" id="st-meta"></div>
       <div class="logbox" id="st-log"></div>
       <div class="actions"><span class="link" id="st-cfg">—</span><button class="btn btn-ghost" id="st-reconfig">Reconfigure…</button></div>
@@ -293,6 +299,11 @@ async function refreshStatus(){
   $('st-title').textContent=v.running?(v.worker_name||'Worker')+' is working':(v.worker_name||'Worker')+' is stopped';
   $('st-sub').textContent='pid '+(v.pid||'—')+' · config '+(v.config_present?v.config_path:'not saved yet');
   $('st-cfg').textContent='Configuration: '+(v.config_present?v.config_path:'—');
+  const stats=v.stats||{};
+  $('st-claimed').textContent=stats.claimed!=null?stats.claimed:'—';
+  $('st-completed').textContent=stats.completed!=null?stats.completed:'—';
+  $('st-failed').textContent=stats.failed!=null?stats.failed:'—';
+  $('st-registered').textContent=stats.registered?'yes':'no';
   const meta=$('st-meta');
   meta.innerHTML='';
   if(v.coordinator){const c=document.createElement('span');c.className='chip';c.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>'+v.coordinator;meta.append(c)}

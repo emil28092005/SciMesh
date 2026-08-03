@@ -123,3 +123,19 @@ func scanWorker(row pgx.Row) (*domain.Worker, error) {
 	w.TrustLevel = domain.WorkerTrust(trust)
 	return &w, nil
 }
+
+// Delete removes a worker from the registry.
+func (r *WorkerRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	sql, args, err := psql.Delete("workers").Where(sq.Eq{"id": id}).ToSql()
+	if err != nil {
+		return err
+	}
+	tag, err := conn(ctx, r.pool).Exec(ctx, sql, args...)
+	if err != nil {
+		return fmt.Errorf("delete worker: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrWorkerNotFound
+	}
+	return nil
+}

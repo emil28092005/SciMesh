@@ -158,6 +158,7 @@ func (d *Daemon) runOnce() (Outcome, error) {
 	if task == nil {
 		return Outcome{Claimed: false}, nil
 	}
+	d.log.Info("task claimed", "task_id", task.TaskID, "attempt", task.Attempt)
 	started := time.Now()
 	taskDir := filepath.Join(d.config.WorkDir, task.TaskID, fmt.Sprint(task.Attempt))
 	if err := os.MkdirAll(taskDir, 0o750); err != nil {

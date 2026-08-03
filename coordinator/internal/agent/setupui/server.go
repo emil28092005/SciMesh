@@ -289,15 +289,26 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 // statusView is what the wizard needs to paint the running/stopped state.
 type statusView struct {
-	ConfigPresent bool   `json:"config_present"`
-	ConfigPath    string `json:"config_path"`
-	LogPath       string `json:"log_path"`
-	Running       bool   `json:"running"`
-	Pid           int    `json:"pid"`
-	WorkerName    string `json:"worker_name,omitempty"`
-	Coordinator   string `json:"coordinator,omitempty"`
-	WorkDir       string `json:"work_dir,omitempty"`
-	TokenSet      bool   `json:"token_set"`
+	ConfigPresent bool        `json:"config_present"`
+	ConfigPath    string      `json:"config_path"`
+	LogPath       string      `json:"log_path"`
+	Running       bool        `json:"running"`
+	Pid           int         `json:"pid"`
+	WorkerName    string      `json:"worker_name,omitempty"`
+	Coordinator   string      `json:"coordinator,omitempty"`
+	WorkDir       string      `json:"work_dir,omitempty"`
+	TokenSet      bool        `json:"token_set"`
+	Stats         WorkerStats `json:"stats"`
+}
+
+// WorkerStats is parsed from the worker log: the agent reports each claim,
+// completion and failure as a structured line, so the wizard can show live
+// counters without any coordinator access.
+type WorkerStats struct {
+	Registered bool `json:"registered"`
+	Claimed    int  `json:"claimed"`
+	Completed  int  `json:"completed"`
+	Failed     int  `json:"failed"`
 }
 
 // ensureVenvTaskRunner rewrites the saved config so its task runner uses the
@@ -319,8 +330,30 @@ func (s *Server) ensureVenvTaskRunner() {
 	}
 }
 
+// parseWorkerStats counts the structured agent events in the worker log.
+func parseWorkerStats(logPath string) WorkerStats {
+	var stats WorkerStats
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		return stats
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		switch {
+		case strings.Contains(line, "msg=registered"):
+			stats.Registered = true
+		case strings.Contains(line, `msg="task claimed"`):
+			stats.Claimed++
+		case strings.Contains(line, `msg="task completed"`):
+			stats.Completed++
+		case strings.Contains(line, `msg="task failed"`):
+			stats.Failed++
+		}
+	}
+	return stats
+}
+
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	view := statusView{ConfigPath: s.cfgPath, LogPath: s.logPath, Running: s.sup.Alive(), Pid: s.sup.Pid()}
+	view := statusView{ConfigPath: s.cfgPath, LogPath: s.logPath, Running: s.sup.Alive(), Pid: s.sup.Pid(), Stats: parseWorkerStats(s.logPath)}
 	if raw, err := os.ReadFile(s.cfgPath); err == nil {
 		var file agent.ConfigFile
 		if json.Unmarshal(raw, &file) == nil {

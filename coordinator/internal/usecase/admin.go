@@ -521,3 +521,20 @@ func (a *Admin) RevealWorkerToken(ctx context.Context, actor string) string {
 	}
 	return token
 }
+
+// RemoveWorker deletes an offline worker from the registry. Online or busy
+// workers are refused: an admin console must never yank a live machine out
+// from under a running task.
+func (a *Admin) RemoveWorker(ctx context.Context, id uuid.UUID) error {
+	if a.workers == nil {
+		return domain.ErrWorkerNotFound
+	}
+	worker, err := a.workers.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if worker.Status != domain.WorkerOffline {
+		return domain.ErrInvalidInput
+	}
+	return a.workers.Delete(ctx, id)
+}

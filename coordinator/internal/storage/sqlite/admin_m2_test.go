@@ -88,3 +88,47 @@ func TestWorkerSetTrust(t *testing.T) {
 		t.Errorf("unknown worker trust err = %v, want ErrWorkerNotFound", err)
 	}
 }
+
+func TestJobRepoListCompletedBeforeAndDelete(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	repo := NewJobRepo(db)
+
+	old := seedJob(t, db, 2)
+	oldTime := fixedTime().Add(-40 * 24 * time.Hour)
+	if err := repo.UpdateStatus(ctx, old.ID, domain.JobCompleted, &oldTime); err != nil {
+		t.Fatal(err)
+	}
+	fresh := seedJob(t, db, 2)
+	freshTime := fixedTime().Add(-2 * time.Hour)
+	if err := repo.UpdateStatus(ctx, fresh.ID, domain.JobCompleted, &freshTime); err != nil {
+		t.Fatal(err)
+	}
+	// The failing check constraint needs no result artifact for completed; the
+	// UpdateStatus path is fine, but tasks stay pending — irrelevant here.
+
+	list, err := repo.ListCompletedBefore(ctx, fixedTime().Add(-7*24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 1 || list[0].ID != old.ID {
+		t.Errorf("list = %d jobs, want only the old one", len(list))
+	}
+	if err := repo.Delete(ctx, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM jobs WHERE id = ?", old.ID.String()).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Error("job row must be gone after Delete")
+	}
+	// Tasks cascaded away with the job.
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE job_id = ?", old.ID.String()).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Error("tasks must cascade with the job")
+	}
+}

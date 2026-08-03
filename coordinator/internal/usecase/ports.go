@@ -82,6 +82,12 @@ type JobRepository interface {
 	ClaimReduction(ctx context.Context, id uuid.UUID, startedAt time.Time) (bool, error)
 	CompleteWithResult(ctx context.Context, id, resultArtifactID uuid.UUID, completedAt time.Time) error
 	FailReduction(ctx context.Context, id uuid.UUID, code, message string, completedAt time.Time) error
+	// ListCompletedBefore returns jobs that finished (completed or failed)
+	// before the cutoff, for the admin artifact pruner.
+	ListCompletedBefore(ctx context.Context, cutoff time.Time) ([]domain.Job, error)
+	// Delete removes a job row; the engine cascades its tasks, artifacts and
+	// quorum votes. Blob files must be removed separately.
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 // WorkerRepository persists the worker registry.
@@ -97,6 +103,9 @@ type WorkerRepository interface {
 	// SetTrust reclassifies a worker's trust level (trusted/untrusted). Returns
 	// ErrNotFound when the id is unknown.
 	SetTrust(ctx context.Context, id uuid.UUID, trust domain.WorkerTrust) error
+	// Delete removes a worker from the registry. Returns ErrNotFound when the
+	// id is unknown.
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 // ArtifactRepository persists artifact metadata. The bytes live in a BlobStore;
