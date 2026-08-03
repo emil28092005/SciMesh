@@ -39,13 +39,28 @@
 1–7. Docker E2E пайплайна «install как человек → serve → визард → воркер → джоб» — выполнено, см. Progress ниже.
 
 ## Progress (ночная сессия)
-- (начало) Пустое имя воркера: валидация добавлена в `domain.NewWorker`, добавлен `TestNewWorkerRejectsBlankName`; в `worker_test.go` сломан тест из-за `fixedTime` vs `testNow` — на паузе, продолжить.
+- ✅ **П.1 Пустое имя воркера**: `domain.NewWorker` нормализует/отклоняет пустое имя + `TestNewWorkerRejectsBlankName` (починен `fixedTime`→`testNow`).
+- ✅ **П.2 `--check`**: пробует managed venv (если установлен) + реальный пробинг учётки (exchange ключа / claim-пробa) — `CheckAuth` + тесты; на машине пользователя: `✓ auth: credential accepted`, venv python, scimesh installed.
+- ✅ **П.3 Рестайлинг**: единый CSS-partial `ui-base.html` (дизайн-система админки), все 5 страниц (new-job, job, workloads, add-worker, profile) переведены, проверены в браузере без console-ошибок.
+- ✅ **П.4 Postgres integration**: admin-методы (SetTrust, ListJobsPaginated, TaskCounts, byDay/byWorkload, TaskStats, ArtifactSize, DB size, WorkloadSettings) + `ensureMigrated` для порядка запуска; весь suite зелёный.
+- ✅ **П.5 Статистика воркера в визарде**: лог `task claimed` в агента + парсинг registered/claimed/completed/failed → `/api/status.stats` + карточки в статусной странице + тест.
+- ✅ **П.6 Prune артефактов**: `JobRepository.ListCompletedBefore/Delete` (sqlite+postgres+memstore), usecase `PruneArtifacts` (каскад + blob-файлы), `POST /ui/admin/api/prune`, кнопка в Settings, тесты (sqlite+usecase); E2E: 200, freed bytes.
+- ✅ **П.7 Удаление offline-воркеров**: `WorkerRepository.Delete` + `Admin.RemoveWorker` (только offline) + `POST /ui/admin/api/workers/{id}/remove` + кнопка в Workers + тест; E2E: 204, строка удалена.
+- ✅ **П.8 setuptools_scm**: `dynamic = ["version"]`, CI-джоба wheel без sed (fetch-depth 0); локальная проверка: wheel на теге = `scimesh-1.1.0a16-py3-none-any.whl` (совпадает с Go-нормализацией); релизный ассет подтверждён.
+- ✅ **П.9 Docs**: STATUS.md синхронизирован (админка, визард, wheel, CTX-19/20 implemented).
+- ✅ **П.10 (доп.) Баг в serve-режиме**: worker-key exchange был недоступен снаружи (userservice на loopback) — добавлен прокси `POST /worker-tokens/exchange` на координаторе, `PublicUserserviceURL=""` + fallback на origin в add-worker. Проверено E2E.
+- ✅ **П.10 Quorum E2E (Docker)**: 2 untrusted-воркера с разными ключами (alice/bob) → джоб completed 3/3, в task_results по 2 голоса от разных владельцев с одинаковым sha256 → результат байт-в-байт = локальному эталону.
+- ✅ **Финальный гейт**: `go test -race ./...` ✅, golangci-lint 0 issues ✅, pytest 208 ✅, postgres integration ✅, Windows кросс-сборка ✅.
+- ✅ **Релиз v1.1.0-alpha.16** (бинарники + wheel `scimesh-1.1.0a16`), все воркфлоу success; бинарники на машине пользователя обновлены до alpha.16.
 
 ## Progress (прошлая работа — выполнено)
 - ✅ Релизы alpha.12–15: фикс версии визарда, venv task_runner, preflight через venv, MkdirAll при скачивании wheel, кнопка Install в шаблоне.
 - ✅ Docker E2E: координатор+воркер контейнеры, установка install.sh, визард (config→install→start), воркер online, джоб completed, результат байт-в-байт = локальному эталону.
 - ✅ На машине пользователя: визард alpha.15, правильный токен, venv из wheel, воркер emil-pc online, 15 пустых воркеров вычищены из БД.
 - ✅ Гейт: race + lint + pytest 208.
+
+## Completion
+COMPLETED — ночной план выполнен полностью (10 пунктов + 2 найденных бага, включая E2E quorum на релизном коде). Все гейты зелёные, релиз v1.1.0-alpha.16 опубликован.
 
 ## Completion (предыдущая задача)
 COMPLETED — пайплайн доведён до рабочего состояния и проверен на релизных артефактах v1.1.0-alpha.14.
