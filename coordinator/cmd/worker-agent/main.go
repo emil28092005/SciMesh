@@ -10,11 +10,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -166,6 +168,16 @@ func runSetup(args []string) int {
 	})
 	listener, err := server.Listen()
 	if err != nil {
+		// A wizard may already be running on this port (left open, or a
+		// second terminal). If it is ours, opening the browser is the
+		// friendlier outcome than failing the command.
+		if existing := wizardAlreadyRunning(*port); existing != "" {
+			logger.Info("the setup wizard is already running", "url", existing)
+			if !*noOpen {
+				openBrowser(existing)
+			}
+			return 0
+		}
 		logger.Error("setup wizard could not bind the loopback port", "err", err)
 		return 1
 	}
@@ -198,4 +210,25 @@ func openBrowser(url string) {
 		_ = exec.CommandContext(context.Background(), binary, candidate[1:]...).Start()
 		return
 	}
+}
+
+// wizardAlreadyRunning probes the requested loopback port and returns its URL
+// when it serves the setup wizard page, or "" when it does not (another
+// process, or nothing at all).
+func wizardAlreadyRunning(port int) string {
+	url := fmt.Sprintf("http://127.0.0.1:%d/", port)
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if err != nil || !strings.Contains(string(body), "SciMesh Worker · Setup") {
+		return ""
+	}
+	return url
 }
