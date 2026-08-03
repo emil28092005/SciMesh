@@ -333,6 +333,7 @@ func (s *Server) ensureVenvTaskRunner() {
 // parseWorkerStats counts the structured agent events in the worker log.
 func parseWorkerStats(logPath string) WorkerStats {
 	var stats WorkerStats
+	//nolint:gosec // G304: logPath is the wizard's own log file next to the config
 	raw, err := os.ReadFile(logPath)
 	if err != nil {
 		return stats
