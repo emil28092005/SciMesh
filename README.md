@@ -61,7 +61,16 @@ powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/emi
 ```
 
 Set `SCIMESH_AUTO_START=0` to install without starting anything. The old demo
-control room was removed: `/ui` is the admin console. A standalone
+control room was removed: `/ui` is the admin console.
+
+To remove a component, run the matching uninstaller (data is kept unless you
+pass `--purge`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/uninstall.sh | bash -s coordinator
+curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/uninstall.sh | bash -s worker --purge
+# Windows: irm .../uninstall.ps1 | iex  (set $env:SCIMESH_COMPONENT, -Purge deletes data)
+``` A standalone
 worker is installed the same way (`bash -s worker`, or
 `SCIMESH_COMPONENT=worker` on Windows); its installer opens the local setup
 wizard (`worker-agent setup`) in the browser automatically.
