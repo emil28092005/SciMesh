@@ -38,6 +38,14 @@
 ## Plan (предыдущая задача — выполнена)
 1–7. Docker E2E пайплайна «install как человек → serve → визард → воркер → джоб» — выполнено, см. Progress ниже.
 
+## Progress (утро: similarity-search-parallel)
+- ✅ Новый workload `similarity-search-parallel@1.0.0` (отдельная версия, как просил пользователь): подкласс `SimilaritySearchSDKWorkload` + параллельное ядро `search_parallel/core.py` — fingerprinting+скоринг шарда через `ThreadPoolExecutor` (параметр `threads`, default CPU count); `pool.map` сохраняет порядок строк, поэтому merge идентичен последовательному (`_HeapEntry`) и результат **байт-в-байт** равен `similarity-search` при любом числе потоков.
+- ✅ Тесты: байт-в-байт vs эталон для threads 1/2/4 с намеренными связями (изомеры, дубликаты), executor-прогон, валидация параметров, регистрация манифеста; 213 pytest зелёные.
+- ✅ Экспортирован в каталог координатора (5 ворклоадов), Go-тесты зелёные; release v1.1.0-alpha.19 (бинарники + wheel `scimesh-1.1.0a19`).
+- ✅ Распределённый E2E в Docker: воркер с wheel a19, джоб similarity-search-parallel (threads=4) → completed → результат байт-в-байт = локальному эталону.
+- ✅ Бинарники на машине пользователя обновлены до alpha.19 (для появления ворклоада в UI нужен рестарт serve + переустановка рантайма воркера).
+- Примечание: в CPython потоки не ускоряют чистый RDKit-путь (GIL), но структура готова к ядрам, отпускающим GIL (numpy и т.п.); при желании можно добавить процесс-пул как отдельный workload в будущей версии протокола.
+
 ## Progress (ночная сессия)
 - ✅ **П.1 Пустое имя воркера**: `domain.NewWorker` нормализует/отклоняет пустое имя + `TestNewWorkerRejectsBlankName` (починен `fixedTime`→`testNow`).
 - ✅ **П.2 `--check`**: пробует managed venv (если установлен) + реальный пробинг учётки (exchange ключа / claim-пробa) — `CheckAuth` + тесты; на машине пользователя: `✓ auth: credential accepted`, venv python, scimesh installed.
