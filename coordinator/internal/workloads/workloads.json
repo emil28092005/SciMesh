@@ -597,6 +597,206 @@
       "upload_ready": true,
       "verifier": "exact-artifact@1",
       "version": "1.0.0"
+    },
+    {
+      "capabilities": [
+        "similarity-search-parallel"
+      ],
+      "description": "Exact top-k Tanimoto molecular similarity search over deterministic TSV shards with a bounded merge; each shard is fingerprinted and scored across a thread pool. Output is byte-identical to similarity-search.",
+      "determinism": "byte_exact",
+      "enabled": true,
+      "inputs": {
+        "input": {
+          "allow_nested_collections": false,
+          "canonicalizer": "scimesh-tsv-v1",
+          "encoding": "utf-8",
+          "max_bytes": 10737418240,
+          "max_dimensions": [],
+          "max_records": 100000000,
+          "media_type": "text/tab-separated-values",
+          "privacy_class": "project",
+          "ref": "molecule-table@1",
+          "retention_class": "durable",
+          "streaming": false,
+          "validator": "delimited-table@1",
+          "validator_configuration": {
+            "required_columns": [
+              "canonical_smiles",
+              "chembl_id"
+            ]
+          }
+        }
+      },
+      "name": "similarity-search-parallel",
+      "outputs": {
+        "result": {
+          "allow_nested_collections": false,
+          "canonicalizer": "scimesh-search-result-v1",
+          "encoding": "utf-8",
+          "max_bytes": 1073741824,
+          "max_dimensions": [],
+          "max_records": 100000,
+          "media_type": "text/csv",
+          "privacy_class": "project",
+          "ref": "similarity-search-result@1",
+          "retention_class": "durable",
+          "streaming": false,
+          "validator": "delimited-table@1",
+          "validator_configuration": {
+            "columns": [
+              "rank",
+              "chembl_id",
+              "canonical_smiles",
+              "similarity"
+            ]
+          }
+        }
+      },
+      "parameters_schema": {
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "not": {
+              "required": [
+                "query_smiles"
+              ]
+            },
+            "required": [
+              "query_id"
+            ]
+          },
+          {
+            "not": {
+              "required": [
+                "query_id"
+              ]
+            },
+            "required": [
+              "query_smiles"
+            ]
+          }
+        ],
+        "properties": {
+          "max_rows": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "progress_every": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "query_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "query_smiles": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "threads": {
+            "description": "Threads used to fingerprint and score one shard (default: CPU count).",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "threshold": {
+            "maximum": 1,
+            "minimum": 0,
+            "type": "number"
+          },
+          "threshold_direction": {
+            "enum": [
+              "greater",
+              "less"
+            ]
+          },
+          "top_k": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "reduction": "top-k",
+      "trust_modes": [
+        "trusted",
+        "untrusted_quorum"
+      ],
+      "ui_elements": [
+        {
+          "default": null,
+          "field": "query_id",
+          "group": "",
+          "help": "ChEMBL id of the query molecule. Provide exactly one of id or SMILES.",
+          "label": "Query molecule id",
+          "options": [],
+          "order": 1,
+          "placeholder": "",
+          "widget": "text"
+        },
+        {
+          "default": null,
+          "field": "query_smiles",
+          "group": "",
+          "help": "SMILES of the query molecule. Provide exactly one of id or SMILES.",
+          "label": "Query molecule SMILES",
+          "options": [],
+          "order": 2,
+          "placeholder": "",
+          "widget": "text"
+        },
+        {
+          "default": 20,
+          "field": "top_k",
+          "group": "",
+          "help": "Number of most similar molecules to keep per shard (global merge keeps the best of these).",
+          "label": "Top k",
+          "options": [],
+          "order": 3,
+          "placeholder": "",
+          "widget": "number"
+        },
+        {
+          "default": "greater",
+          "field": "threshold_direction",
+          "group": "",
+          "help": "Keep molecules with similarity greater or less than the threshold.",
+          "label": "Direction",
+          "options": [
+            "greater",
+            "less"
+          ],
+          "order": 4,
+          "placeholder": "",
+          "widget": "select"
+        },
+        {
+          "default": null,
+          "field": "threshold",
+          "group": "",
+          "help": "Optional similarity bound: results are filtered to this direction.",
+          "label": "Similarity threshold",
+          "options": [],
+          "order": 5,
+          "placeholder": "e.g. 0.8",
+          "widget": "number"
+        },
+        {
+          "default": null,
+          "field": "threads",
+          "group": "",
+          "help": "Threads used to fingerprint and score one shard (default: CPU count).",
+          "label": "Threads per shard",
+          "options": [],
+          "order": 6,
+          "placeholder": "auto",
+          "widget": "number"
+        }
+      ],
+      "upload_ready": true,
+      "verifier": "exact-artifact@1",
+      "version": "1.0.0"
     }
   ]
 }

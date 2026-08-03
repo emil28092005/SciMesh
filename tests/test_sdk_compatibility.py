@@ -60,7 +60,7 @@ def _registered_similarity_search(shard_rows: int = 2):
     registry = default_sdk_registry(shard_rows=shard_rows)
     runtime = default_sdk_runtime()
     descriptions = registry.descriptions()
-    assert len(descriptions) == 4
+    assert len(descriptions) == 5
     description = next(
         item for item in descriptions if item.workload.name == "similarity-search"
     )

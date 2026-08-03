@@ -244,7 +244,13 @@ def test_workload_cli_exports_the_library_as_json(tmp_path: Path) -> None:
     assert payload["schema_version"] == 2
     names = [item["name"] for item in payload["workloads"]]
     assert names == sorted(
-        ["descriptor-batch", "molwt-filter", "similarity-graph", "similarity-search"]
+        [
+            "descriptor-batch",
+            "molwt-filter",
+            "similarity-graph",
+            "similarity-search",
+            "similarity-search-parallel",
+        ]
     )
     for item in payload["workloads"]:
         assert item["version"] == "1.0.0"

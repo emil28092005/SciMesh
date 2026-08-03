@@ -21,6 +21,7 @@ from .environment import current_environment_digest
 from .graph import similarity_graph_sdk_definition
 from .molwt_filter import molwt_filter_sdk_definition
 from .search import similarity_search_sdk_definition
+from .search_parallel import similarity_search_parallel_sdk_definition
 
 __all__ = [
     "default_sdk_registry",
@@ -44,6 +45,10 @@ def default_sdk_registry(
         return registry
     registry.register(
         similarity_search_sdk_definition(shard_rows=shard_rows).definition(),
+        enabled=True,
+    )
+    registry.register(
+        similarity_search_parallel_sdk_definition(shard_rows=shard_rows).definition(),
         enabled=True,
     )
     registry.register(
@@ -82,6 +87,7 @@ def default_sdk_runtime(
             workload_capabilities
             or (
                 "similarity-search",
+                "similarity-search-parallel",
                 "similarity-graph",
                 "descriptor-batch",
                 "molwt-filter",
