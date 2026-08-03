@@ -70,17 +70,23 @@ func CheckCoordinator(ctx context.Context, url string, timeout time.Duration) Ch
 	return report
 }
 
-// CheckEnvironment verifies the local runtime: Python present and the scimesh
-// package importable.
+// CheckEnvironment verifies the local runtime against the python3 found on
+// PATH.
 func CheckEnvironment(ctx context.Context) CheckReport {
-	report := CheckReport{Agent: Version}
 	python, err := exec.LookPath("python3")
 	if err != nil {
-		report.Python = CheckItem{Name: "python", OK: false, Detail: "python3 not found on PATH"}
-		return report
+		return CheckReport{Agent: Version, Python: CheckItem{Name: "python", OK: false, Detail: "python3 not found on PATH"}}
 	}
-	report.Python = CheckItem{Name: "python", OK: true, Detail: python}
-	//nolint:gosec // G204: python comes from LookPath, the argument list is constant
+	return CheckEnvironmentWithPython(ctx, python)
+}
+
+// CheckEnvironmentWithPython verifies the local runtime against a specific
+// interpreter — the wizard's managed venv python when the runtime installer
+// has created one, so the preflight reflects what the worker will actually
+// execute with.
+func CheckEnvironmentWithPython(ctx context.Context, python string) CheckReport {
+	report := CheckReport{Agent: Version, Python: CheckItem{Name: "python", OK: true, Detail: python}}
+	//nolint:gosec // G204: python is a resolved interpreter path, the argument list is constant
 	cmd := exec.CommandContext(ctx, python, "-c", "import scimesh; print(scimesh.__version__ if hasattr(scimesh, '__version__') else 'installed')")
 	out, err := cmd.Output()
 	if err != nil {
@@ -96,10 +102,17 @@ func CheckEnvironment(ctx context.Context) CheckReport {
 }
 
 // RunCheck combines the coordinator probe and the local environment probe; it
-// is the body behind `worker-agent --check` and the wizard's test step.
-func RunCheck(ctx context.Context, coordinatorURL string) CheckReport {
+// is the body behind `worker-agent --check` and the wizard's test step. A
+// non-empty python overrides the interpreter probed for the scimesh package
+// (the managed venv after a runtime install).
+func RunCheck(ctx context.Context, coordinatorURL, python string) CheckReport {
 	report := CheckCoordinator(ctx, coordinatorURL, 15*time.Second)
-	env := CheckEnvironment(ctx)
+	var env CheckReport
+	if python != "" {
+		env = CheckEnvironmentWithPython(ctx, python)
+	} else {
+		env = CheckEnvironment(ctx)
+	}
 	report.Python = env.Python
 	report.Scimesh = env.Scimesh
 	return report

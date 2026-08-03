@@ -58,7 +58,7 @@ func main() {
 			fmt.Println("check: no coordinator URL (pass --coordinator-url or set COORDINATOR_URL)")
 			os.Exit(1)
 		}
-		report := agent.RunCheck(ctx, url)
+		report := agent.RunCheck(ctx, url, "")
 		printCheck(report)
 		if !report.Coordinator.OK || !report.Python.OK || !report.Scimesh.OK {
 			os.Exit(1)

@@ -225,6 +225,10 @@ The coordinator and worker agent are Go modules under `coordinator/` and `users/
 cd coordinator && make coordinator agent && go test ./...
 ```
 
+On headless servers (no desktop environment), RDKit needs a few X11
+libraries that desktops already ship: `sudo apt-get install -y libxrender1
+libxext6 libxcursor1 libxfixes3 libxi6 libxrandr2`.
+
 `make check` runs the full gate: vet, lint, race tests, the PostgreSQL
 integration suite, and the two-worker end-to-end smoke script.
 

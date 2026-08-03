@@ -59,6 +59,13 @@ curl -fsSL https://raw.githubusercontent.com/emil28092005/SciMesh/main/install.s
 # the installer opens the local wizard at http://127.0.0.1:12700 automatically
 ```
 
+On a headless server (no desktop environment), RDKit needs a few X11
+libraries that desktops already ship — install them once with apt:
+
+```bash
+sudo apt-get install -y libxrender1 libxext6 libxcursor1 libxfixes3 libxi6 libxrandr2
+```
+
 Or configure by hand:
 
 ```bash

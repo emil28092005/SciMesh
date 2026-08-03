@@ -454,3 +454,28 @@ func TestSaveConfigPinsVenvRunnerWhenPresent(t *testing.T) {
 		t.Errorf("task runner = %v, want the venv python", config.TaskRunner)
 	}
 }
+
+func TestTestProbesTheVenvPythonAfterInstall(t *testing.T) {
+	sup := &fakeSup{}
+	server, base := newTestServer(t, sup)
+	// The runtime installer leaves a venv python; make it a stub that reports
+	// a fake scimesh version so the preflight goes green through the venv.
+	venvPython := filepath.Join(server.dir, "venv", "bin", "python")
+	_ = os.MkdirAll(filepath.Dir(venvPython), 0o755)
+	_ = os.WriteFile(venvPython, []byte("#!/bin/sh\nif [ \"$1\" = \"-c\" ]; then echo 9.9.9-test; exit 0; fi\nexit 0\n"), 0o755)
+
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, base+"/api/test", strings.NewReader(`{"coordinator_url":"http://127.0.0.1:1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var report agent.CheckReport
+	if err := json.NewDecoder(resp.Body).Decode(&report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.Scimesh.OK || report.Scimesh.Detail != "9.9.9-test" {
+		t.Errorf("scimesh check = %+v, want the venv interpreter reporting 9.9.9-test", report.Scimesh)
+	}
+}

@@ -411,7 +411,10 @@ func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "coordinator_url is required"})
 		return
 	}
-	report := agent.RunCheck(r.Context(), url)
+	// After the runtime installer created the venv, probe that interpreter:
+	// checking the bare system python3 would keep reporting scimesh as
+	// missing even though the worker would run with the venv.
+	report := agent.RunCheck(r.Context(), url, s.venvPython())
 	writeJSON(w, http.StatusOK, report)
 }
 
