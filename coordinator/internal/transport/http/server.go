@@ -132,6 +132,11 @@ func (s *Server) Handler(token string, uiToken ...string) http.Handler {
 	mux.HandleFunc("GET /health", s.handleHealth)
 	// Unauthenticated like /health, so a Prometheus scraper needs no credential.
 	mux.Handle("GET /metrics", s.metrics.Handler())
+	// Worker-key exchange is fronted by the coordinator when the userservice
+	// is embedded (serve mode): the key itself is the credential.
+	if s.userserviceURL != "" {
+		mux.HandleFunc("POST /worker-tokens/exchange", s.handleWorkerTokenExchangeProxy)
+	}
 
 	hasBasicAuth := len(uiToken) > 0 && uiToken[0] != ""
 	if s.uc.Dashboard != nil && (s.uiSessionMode() || hasBasicAuth) {

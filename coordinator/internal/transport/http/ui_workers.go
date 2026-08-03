@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/emil28092005/SciMesh/coordinator/internal/authctx"
+	"github.com/emil28092005/SciMesh/coordinator/internal/domain"
 	"github.com/emil28092005/SciMesh/coordinator/internal/usecase"
 )
 
@@ -115,4 +116,39 @@ func (s *Server) callUserserviceAuthedBody(ctx context.Context, method, path, be
 		return 0, nil, err
 	}
 	return resp.StatusCode, respBody, nil
+}
+
+// handleWorkerTokenExchangeProxy forwards a worker-key exchange to the
+// userservice. The key itself is the credential, so this route is public —
+// exactly like the userservice's own endpoint. In `serve` mode the embedded
+// userservice binds loopback only, so workers need the coordinator to front
+// the exchange for them.
+func (s *Server) handleWorkerTokenExchangeProxy(w http.ResponseWriter, r *http.Request) {
+	if s.userserviceURL == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		s.writeError(w, r, domain.ErrInvalidInput)
+		return
+	}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, s.userserviceURL+"/worker-tokens/exchange", bytes.NewReader(body)) //nolint:gosec // G704: path is fixed, host is config
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := s.httpClient.Do(req) //nolint:gosec // G704: see above
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		s.writeError(w, r, err)
+		return
+	}
+	proxyJSON(w, resp.StatusCode, respBody)
 }
