@@ -300,6 +300,25 @@ type statusView struct {
 	TokenSet      bool   `json:"token_set"`
 }
 
+// ensureVenvTaskRunner rewrites the saved config so its task runner uses the
+// managed venv python when one exists and the config does not already pin one.
+func (s *Server) ensureVenvTaskRunner() {
+	raw, err := os.ReadFile(s.cfgPath)
+	if err != nil {
+		return
+	}
+	var file agent.ConfigFile
+	if json.Unmarshal(raw, &file) != nil || len(file.TaskRunner) > 0 {
+		return
+	}
+	if venv := s.venvPython(); venv != "" {
+		file.TaskRunner = []string{venv, "-m", "scimesh.worker.task"}
+		if payload, err := json.MarshalIndent(file, "", "  "); err == nil {
+			_ = os.WriteFile(s.cfgPath, append(payload, '\n'), 0o600)
+		}
+	}
+}
+
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	view := statusView{ConfigPath: s.cfgPath, LogPath: s.logPath, Running: s.sup.Alive(), Pid: s.sup.Pid()}
 	if raw, err := os.ReadFile(s.cfgPath); err == nil {
@@ -365,6 +384,14 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	if file.CPUCount < 1 {
 		file.CPUCount = 1
 	}
+	// The wizard UI bakes the venv python into the runner after an install;
+	// an API-driven or scripted flow may not, so the server guarantees it:
+	// workloads execute through scimesh's task runner, which lives in the venv.
+	if len(file.TaskRunner) == 0 {
+		if venv := s.venvPython(); venv != "" {
+			file.TaskRunner = []string{venv, "-m", "scimesh.worker.task"}
+		}
+	}
 	if err := agent.SaveConfigFile(s.cfgPath, file); err != nil {
 		s.log.Error("save wizard config", "err", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "could not write the config file"})
@@ -393,6 +420,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no configuration saved yet"})
 		return
 	}
+	s.ensureVenvTaskRunner()
 	pid, err := s.sup.Start(s.cfgPath, s.logPath)
 	if err != nil {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
@@ -512,6 +540,20 @@ func (s *Server) handleInstallRuntime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, installRuntimeResponse{OK: true, Python: venvPython, Installed: true})
+}
+
+// venvPython returns the managed venv python when the runtime installer has
+// created one, so the task runner can be pointed at it automatically.
+func (s *Server) venvPython() string {
+	for _, candidate := range []string{
+		filepath.Join(s.dir, "venv", "bin", "python"),
+		filepath.Join(s.dir, "venv", "Scripts", "python.exe"),
+	} {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
 }
 
 // installScimeshWithPip installs the package with the venv's own pip,

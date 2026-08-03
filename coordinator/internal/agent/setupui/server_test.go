@@ -409,3 +409,48 @@ func TestInstallRuntimeWheelDownloadFailureIsExplained(t *testing.T) {
 		t.Errorf("error = %v, want a SCIMESH_PIP_PACKAGE hint", data["error"])
 	}
 }
+
+func TestStartPinsTheVenvTaskRunner(t *testing.T) {
+	sup := &fakeSup{}
+	server, base := newTestServer(t, sup)
+	postJSON(t, base, "/api/config", map[string]any{
+		"coordinator_url": "http://coord:8080", "token": "t", "work_dir": ".",
+	})
+	// Simulate the runtime installer: create the venv python marker.
+	venvPython := filepath.Join(server.dir, "venv", "bin", "python")
+	_ = os.MkdirAll(filepath.Dir(venvPython), 0o755)
+	_ = os.WriteFile(venvPython, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+
+	rec, _ := postJSON(t, base, "/api/start", map[string]any{})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("start: got %d, want 200", rec.Code)
+	}
+	config, err := agent.LoadConfigFile(server.cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.TaskRunner) != 3 || config.TaskRunner[0] != venvPython || config.TaskRunner[1] != "-m" || config.TaskRunner[2] != "scimesh.worker.task" {
+		t.Errorf("task runner = %v, want the venv python runner", config.TaskRunner)
+	}
+}
+
+func TestSaveConfigPinsVenvRunnerWhenPresent(t *testing.T) {
+	server, base := newTestServer(t, &fakeSup{})
+	venvPython := filepath.Join(server.dir, "venv", "bin", "python")
+	_ = os.MkdirAll(filepath.Dir(venvPython), 0o755)
+	_ = os.WriteFile(venvPython, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+
+	rec, _ := postJSON(t, base, "/api/config", map[string]any{
+		"coordinator_url": "http://coord:8080", "token": "t", "work_dir": ".",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("config: got %d", rec.Code)
+	}
+	config, err := agent.LoadConfigFile(server.cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.TaskRunner) != 3 || config.TaskRunner[0] != venvPython {
+		t.Errorf("task runner = %v, want the venv python", config.TaskRunner)
+	}
+}
