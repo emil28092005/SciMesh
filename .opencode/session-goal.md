@@ -2,35 +2,50 @@
 
 возьми это себе как автономную задачу и доведи этот пайплайн до рабочего вручную состояния
 
-## Plan
-1. Выпустить v1.1.0-alpha.12 с фиксом версии визарда (agent.Version до dispatch setup).
-2. Поднять Docker-сеть с двумя контейнерами (ubuntu:24.04): координатор и отдельная машина воркера.
-3. В контейнере координатора — установка через `install.sh` как человек (SCIMESH_AUTO_START=0), затем `coordinator serve --addr 0.0.0.0:8080 --workers 0`.
-4. В контейнере воркера — установка `install.sh | bash -s worker`, затем `worker-agent setup` (headless), визард через API: config → test → install runtime (wheel из релиза + rdkit) → start.
-5. Проверить: воркер online в админке (admin-сессия через curl).
-6. Запустить реальный джоб: загрузить TSV, дождаться completion, скачать результат, проверить корректность.
-7. Финальный гейт: go tests + lint + pytest; COMPLETED в session-goal.md.
+## Ночная сессия — полный план (пользователь спит, 2026-08-03)
 
-## Progress (дополнение: финальная доводка на машине пользователя)
-- Обнаружен и исправлен баг: кнопка Install в шаблоне визарда не применялась (python replace молча не сработал) — кнопка добавлена по-настоящему, проверена в браузере.
-- Обнаружен баг: DownloadWheel/handleInstallRuntime не создавали ~/.scimesh-worker (конфиг сохраняется на шаге 4) → "open ...: no such file or directory" — исправлено MkdirAll в обоих местах; выпущен v1.1.0-alpha.15.
-- На машине пользователя всё доведено до конца: визард alpha.15 с кнопкой Install, правильный токен (мой предыдущий токен в конфиге был неверным — видим только префикс), venv установлен из wheel релиза, preflight зелёный через venv, воркер emil-pc online в админке.
-- Почищены 15 мусорных пустых воркеров из БД.
+### 1. Баги (реальные, найденные в проде)
+- [ ] **Пустое имя воркера**: регистрация принимает `name=""` (в БД пользователя было 15 таких). Фикс: валидация в `domain.NewWorker` (TrimSpace != "") + регрессионный тест. Частично начат — в `worker_test.go` сломан тест (`fixedTime` vs `testNow`), доделать.
+- [ ] **`worker-agent --check` не видит venv**: проверяет только системный python3; после Install воркер работает через `~/.scimesh-worker/venv`. Выровнять с визардом (пробовать venv, если он есть).
 
-## Progress
-- ✅ Релиз v1.1.0-alpha.12 (фикс agent.Version до dispatch setup — визард мог скачать wheel своей версии).
-- ✅ Docker E2E на ubuntu:24.04, два контейнера в сети scimesh-e2e-net.
-- ✅ Координатор: install.sh (SCIMESH_AUTO_START=0) → `coordinator serve --addr 0.0.0.0:8080 --workers 0`; admin-пароль и worker.token получены.
-- ✅ Воркер: install.sh -s worker → визард headless: /api/config (URL+token+work_dir+name) → /api/runtime/install (скачал wheel scimesh-1.1.0aXX из релиза + rdkit, ~20s) → /api/start; task_runner автоматически указан на venv python.
-- ✅ Воркер online в /ui/admin/api/workers со всеми 4 capabilities.
-- ✅ Джоб similarity-search: TSV 25 молекул, 3 шарда → completed за ~10s → результат **байт-в-байт идентичен** локальному эталону (`scimesh similarity-search`).
-- Найденные и исправленные в ходе E2E баги (все выпущены):
-  - alpha.12: agent.Version не ставился до ветки setup → 409 при install;
-  - alpha.13: визард не подставлял venv python в task_runner (падало `python not found`) — теперь гарантируется на сервере (save + start);
-  - alpha.14: preflight /api/test проверял системный python3 вместо venv — теперь проверяет venv;
-  - задокументированы X11-библиотеки RDKit для headless (libxrender1 и др.).
-- ✅ Финальный гейт: go test -race ./... зелёный, golangci-lint 0 issues, pytest 208 passed.
-- ✅ Контейнеры удалены.
+### 2. Визуальный долг — рестайлинг старых страниц в дизайн-систему админки (#0b0e13, карточки, pill-статусы, кнопки)
+- [ ] `new-job.html` (форма запуска вычислений, UIElement-поля сохранить)
+- [ ] `job.html` (детали джоба: шарды, артефакты, прогресс, JS-логику сохранить)
+- [ ] `workloads.html`
+- [ ] `add-worker.html`
+- [ ] `profile.html`
+- [ ] Браузерная проверка каждой страницы (playwright).
 
-## Completion
-COMPLETED — пайплайн «install как человек → coordinator serve → worker-agent setup → воркер регистрируется → реальный джоб завершается с байт-в-байт корректным результатом» доведён до рабочего состояния и проверен на релизных артефактах v1.1.0-alpha.14.
+### 3. Технический долг (паритет движков, обещанный планом)
+- [ ] **Postgres integration-тесты для admin-методов**: `SetTrust`, `WorkloadSettings` (Get/List/Set), `ListJobsPaginated`, метрики (`JobCountsByDay`, `TaskStats`, `ArtifactSizeByKind`, `DatabaseSizeBytes`) — сейчас покрыт только sqlite. (build tag integration, docker postgres как в CI.)
+
+### 4. Фичи из плана (v2-задел)
+- [ ] **Статистика воркера в визарде**: статусная страница — claimed/completed/failed/heartbeat, парсинг из `worker.log` (обещано в docs/ui-admin-worker-plan.md §4).
+- [ ] **Admin: prune артефактов** (danger zone): удаление артефактов completed-джобов старше N дней (строки + blob-файлы), освобождает место; кнопка в Settings с подтверждением.
+- [ ] **Admin: удаление offline-воркеров** (устаревшие, как 15 мусорных) — кнопкой в Workers вместо SQL.
+
+### 5. Гигиена
+- [ ] **`pyproject.toml` версия 0.1.0 → setuptools_scm** (версия из git-тегов), убрать sed-костыль из release.yml; локальный `pip install -e .` покажет правильную версию.
+- [ ] Синхронизация STATUS.md / README с фактическим состоянием (админка, визард, wheel, авто-открытие, restyle).
+
+### 6. Верификация и релиз
+- [ ] Полный гейт: `go test -race ./...`, golangci-lint `--build-tags=integration`, pytest.
+- [ ] Браузерные проверки: админка (все секции), визард (install+start), рестайленные страницы.
+- [ ] E2E quorum-флоу (untrusted воркер через worker key → джоб требует quorum) в Docker, если останется время.
+- [ ] Релиз `v1.1.0-alpha.16` (бинарники + wheel), проверка ассетов.
+- [ ] Обновить этот файл: прогресс по пунктам, COMPLETED в конце.
+
+## Plan (предыдущая задача — выполнена)
+1–7. Docker E2E пайплайна «install как человек → serve → визард → воркер → джоб» — выполнено, см. Progress ниже.
+
+## Progress (ночная сессия)
+- (начало) Пустое имя воркера: валидация добавлена в `domain.NewWorker`, добавлен `TestNewWorkerRejectsBlankName`; в `worker_test.go` сломан тест из-за `fixedTime` vs `testNow` — на паузе, продолжить.
+
+## Progress (прошлая работа — выполнено)
+- ✅ Релизы alpha.12–15: фикс версии визарда, venv task_runner, preflight через venv, MkdirAll при скачивании wheel, кнопка Install в шаблоне.
+- ✅ Docker E2E: координатор+воркер контейнеры, установка install.sh, визард (config→install→start), воркер online, джоб completed, результат байт-в-байт = локальному эталону.
+- ✅ На машине пользователя: визард alpha.15, правильный токен, venv из wheel, воркер emil-pc online, 15 пустых воркеров вычищены из БД.
+- ✅ Гейт: race + lint + pytest 208.
+
+## Completion (предыдущая задача)
+COMPLETED — пайплайн доведён до рабочего состояния и проверен на релизных артефактах v1.1.0-alpha.14.
