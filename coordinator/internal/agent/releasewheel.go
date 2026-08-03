@@ -38,6 +38,9 @@ func NormalizePEP440(version string) string {
 // with a generous timeout: wheels can be several MB.
 func DownloadWheel(ctx context.Context, url, dir string) (string, error) {
 	target := filepath.Join(dir, wheelNameFromURL(url))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("download wheel: %w", err)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)

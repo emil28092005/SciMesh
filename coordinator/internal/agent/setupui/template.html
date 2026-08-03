@@ -249,8 +249,8 @@ $('b4').onclick=async()=>{
   showStatus();
 };
 
-const checkRow=(name,ok,detail,ms)=>
-  '<div class="check-row"><div class="check-ic '+(ok===null?'check-wait':ok?'check-ok':'check-bad')+'"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round">'+(ok===null?'<path d="M12 7v5l3 3"/>':ok?'<path d="M4 12l5 5L20 6"/>':'<path d="M6 6l12 12M18 6L6 18"/>')+'</svg></div><div><b>'+name+'</b><span>'+(detail||'')+'</span></div>'+(ms?'<span class="ms">'+ms+' ms</span>':'')+'</div>';
+const checkRow=(name,ok,detail,ms,action)=>
+  '<div class="check-row"><div class="check-ic '+(ok===null?'check-wait':ok?'check-ok':'check-bad')+'"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round">'+(ok===null?'<path d="M12 7v5l3 3"/>':ok?'<path d="M4 12l5 5L20 6"/>':'<path d="M6 6l12 12M18 6L6 18"/>')+'</svg></div><div><b>'+name+'</b><span>'+(detail||'')+'</span></div>'+(ms?'<span class="ms">'+ms+' ms</span>':'')+(action?action:'')+'</div>';
 async function runChecks(){
   const box=$('checks');
   box.innerHTML=checkRow('Coordinator reachable','',null,null)+checkRow('Python 3','',null,null)+checkRow('scimesh package','',null,null);
@@ -260,8 +260,21 @@ async function runChecks(){
   const items=[r.data.coordinator,r.data.python,r.data.scimesh];
   for(const item of items){
     if(item&&!item.ok)checksOk=false;
-    box.insertAdjacentHTML('beforeend',checkRow(item?item.name:'?',item?item.ok:null,item?item.detail:'',item?item.latency_ms:null));
+    let action='';
+    if(item&&item.name==='scimesh'&&!item.ok){
+      action='<div style="margin-left:auto;display:flex;gap:8px;align-items:center"><input id="in-pkg" placeholder="wheel path / checkout / index URL (optional)" style="width:230px;padding:7px 10px;font-size:12px"><button class="btn btn-primary" style="padding:6px 12px;font-size:12px" id="install-scimesh">Install</button></div>';
+    }
+    box.insertAdjacentHTML('beforeend',checkRow(item?item.name:'?',item?item.ok:null,item?item.detail:'',item?item.latency_ms:null,action));
   }
+  const btn=$('install-scimesh');
+  if(btn)btn.onclick=async()=>{
+    const src=$('in-pkg')?$('in-pkg').value.trim():'';
+    btn.disabled=true;btn.textContent='Installing…';
+    const ir=await postJSON('/api/runtime/install',{scimesh_package:src});
+    if(ir.status!==200){err('Could not install scimesh: '+(ir.data.error||'unknown error'));btn.disabled=false;btn.textContent='Install';return}
+    state.venvPython=ir.data.python;
+    runChecks();
+  };
   $('b3').disabled=!checksOk;
 }
 

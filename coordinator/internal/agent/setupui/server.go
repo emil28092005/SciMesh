@@ -479,6 +479,12 @@ type installRuntimeResponse struct {
 // step. The venv python path is returned for the wizard to bake into the
 // task runner.
 func (s *Server) handleInstallRuntime(w http.ResponseWriter, r *http.Request) {
+	// The wizard may run the install before any config was saved, so the
+	// worker directory (venv, wheel) may not exist yet.
+	if err := os.MkdirAll(s.dir, 0o700); err != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "could not create the worker directory"})
+		return
+	}
 	var req installRuntimeRequest
 	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body"})
