@@ -218,7 +218,11 @@ func openBrowser(url string) {
 func wizardAlreadyRunning(port int) string {
 	url := fmt.Sprintf("http://127.0.0.1:%d/", port)
 	client := http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(url)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return ""
 	}
