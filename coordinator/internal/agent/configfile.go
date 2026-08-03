@@ -112,7 +112,7 @@ func (f *ConfigFile) Config() (*Config, error) {
 		config.TaskRunner = f.TaskRunner
 	}
 	if len(config.TaskRunner) == 0 {
-		config.TaskRunner = []string{"python", "-m", "scimesh.worker.task"}
+		config.TaskRunner = []string{"python", "-I", "-m", "scimesh.worker.task"}
 	}
 	config.PollInterval = 2 * time.Second
 	config.RequestTimeout = 30 * time.Second

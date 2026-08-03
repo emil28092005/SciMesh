@@ -112,7 +112,7 @@ func LoadConfig() (*Config, error) {
 		return nil, err
 	}
 	if len(runner) == 0 {
-		runner = []string{"python", "-m", "scimesh.worker.task"}
+		runner = []string{"python", "-I", "-m", "scimesh.worker.task"}
 	}
 	maxTasks := 0
 	if raw := os.Getenv("MAX_TASKS"); raw != "" {

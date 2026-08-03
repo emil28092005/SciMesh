@@ -323,7 +323,7 @@ func (s *Server) ensureVenvTaskRunner() {
 		return
 	}
 	if venv := s.venvPython(); venv != "" {
-		file.TaskRunner = []string{venv, "-m", "scimesh.worker.task"}
+		file.TaskRunner = []string{venv, "-I", "-m", "scimesh.worker.task"}
 		if payload, err := json.MarshalIndent(file, "", "  "); err == nil {
 			_ = os.WriteFile(s.cfgPath, append(payload, '\n'), 0o600)
 		}
@@ -428,7 +428,7 @@ func (s *Server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	// workloads execute through scimesh's task runner, which lives in the venv.
 	if len(file.TaskRunner) == 0 {
 		if venv := s.venvPython(); venv != "" {
-			file.TaskRunner = []string{venv, "-m", "scimesh.worker.task"}
+			file.TaskRunner = []string{venv, "-I", "-m", "scimesh.worker.task"}
 		}
 	}
 	if err := agent.SaveConfigFile(s.cfgPath, file); err != nil {

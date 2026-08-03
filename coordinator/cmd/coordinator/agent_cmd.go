@@ -45,7 +45,7 @@ func runAgent(args []string) error {
 		return fmt.Errorf("--coordinator-url, --token, and --work-dir are required")
 	}
 	if *taskRunner == "" {
-		*taskRunner = "python -m scimesh.worker.task"
+		*taskRunner = "python -I -m scimesh.worker.task"
 	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))

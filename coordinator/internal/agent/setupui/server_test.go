@@ -429,8 +429,8 @@ func TestStartPinsTheVenvTaskRunner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(config.TaskRunner) != 3 || config.TaskRunner[0] != venvPython || config.TaskRunner[1] != "-m" || config.TaskRunner[2] != "scimesh.worker.task" {
-		t.Errorf("task runner = %v, want the venv python runner", config.TaskRunner)
+	if len(config.TaskRunner) != 4 || config.TaskRunner[0] != venvPython || config.TaskRunner[1] != "-I" || config.TaskRunner[2] != "-m" || config.TaskRunner[3] != "scimesh.worker.task" {
+		t.Errorf("task runner = %v, want the venv python runner with -I", config.TaskRunner)
 	}
 }
 
@@ -450,8 +450,8 @@ func TestSaveConfigPinsVenvRunnerWhenPresent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(config.TaskRunner) != 3 || config.TaskRunner[0] != venvPython {
-		t.Errorf("task runner = %v, want the venv python", config.TaskRunner)
+	if len(config.TaskRunner) != 4 || config.TaskRunner[0] != venvPython || config.TaskRunner[1] != "-I" {
+		t.Errorf("task runner = %v, want the venv python with -I", config.TaskRunner)
 	}
 }
 
@@ -462,7 +462,7 @@ func TestTestProbesTheVenvPythonAfterInstall(t *testing.T) {
 	// a fake scimesh version so the preflight goes green through the venv.
 	venvPython := filepath.Join(server.dir, "venv", "bin", "python")
 	_ = os.MkdirAll(filepath.Dir(venvPython), 0o755)
-	_ = os.WriteFile(venvPython, []byte("#!/bin/sh\nif [ \"$1\" = \"-c\" ]; then echo 9.9.9-test; exit 0; fi\nexit 0\n"), 0o755)
+	_ = os.WriteFile(venvPython, []byte("#!/bin/sh\nfor a in \"$@\"; do if [ \"$a\" = \"-c\" ]; then echo 9.9.9-test; exit 0; fi; done\nexit 0\n"), 0o755)
 
 	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, base+"/api/test", strings.NewReader(`{"coordinator_url":"http://127.0.0.1:1"}`))
 	req.Header.Set("Content-Type", "application/json")

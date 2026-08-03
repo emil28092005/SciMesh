@@ -236,9 +236,9 @@ func stopAgents(agents []*exec.Cmd) {
 // system `python`.
 func defaultTaskRunner(venvPython string) string {
 	if runtimeStatus(venvPython) {
-		return venvPython + " -m scimesh.worker.task"
+		return venvPython + " -I -m scimesh.worker.task"
 	}
-	return "python -m scimesh.worker.task"
+	return "python -I -m scimesh.worker.task"
 }
 
 // ensureRuntime creates the managed venv and installs scimesh into it, unless

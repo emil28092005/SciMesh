@@ -232,7 +232,7 @@ function draftConfig(){
     cpu_count:state.cpu==='custom'?parseInt($('in-cpu').value||'1',10):0,
     concurrency:parseInt($('in-conc').value||'1',10)
   };
-  if(state.venvPython)cfg.task_runner=[state.venvPython,'-m','scimesh.worker.task'];
+  if(state.venvPython)cfg.task_runner=[state.venvPython,'-I','-m','scimesh.worker.task'];
   return cfg;
 }
 
