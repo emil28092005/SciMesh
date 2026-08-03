@@ -497,3 +497,34 @@ time=6 level=WARN msg="agent cycle failed" error="boom"
 		t.Errorf("stats = %+v, want registered claimed=2 completed=1 failed=1", stats)
 	}
 }
+
+func writeVenvStub(t *testing.T, server *Server, version string) string {
+	t.Helper()
+	venvPython := filepath.Join(server.dir, "venv", "bin", "python")
+	_ = os.MkdirAll(filepath.Dir(venvPython), 0o755)
+	_ = os.WriteFile(venvPython, []byte("#!/bin/sh\nif [ \"$1\" = \"-c\" ]; then echo "+version+"; exit 0; fi\nexit 0\n"), 0o755)
+	return venvPython
+}
+
+func testCheckScimeshVersion(t *testing.T, installed, binary string, wantOK bool, wantDetail string) {
+	t.Helper()
+	old := agent.Version
+	agent.Version = binary
+	t.Cleanup(func() { agent.Version = old })
+	item := ensureMatchingScimeshVersion(agent.CheckItem{Name: "scimesh", OK: true, Detail: installed})
+	if item.OK != wantOK {
+		t.Errorf("installed=%s binary=%s: ok=%v, want %v (%s)", installed, binary, item.OK, wantOK, item.Detail)
+	}
+	if wantDetail != "" && !strings.Contains(item.Detail, wantDetail) {
+		t.Errorf("detail = %q, want it to contain %q", item.Detail, wantDetail)
+	}
+}
+
+func TestEnsureMatchingScimeshVersion(t *testing.T) {
+	testCheckScimeshVersion(t, "1.1.0a20", "1.1.0-alpha.20", true, "")
+	testCheckScimeshVersion(t, "1.1.0a17", "1.1.0-alpha.20", false, "press Install to upgrade")
+	testCheckScimeshVersion(t, "1.1.0a16.dev7+gea0fb8c59.d20260803", "1.1.0-alpha.20", false, "needs 1.1.0a20")
+	// Dev builds and unknown versions never block.
+	testCheckScimeshVersion(t, "anything", "dev", true, "")
+	testCheckScimeshVersion(t, "1.1.0a20", "", true, "")
+}

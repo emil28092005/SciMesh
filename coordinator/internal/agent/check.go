@@ -88,8 +88,10 @@ func CheckEnvironment(ctx context.Context) CheckReport {
 // execute with.
 func CheckEnvironmentWithPython(ctx context.Context, python string) CheckReport {
 	report := CheckReport{Agent: Version, Python: CheckItem{Name: "python", OK: true, Detail: python}}
+	// The version comes from importlib.metadata, so the wizard can compare the
+	// installed package with the binary version and offer an upgrade.
 	//nolint:gosec // G204: python is a resolved interpreter path, the argument list is constant
-	cmd := exec.CommandContext(ctx, python, "-c", "import scimesh; print(scimesh.__version__ if hasattr(scimesh, '__version__') else 'installed')")
+	cmd := exec.CommandContext(ctx, python, "-c", "import importlib.metadata as m; print(m.version('scimesh'))")
 	out, err := cmd.Output()
 	if err != nil {
 		// The worker executes workloads by spawning scimesh's task runner, so

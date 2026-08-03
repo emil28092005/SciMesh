@@ -454,6 +454,9 @@ func (s *Server) handleTest(w http.ResponseWriter, r *http.Request) {
 	// checking the bare system python3 would keep reporting scimesh as
 	// missing even though the worker would run with the venv.
 	report := agent.RunCheck(r.Context(), url, s.venvPython(), req.Token, req.WorkerKey, req.UserserviceURL)
+	if report.Scimesh.OK {
+		report.Scimesh = ensureMatchingScimeshVersion(report.Scimesh)
+	}
 	writeJSON(w, http.StatusOK, report)
 }
 
@@ -627,4 +630,27 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// ensureMatchingScimeshVersion flips a green scimesh check to a stale one when
+// the installed package does not match the worker-agent's own version: a
+// version-locked wheel is the only supported runtime, and a mismatch means the
+// workload catalog the worker advertises is not what it executes. The wizard
+// UI then offers the Install button again. Dev builds have no release wheel,
+// so they skip the comparison.
+func ensureMatchingScimeshVersion(item agent.CheckItem) agent.CheckItem {
+	if agent.Version == "" || agent.Version == "dev" {
+		return item
+	}
+	want := agent.NormalizePEP440(agent.Version)
+	got := strings.TrimSpace(item.Detail)
+	if got == "" || got == want {
+		return item
+	}
+	item.OK = false
+	item.Detail = fmt.Sprintf(
+		"installed scimesh %s, but this worker-agent (%s) needs %s — press Install to upgrade",
+		got, agent.Version, want,
+	)
+	return item
 }
