@@ -27,6 +27,10 @@ import (
 var version = "dev"
 
 func main() {
+	// The wizard and --check need the injected build version too (they resolve
+	// the release wheel matching this binary), so it is set before dispatch.
+	agent.Version = version
+
 	if len(os.Args) > 1 && os.Args[1] == "setup" {
 		os.Exit(runSetup(os.Args[2:]))
 	}
@@ -37,8 +41,6 @@ func main() {
 	checkMode := fs.Bool("check", false, "run the preflight check (coordinator + local runtime) and exit 0/1")
 	checkURL := fs.String("coordinator-url", "", "coordinator URL to probe in --check mode")
 	_ = fs.Parse(os.Args[1:])
-
-	agent.Version = version
 
 	if *showVersion {
 		fmt.Println("worker-agent " + version)
