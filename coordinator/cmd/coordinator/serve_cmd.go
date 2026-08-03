@@ -369,10 +369,3 @@ func serveURLs(addr, publicURL string) (agentURL, resolvedPublic string) {
 		return agentURL, "http://" + addr
 	}
 }
-
-// browserHost normalises the URL used to open the UI in the browser: the
-// loopback address is what the browser on the same host must dial, and a
-// wildcard host cannot be dialled at all.
-func browserHost(agentURL string) string {
-	return agentURL
-}
