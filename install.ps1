@@ -8,6 +8,11 @@
 #   coordinator serve --open
 $ErrorActionPreference = "Stop"
 
+# Public half of the Ed25519 key that signs SHA256SUMS.txt in releases (see
+# install.sh). Verification needs the openssl binary; without it the installer
+# falls back to checksum verification with a warning.
+$ScimeshSigningPubKey = "MCowBQYDK2VwAyEAZfOXciD5AIvC6/1YXjOp4KjA0DDNWKZ0nQ0dx76XUUw="
+
 $Repo = "emil28092005/SciMesh"
 $Component = if ($env:SCIMESH_COMPONENT) { $env:SCIMESH_COMPONENT } else { "coordinator" }
 $Version = if ($env:SCIMESH_VERSION) { $env:SCIMESH_VERSION } else { "latest" }
@@ -63,19 +68,51 @@ Invoke-WebRequest -Uri $Url -OutFile "$Target.tmp"
 if ($env:SCIMESH_SKIP_VERIFY -ne "1") {
     try {
         $SumUrl = "https://github.com/$Repo/releases/download/$Version/SHA256SUMS.txt"
-        $Sums = (Invoke-WebRequest -Uri $SumUrl).Content
+
+        # Ed25519 signature over the checksum file, when openssl is present.
+        # Both files are fetched with -OutFile so their bytes match the
+        # release exactly (string pipelines would rewrite line endings).
+        $openssl = Get-Command openssl -ErrorAction SilentlyContinue
+        if ($env:SCIMESH_SKIP_SIGNATURE -ne "1" -and $openssl) {
+            $PubFile = Join-Path $env:TEMP "scimesh-signing-pub.pem"
+            $SumFile = Join-Path $env:TEMP ("scimesh-sums-" + [guid]::NewGuid().ToString("N") + ".txt")
+            $SigFile = "$SumFile.sig"
+            Set-Content -Path $PubFile -Value @("-----BEGIN PUBLIC KEY-----", $ScimeshSigningPubKey, "-----END PUBLIC KEY-----")
+            try {
+                Invoke-WebRequest -Uri $SumUrl -OutFile $SumFile
+                Invoke-WebRequest -Uri "$SumUrl.sig" -OutFile $SigFile
+                & $openssl.Source pkeyutl -verify -pubin -inkey $PubFile -sigfile $SigFile -in $SumFile 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "Signature verified (Ed25519)"
+                } else {
+                    Remove-Item -Force "$Target.tmp"
+                    throw "the release signature does not verify; the download channel may be tampered with"
+                }
+            } catch {
+                Remove-Item -Force "$Target.tmp"
+                throw "signature verification failed: $($_.Exception.Message)"
+            } finally {
+                Remove-Item -Force $PubFile, $SumFile, $SigFile -ErrorAction SilentlyContinue
+            }
+        } elseif ($env:SCIMESH_SKIP_SIGNATURE -ne "1") {
+            Write-Host "WARNING: openssl not found; falling back to checksum verification only"
+        }
+
         $BinaryName = Split-Path $Url -Leaf
-        $Line = ($Sums -split "`n") | Where-Object { $_.Trim().EndsWith("  " + $BinaryName) } | Select-Object -First 1
+        $SumFileCheck = Join-Path $env:TEMP ("scimesh-sums-check-" + [guid]::NewGuid().ToString("N") + ".txt")
+        Invoke-WebRequest -Uri $SumUrl -OutFile $SumFileCheck
+        $Line = (Get-Content $SumFileCheck -Raw -ErrorAction SilentlyContinue -split "`n") | Where-Object { $_.Trim().EndsWith("  " + $BinaryName) } | Select-Object -First 1
         if ($Line) {
             $Expected = ($Line -split "\s+")[0]
             $Actual = (Get-FileHash -Algorithm SHA256 -Path "$Target.tmp").Hash.ToLower()
             if ($Actual -ne $Expected.ToLower()) {
-                Remove-Item -Force "$Target.tmp"
+                Remove-Item -Force "$Target.tmp", $SumFileCheck
                 throw "checksum mismatch for $Binary (got $Actual, want $Expected)"
             }
             Write-Host "Checksum verified ($($Expected.Substring(0,12))...)"
         } else {
             Write-Host "WARNING: no checksum entry for $Binary; skipping verification"
+            Remove-Item -Force $SumFileCheck -ErrorAction SilentlyContinue
         }
     } catch {
         Write-Host "WARNING: could not verify checksum ($($_.Exception.Message)); continuing"

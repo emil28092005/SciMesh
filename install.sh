@@ -14,6 +14,13 @@
 set -eu
 
 REPO="emil28092005/SciMesh"
+
+# Public half of the Ed25519 key that signs SHA256SUMS.txt in releases. The
+# private half lives in the repository secret SCIMESH_SIGNING_KEY. Verification
+# uses openssl when available; without openssl the installer falls back to the
+# checksum-only check with a warning.
+SCIMESH_SIGNING_PUBKEY='MCowBQYDK2VwAyEAZfOXciD5AIvC6/1YXjOp4KjA0DDNWKZ0nQ0dx76XUUw='
+
 COMPONENT="${1:-coordinator}"
 VERSION="${SCIMESH_VERSION:-latest}"
 INSTALL_DIR="${SCIMESH_INSTALL_DIR:-$HOME/.local/bin}"
@@ -68,7 +75,24 @@ curl -fsSL -o "$TARGET.tmp" "$URL"
 if [ "${SCIMESH_SKIP_VERIFY:-0}" != "1" ]; then
   if SUMFILE=$(mktemp) && curl -fsSL -o "$SUMFILE" "https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.txt"; then
     EXPECTED=$(awk '$2 == "'"$(basename "$URL")"'" {print $1}' "$SUMFILE" 2>/dev/null | head -1)
-    rm -f "$SUMFILE"
+    SIGFILE="$SUMFILE.sig"
+    if [ "${SCIMESH_SKIP_SIGNATURE:-0}" != "1" ] && command -v openssl >/dev/null 2>&1 \
+        && curl -fsSL -o "$SIGFILE" "https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.txt.sig" 2>/dev/null; then
+      PUBKEY_FILE=$(mktemp)
+      printf '%s\n' '-----BEGIN PUBLIC KEY-----' "$SCIMESH_SIGNING_PUBKEY" '-----END PUBLIC KEY-----' > "$PUBKEY_FILE"
+      if openssl pkeyutl -verify -pubin -inkey "$PUBKEY_FILE" -sigfile "$SIGFILE" -in "$SUMFILE" >/dev/null 2>&1; then
+        echo "Signature verified (Ed25519)"
+      else
+        rm -f "$PUBKEY_FILE" "$SIGFILE" "$SUMFILE" "$TARGET.tmp"
+        echo "ERROR: the release signature does not verify; the download channel may be tampered with." >&2
+        echo "Retry later, or bypass with SCIMESH_SKIP_SIGNATURE=1." >&2
+        exit 1
+      fi
+      rm -f "$PUBKEY_FILE"
+    elif [ "${SCIMESH_SKIP_SIGNATURE:-0}" != "1" ] && ! command -v openssl >/dev/null 2>&1; then
+      echo "WARNING: openssl not found; falling back to checksum verification only"
+    fi
+    rm -f "$SUMFILE" "$SIGFILE"
     if [ -n "$EXPECTED" ]; then
       ACTUAL=$(sha256sum "$TARGET.tmp" | awk '{print $1}')
       if [ "$ACTUAL" != "$EXPECTED" ]; then

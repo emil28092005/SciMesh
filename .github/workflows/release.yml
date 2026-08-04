@@ -104,6 +104,20 @@ jobs:
         working-directory: artifacts
         run: sha256sum * > SHA256SUMS.txt
 
+      - name: sign the checksums (Ed25519)
+        env:
+          KEY: ${{ secrets.SCIMESH_SIGNING_KEY }}
+        working-directory: artifacts
+        run: |
+          if [ -n "$KEY" ]; then
+            printf '%s\n' "$KEY" > /tmp/scimesh-sign-key.pem
+            openssl pkeyutl -sign -inkey /tmp/scimesh-sign-key.pem \
+              -in SHA256SUMS.txt -out SHA256SUMS.txt.sig
+            echo "signed SHA256SUMS.txt"
+          else
+            echo "SCIMESH_SIGNING_KEY is not set; releasing without a signature"
+          fi
+
       - uses: softprops/action-gh-release@v2
         with:
           files: |
