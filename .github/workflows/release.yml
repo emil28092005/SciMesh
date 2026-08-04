@@ -111,8 +111,8 @@ jobs:
         run: |
           if [ -n "$KEY" ]; then
             printf '%s\n' "$KEY" > /tmp/scimesh-sign-key.pem
-            openssl pkeyutl -sign -inkey /tmp/scimesh-sign-key.pem \
-              -in SHA256SUMS.txt -out SHA256SUMS.txt.sig
+            openssl dgst -sign /tmp/scimesh-sign-key.pem \
+              -out SHA256SUMS.txt.sig SHA256SUMS.txt
             echo "signed SHA256SUMS.txt"
           else
             echo "SCIMESH_SIGNING_KEY is not set; releasing without a signature"

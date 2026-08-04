@@ -81,7 +81,7 @@ if ($env:SCIMESH_SKIP_VERIFY -ne "1") {
             try {
                 Invoke-WebRequest -Uri $SumUrl -OutFile $SumFile
                 Invoke-WebRequest -Uri "$SumUrl.sig" -OutFile $SigFile
-                & $openssl.Source pkeyutl -verify -pubin -inkey $PubFile -sigfile $SigFile -in $SumFile 2>&1 | Out-Null
+                & $openssl.Source dgst -verify $PubFile -signature $SigFile $SumFile 2>&1 | Out-Null
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host "Signature verified (Ed25519)"
                 } else {

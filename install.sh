@@ -80,7 +80,7 @@ if [ "${SCIMESH_SKIP_VERIFY:-0}" != "1" ]; then
         && curl -fsSL -o "$SIGFILE" "https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.txt.sig" 2>/dev/null; then
       PUBKEY_FILE=$(mktemp)
       printf '%s\n' '-----BEGIN PUBLIC KEY-----' "$SCIMESH_SIGNING_PUBKEY" '-----END PUBLIC KEY-----' > "$PUBKEY_FILE"
-      if openssl pkeyutl -verify -pubin -inkey "$PUBKEY_FILE" -sigfile "$SIGFILE" -in "$SUMFILE" >/dev/null 2>&1; then
+      if openssl dgst -verify "$PUBKEY_FILE" -signature "$SIGFILE" "$SUMFILE" >/dev/null 2>&1; then
         echo "Signature verified (Ed25519)"
       else
         rm -f "$PUBKEY_FILE" "$SIGFILE" "$SUMFILE" "$TARGET.tmp"
