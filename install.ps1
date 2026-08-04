@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 # Public half of the Ed25519 key that signs SHA256SUMS.txt in releases (see
 # install.sh). Verification needs the openssl binary; without it the installer
 # falls back to checksum verification with a warning.
-$ScimeshSigningPubKey = "MCowBQYDK2VwAyEAZfOXciD5AIvC6/1YXjOp4KjA0DDNWKZ0nQ0dx76XUUw="
+$ScimeshSigningPubKey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA01rjmCme4W4zAgBwbO00LvwgnB1srlg0LbooRG8ej7iNxzOtJ8vjRFR2Cu7z7OKjoDo9/0GW3pvcwB+ndBB6yUwht33IRwdsnbioBI4M7LL+yC1ubi4fJ5bigOgZ9VsVqKdU3T9GYxmrfJF1UexiOg6HjoRLO3V4Id+3e/CiI5Sr8UMfJMXUfO3uiEs9RpstxpP1V/UU4YDicTF0QjkOESimEwwXBG4z3VcVmQtqkb7Q3413iekTdQ13093GKAKp0Q2ia1TpB2su6ELUhHAqhmK88cJ73Opy1uEVye0twov4BFTu5GkxgazNTuU//aYVWVpd/NAlD+VVSmpDsbfBBQIDAQAB"
 
 $Repo = "emil28092005/SciMesh"
 $Component = if ($env:SCIMESH_COMPONENT) { $env:SCIMESH_COMPONENT } else { "coordinator" }
@@ -81,9 +81,9 @@ if ($env:SCIMESH_SKIP_VERIFY -ne "1") {
             try {
                 Invoke-WebRequest -Uri $SumUrl -OutFile $SumFile
                 Invoke-WebRequest -Uri "$SumUrl.sig" -OutFile $SigFile
-                & $openssl.Source dgst -verify $PubFile -signature $SigFile $SumFile 2>&1 | Out-Null
+                & $openssl.Source dgst -sha256 -verify $PubFile -signature $SigFile $SumFile 2>&1 | Out-Null
                 if ($LASTEXITCODE -eq 0) {
-                    Write-Host "Signature verified (Ed25519)"
+                    Write-Host "Signature verified (RSA-2048/SHA-256)"
                 } else {
                     Remove-Item -Force "$Target.tmp"
                     throw "the release signature does not verify; the download channel may be tampered with"

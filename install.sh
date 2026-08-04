@@ -19,7 +19,7 @@ REPO="emil28092005/SciMesh"
 # private half lives in the repository secret SCIMESH_SIGNING_KEY. Verification
 # uses openssl when available; without openssl the installer falls back to the
 # checksum-only check with a warning.
-SCIMESH_SIGNING_PUBKEY='MCowBQYDK2VwAyEAZfOXciD5AIvC6/1YXjOp4KjA0DDNWKZ0nQ0dx76XUUw='
+SCIMESH_SIGNING_PUBKEY='MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA01rjmCme4W4zAgBwbO00LvwgnB1srlg0LbooRG8ej7iNxzOtJ8vjRFR2Cu7z7OKjoDo9/0GW3pvcwB+ndBB6yUwht33IRwdsnbioBI4M7LL+yC1ubi4fJ5bigOgZ9VsVqKdU3T9GYxmrfJF1UexiOg6HjoRLO3V4Id+3e/CiI5Sr8UMfJMXUfO3uiEs9RpstxpP1V/UU4YDicTF0QjkOESimEwwXBG4z3VcVmQtqkb7Q3413iekTdQ13093GKAKp0Q2ia1TpB2su6ELUhHAqhmK88cJ73Opy1uEVye0twov4BFTu5GkxgazNTuU//aYVWVpd/NAlD+VVSmpDsbfBBQIDAQAB'
 
 COMPONENT="${1:-coordinator}"
 VERSION="${SCIMESH_VERSION:-latest}"
@@ -80,8 +80,8 @@ if [ "${SCIMESH_SKIP_VERIFY:-0}" != "1" ]; then
         && curl -fsSL -o "$SIGFILE" "https://github.com/${REPO}/releases/download/${VERSION}/SHA256SUMS.txt.sig" 2>/dev/null; then
       PUBKEY_FILE=$(mktemp)
       printf '%s\n' '-----BEGIN PUBLIC KEY-----' "$SCIMESH_SIGNING_PUBKEY" '-----END PUBLIC KEY-----' > "$PUBKEY_FILE"
-      if openssl dgst -verify "$PUBKEY_FILE" -signature "$SIGFILE" "$SUMFILE" >/dev/null 2>&1; then
-        echo "Signature verified (Ed25519)"
+      if openssl dgst -sha256 -verify "$PUBKEY_FILE" -signature "$SIGFILE" "$SUMFILE" >/dev/null 2>&1; then
+        echo "Signature verified (RSA-2048/SHA-256)"
       else
         rm -f "$PUBKEY_FILE" "$SIGFILE" "$SUMFILE" "$TARGET.tmp"
         echo "ERROR: the release signature does not verify; the download channel may be tampered with." >&2
